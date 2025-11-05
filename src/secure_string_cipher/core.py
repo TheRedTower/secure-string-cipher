@@ -192,12 +192,26 @@ def encrypt_stream(r: StreamProcessor, w: StreamProcessor, passphrase: str) -> N
     Raises:
         CryptoError: If encryption fails
     """
+    from .timing_safe import add_timing_jitter
+    from .secure_memory import SecureBytes
+    
     try:
         salt = secrets.token_bytes(SALT_SIZE)
         nonce = secrets.token_bytes(NONCE_SIZE)
-        key = derive_key(passphrase, salt)
         
-        w.write(salt + nonce)
+        with SecureBytes(derive_key(passphrase, salt)) as secure_key:
+            w.write(salt + nonce)
+            encryptor = Cipher(
+                algorithms.AES(secure_key.data),
+                modes.GCM(nonce),
+                backend=default_backend()
+            ).encryptor()
+            
+            for chunk in iter(lambda: r.read(CHUNK_SIZE), b""):
+                w.write(encryptor.update(chunk))
+                add_timing_jitter()  # Add jitter between chunks
+                
+            w.write(encryptor.finalize() + encryptor.tag)
         encryptor = Cipher(
             algorithms.AES(key),
             modes.GCM(nonce),
