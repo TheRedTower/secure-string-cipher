@@ -12,7 +12,11 @@
   - Vault encrypted with AES-256-GCM using master password
   - Restricted file permissions (600) for vault security
 - **Enhanced CLI**: New menu option (5) for passphrase generation
-- **Docker Improvements**: Completely redesigned Docker setup for security and ease of use
+- **Docker Security Overhaul**: Completely redesigned for maximum security and minimal footprint
+  - **Alpine Linux base**: Switched from Debian Slim to Alpine (78MB vs 160MB - 52% reduction)
+  - **Zero critical vulnerabilities**: 0C 0H 0M 2L (Docker Scout verified)
+  - **pip 25.3+**: Upgraded to fix CVE-2025-8869 (Medium severity)
+  - **83 fewer packages**: Reduced from 129 to 46 packages (attack surface minimized)
   - Multi-stage build for minimal image size
   - Runs as non-root user (UID 1000) for enhanced security
   - Added docker-compose.yml for painless usage
@@ -21,7 +25,7 @@
   - Layer caching optimized for fast rebuilds
 - **Comprehensive Testing**: Added 37 new tests for passphrase features (72 tests total)
 - **Python Support**: Confirmed compatibility with Python 3.10-3.14
-- **Documentation**: Updated README with comprehensive Docker usage examples
+- **Documentation**: Updated README with comprehensive Docker usage examples and security metrics
 
 ## 1.0.3 (2025-11-05)
 
