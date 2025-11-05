@@ -14,6 +14,8 @@ from .core import (
     encrypt_stream,
     encrypt_text,
 )
+from .passphrase_generator import generate_passphrase
+from .passphrase_manager import PassphraseVault
 from .secure_memory import SecureBytes, SecureString, secure_wipe
 from .timing_safe import (
     add_timing_jitter,
@@ -22,7 +24,7 @@ from .timing_safe import (
 )
 from .utils import ProgressBar, colorize, handle_timeout, secure_overwrite
 
-__version__ = "1.0.0"
+__version__ = "1.0.4"
 __author__ = "TheRedTower"
 __email__ = "security@avondenecloud.uk"
 
@@ -44,6 +46,9 @@ __all__ = [
     "SecureString",
     "SecureBytes",
     "secure_wipe",
+    # Passphrase management
+    "generate_passphrase",
+    "PassphraseVault",
     # Utilities
     "colorize",
     "handle_timeout",

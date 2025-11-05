@@ -47,7 +47,7 @@ class TestCLI:
 
     def test_invalid_mode(self):
         """Test invalid mode selection in CLI."""
-        mock_in = StringIO("6\n5\n")
+        mock_in = StringIO("99\n6\n")
         mock_out = StringIO()
         with pytest.raises(SystemExit):
             main(in_stream=mock_in, out_stream=mock_out)

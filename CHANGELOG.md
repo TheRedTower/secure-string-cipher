@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.4 (2025-11-05)
+
+- **Passphrase Generation**: Added secure passphrase generator with multiple strategies
+  - Word-based passphrases (e.g., `mountain-tiger-ocean-basket-rocket-palace`)
+  - Alphanumeric with symbols (e.g., `xK9$mP2@qL5#vR8&nB3!`)
+  - Mixed mode (words + numbers)
+  - Entropy calculation for each generated passphrase
+- **Passphrase Management**: Encrypted vault for storing passphrases with master password
+  - Store, retrieve, list, update, and delete passphrases securely
+  - Vault encrypted with AES-256-GCM using master password
+  - Restricted file permissions (600) for vault security
+- **Enhanced CLI**: New menu option (5) for passphrase generation
+- **Comprehensive Testing**: Added 37 new tests for passphrase features (72 tests total)
+- **Python Support**: Confirmed compatibility with Python 3.10-3.14
+
 ## 1.0.3 (2025-11-05)
 
 - **Python requirement update**: Minimum Python version increased to 3.10

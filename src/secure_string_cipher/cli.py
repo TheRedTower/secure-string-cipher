@@ -9,6 +9,8 @@ import sys
 from typing import Optional, TextIO
 
 from .core import decrypt_file, decrypt_text, encrypt_file, encrypt_text
+from .passphrase_generator import generate_passphrase
+from .passphrase_manager import PassphraseVault
 from .timing_safe import check_password_strength
 from .utils import colorize
 
@@ -42,11 +44,12 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> Optional[int]:
     # Display menu
     menu = """
 Available Operations:
-  1. Encrypt text      - Encrypt a message (returns base64 string)
-  2. Decrypt text      - Decrypt a base64 encrypted message
-  3. Encrypt file      - Encrypt a file (creates .enc file)
-  4. Decrypt file      - Decrypt an encrypted file
-  5. Exit              - Quit the program
+  1. Encrypt text          - Encrypt a message (returns base64 string)
+  2. Decrypt text          - Decrypt a base64 encrypted message
+  3. Encrypt file          - Encrypt a file (creates .enc file)
+  4. Decrypt file          - Decrypt an encrypted file
+  5. Generate passphrase   - Create a secure random passphrase
+  6. Exit                  - Quit the program
 
 """
     out_stream.write(menu)
@@ -54,7 +57,7 @@ Available Operations:
 
     while True:
         try:
-            out_stream.write("Select operation [1-5]: ")
+            out_stream.write("Select operation [1-6]: ")
             out_stream.flush()
             choice = in_stream.readline()
             if choice == "":
@@ -71,7 +74,7 @@ Available Operations:
             # default
             return 1
 
-        if choice in {"1", "2", "3", "4", "5"}:
+        if choice in {"1", "2", "3", "4", "5", "6"}:
             try:
                 return int(choice)
             except ValueError:
@@ -163,6 +166,171 @@ def _handle_clipboard(_text: str) -> None:
     return
 
 
+def _handle_generate_passphrase(in_stream: TextIO, out_stream: TextIO) -> None:
+    """Handle passphrase generation."""
+    out_stream.write(colorize("\n🔑 Passphrase Generation", "cyan") + "\n")
+    out_stream.write("\nSelect generation strategy:\n")
+    out_stream.write(
+        "  1. Word-based (e.g., mountain-tiger-ocean-basket-rocket-palace)\n"
+    )
+    out_stream.write("  2. Alphanumeric with symbols (e.g., xK9$mP2@qL5#vR8&nB3!)\n")
+    out_stream.write("  3. Mixed (e.g., tiger-ocean-basket-palace-9247)\n")
+    out_stream.write("Choice [1]: ")
+    out_stream.flush()
+
+    choice = in_stream.readline().rstrip("\n")
+    if not choice:
+        choice = "1"
+
+    strategy_map = {"1": "word", "2": "alphanumeric", "3": "mixed"}
+    strategy = strategy_map.get(choice, "word")
+
+    try:
+        passphrase, entropy = generate_passphrase(strategy)
+        out_stream.write(colorize("\n✅ Generated Passphrase:", "green") + "\n")
+        out_stream.write(f"{passphrase}\n\n")
+        out_stream.write(f"Entropy: {entropy:.1f} bits\n")
+        out_stream.write("\n⚠️  Please save this passphrase securely!\n")
+        out_stream.write("You can also store it in the encrypted vault (option 6).\n")
+        out_stream.flush()
+    except Exception as e:
+        out_stream.write(f"Error generating passphrase: {e}\n")
+        out_stream.flush()
+
+
+def _handle_store_passphrase(in_stream: TextIO, out_stream: TextIO) -> None:
+    """Handle storing a passphrase in the vault."""
+    vault = PassphraseVault()
+
+    out_stream.write(colorize("\n🔐 Store Passphrase in Vault", "cyan") + "\n")
+    out_stream.write(
+        "\nEnter a label for this passphrase (e.g., 'project-x', 'backup-2025'): "
+    )
+    out_stream.flush()
+
+    label = in_stream.readline().rstrip("\n")
+    if not label:
+        out_stream.write("Error: Label cannot be empty\n")
+        out_stream.flush()
+        return
+
+    out_stream.write("Enter the passphrase to store: ")
+    out_stream.flush()
+    passphrase = in_stream.readline().rstrip("\n")
+
+    if not passphrase:
+        out_stream.write("Error: Passphrase cannot be empty\n")
+        out_stream.flush()
+        return
+
+    out_stream.write("\nEnter master password to encrypt vault: ")
+    out_stream.flush()
+    master_pw = in_stream.readline().rstrip("\n")
+
+    if not master_pw:
+        out_stream.write("Error: Master password cannot be empty\n")
+        out_stream.flush()
+        return
+
+    try:
+        vault.store_passphrase(label, passphrase, master_pw)
+        out_stream.write(
+            colorize(f"\n✅ Passphrase '{label}' stored successfully!", "green") + "\n"
+        )
+        out_stream.write(f"Vault location: {vault.get_vault_path()}\n")
+        out_stream.flush()
+    except Exception as e:
+        out_stream.write(f"Error storing passphrase: {e}\n")
+        out_stream.flush()
+
+
+def _handle_retrieve_passphrase(in_stream: TextIO, out_stream: TextIO) -> None:
+    """Handle retrieving a passphrase from the vault."""
+    vault = PassphraseVault()
+
+    if not vault.vault_exists():
+        out_stream.write(
+            "Error: No vault found. Create one by storing a passphrase first (option 6).\n"
+        )
+        out_stream.flush()
+        return
+
+    out_stream.write(colorize("\n🔓 Retrieve Passphrase from Vault", "cyan") + "\n")
+    out_stream.write("\nEnter master password: ")
+    out_stream.flush()
+    master_pw = in_stream.readline().rstrip("\n")
+
+    if not master_pw:
+        out_stream.write("Error: Master password cannot be empty\n")
+        out_stream.flush()
+        return
+
+    try:
+        labels = vault.list_labels(master_pw)
+        if not labels:
+            out_stream.write("Vault is empty. No passphrases stored yet.\n")
+            out_stream.flush()
+            return
+
+        out_stream.write("\nAvailable passphrases:\n")
+        for i, lbl in enumerate(labels, 1):
+            out_stream.write(f"  {i}. {lbl}\n")
+
+        out_stream.write("\nEnter label to retrieve: ")
+        out_stream.flush()
+        label = in_stream.readline().rstrip("\n")
+
+        if not label:
+            out_stream.write("Error: Label cannot be empty\n")
+            out_stream.flush()
+            return
+
+        passphrase = vault.retrieve_passphrase(label, master_pw)
+        out_stream.write(colorize(f"\n✅ Passphrase for '{label}':", "green") + "\n")
+        out_stream.write(f"{passphrase}\n")
+        out_stream.flush()
+
+    except Exception as e:
+        out_stream.write(f"Error retrieving passphrase: {e}\n")
+        out_stream.flush()
+
+
+def _handle_list_passphrases(in_stream: TextIO, out_stream: TextIO) -> None:
+    """Handle listing all passphrase labels in the vault."""
+    vault = PassphraseVault()
+
+    if not vault.vault_exists():
+        out_stream.write(
+            "Error: No vault found. Create one by storing a passphrase first (option 6).\n"
+        )
+        out_stream.flush()
+        return
+
+    out_stream.write(colorize("\n📋 List Stored Passphrases", "cyan") + "\n")
+    out_stream.write("\nEnter master password: ")
+    out_stream.flush()
+    master_pw = in_stream.readline().rstrip("\n")
+
+    if not master_pw:
+        out_stream.write("Error: Master password cannot be empty\n")
+        out_stream.flush()
+        return
+
+    try:
+        labels = vault.list_labels(master_pw)
+        if not labels:
+            out_stream.write("Vault is empty. No passphrases stored yet.\n")
+        else:
+            out_stream.write(f"\nFound {len(labels)} stored passphrase(s):\n")
+            for i, lbl in enumerate(labels, 1):
+                out_stream.write(f"  {i}. {lbl}\n")
+        out_stream.flush()
+
+    except Exception as e:
+        out_stream.write(f"Error listing passphrases: {e}\n")
+        out_stream.flush()
+
+
 def main(
     in_stream: Optional[TextIO] = None,
     out_stream: Optional[TextIO] = None,
@@ -193,14 +361,22 @@ def main(
             sys.exit(0)
         return 0
 
-    # Treat mode 5 as explicit exit (tests provide '5' to exit)
+    # Handle passphrase generation (5) and exit (6)
     if mode == 5:
+        # Generate passphrase
+        _handle_generate_passphrase(in_stream, out_stream)
+        if exit_on_completion:
+            sys.exit(0)
+        return 0
+    elif mode == 6:
+        # Exit
         out_stream.write("Exiting\n")
         out_stream.flush()
         if exit_on_completion:
             sys.exit(0)
         return 0
 
+    # Original operations (1-4) continue below
     payload = _get_input(mode, in_stream, out_stream)
 
     # determine operation

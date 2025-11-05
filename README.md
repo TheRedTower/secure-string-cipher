@@ -12,6 +12,15 @@ Interactive AES-GCM Encrypt/Decrypt Tool
 
 - 🔐 Encrypt or decrypt **text** or **files** using a passphrase
 - 🛡️ **AES-256-GCM** with PBKDF2-HMAC-SHA256 key derivation (390,000 iterations)
+- 🔑 **Passphrase Generator** - Create cryptographically secure passphrases
+  - Word-based (e.g., `mountain-tiger-ocean-basket-rocket-palace`)
+  - Alphanumeric with symbols (e.g., `xK9$mP2@qL5#vR8&nB3!`)
+  - Mixed mode (words + numbers)
+  - Shows entropy bits for security assessment
+- 💾 **Encrypted Passphrase Vault** - Securely store passphrases with master password
+  - Store, retrieve, and manage multiple passphrases
+  - Vault encrypted with AES-256-GCM
+  - Restricted file permissions for security
 - ⚡ Streams file encryption/decryption in 64 KiB chunks (low memory footprint)
 - 📋 **Text mode** wraps ciphertext/tag in Base64 for easy copy/paste
 - 📎 Optional clipboard copy via **pyperclip** in text mode
@@ -48,13 +57,14 @@ The CLI will present you with a clear menu of operations:
 
 ```
 Available Operations:
-  1. Encrypt text
-  2. Decrypt text
-  3. Encrypt file
-  4. Decrypt file
-  5. Exit
+  1. Encrypt text          - Encrypt a message (returns base64 string)
+  2. Decrypt text          - Decrypt a base64 encrypted message
+  3. Encrypt file          - Encrypt a file (creates .enc file)
+  4. Decrypt file          - Decrypt an encrypted file
+  5. Generate passphrase   - Create a secure random passphrase
+  6. Exit                  - Quit the program
 
-Select operation [1]:
+Select operation [1-6]:
 ```
 
 Or use flags:
