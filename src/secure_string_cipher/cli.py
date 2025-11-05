@@ -100,69 +100,12 @@ Press Enter to return to main menu..."""
     input()
 
 def _get_mode() -> int:
-    """
-    Display the main menu and get operation mode from user.
-    
-    Returns:
-        Mode number (1-4)
-        
-    Raises:
-        SystemExit: If invalid selection
-    """
-    _print_banner()
-    
-    # Show main menu with detailed descriptions
-    menu = """
-🔐 Available Operations:
-
-1. 📝 Encrypt Text
-   - Securely encrypt text messages
-   - Result is copied to clipboard
-   - Uses AES-256-GCM encryption
-
-2. 🔓 Decrypt Text
-   - Decrypt previously encrypted messages
-   - Paste encrypted text from clipboard
-   - Requires original password
-
-3. 📁 Encrypt File
-   - Secure your sensitive files
-   - Creates encrypted .enc file
-   - Original file remains unchanged
-
-4. 📂 Decrypt File
-   - Restore encrypted files
-   - Requires original password
-   - Verifies file integrity
-
-5. ❓ Help & Information
-   - View detailed instructions
-   - Security best practices
-   - Password guidelines
-
-0. ❌ Exit Program
-
-Enter your choice (0-5): """
-    options = [
-        ("� Encrypt text", "Secure your message with strong encryption"),
-        ("🔓 Decrypt text", "Recover your encrypted message"),
-        ("📁 Encrypt file", "Protect files with encryption"),
-        ("📂 Decrypt file", "Restore encrypted files")
-    ]
-    
-    print(colorize("\nAvailable Operations:", 'yellow'))
-    for i, (opt, desc) in enumerate(options, 1):
-        print(colorize(f"  {i}) {opt:<20} - {desc}", 'white'))
-
-    with handle_timeout(CLI_TIMEOUT)():
-        choice = input(colorize(f"\nSelect operation [{DEFAULT_MODE}]: ", 'green')).strip()
-        if not choice:
-            return DEFAULT_MODE
-            
-        if choice not in {"1","2","3","4"}:
-            sys.exit(colorize("❌ Invalid selection.", 'red'))
-            
-        return int(choice)
+    """Prompt the user to select an operation mode."""
+    while True:
+        choice = input("Select operation [1]: ")
+        if choice in {"1", "2", "3", "4"}:
+            return int(choice)
+        print("Invalid choice")
 
 def _get_input(mode: int) -> str:
     """
