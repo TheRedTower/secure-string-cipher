@@ -8,7 +8,7 @@ import base64
 import io
 import os
 import secrets
-from typing import BinaryIO, Optional, Tuple
+from typing import BinaryIO, Optional
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes

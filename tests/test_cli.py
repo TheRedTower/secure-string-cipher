@@ -3,7 +3,6 @@ Test suite for string_cipher.py CLI functionality
 """
 
 import os
-import sys
 from io import StringIO
 from unittest.mock import patch
 
@@ -58,7 +57,7 @@ class TestCLI:
 
     def test_text_decryption_mode(self, mock_stdio):
         """Test text decryption through CLI."""
-        from secure_string_cipher import decrypt_text, encrypt_text
+        from secure_string_cipher import encrypt_text
 
         # First create encrypted text directly
         plaintext = "Hello, World!"
@@ -86,7 +85,6 @@ class TestCLI:
 
     def test_file_operations(self, tmp_path):
         """Test file operations directly."""
-        from secure_string_cipher import decrypt_file, encrypt_file
 
         # Create a test file
         test_file = tmp_path / "test.txt"
@@ -115,7 +113,7 @@ class TestCLI:
         mock_in.write("invalid\n")
         mock_in.seek(0)
 
-        with pytest.raises(SystemExit) as e:
+        with pytest.raises(SystemExit):
             main(in_stream=mock_in, out_stream=mock_out)
         assert "Invalid selection" in mock_out.getvalue()
 
@@ -127,7 +125,7 @@ class TestCLI:
         mock_in.write("1\n\n")  # Select encrypt text mode, then empty message
         mock_in.seek(0)
 
-        with pytest.raises(SystemExit) as e:
+        with pytest.raises(SystemExit):
             main(in_stream=mock_in, out_stream=mock_out)
         assert "No message provided" in mock_out.getvalue()
 
@@ -144,6 +142,6 @@ class TestCLI:
         mock_in.write("\n".join(inputs))
         mock_in.seek(0)
 
-        with pytest.raises(SystemExit) as e:
+        with pytest.raises(SystemExit):
             main(in_stream=mock_in, out_stream=mock_out)
         assert "Password" in mock_out.getvalue()  # Should show password requirements

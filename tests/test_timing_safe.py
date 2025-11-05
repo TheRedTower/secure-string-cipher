@@ -4,7 +4,6 @@ Tests for timing attack mitigations
 
 import time
 
-import pytest
 
 from secure_string_cipher.timing_safe import (
     add_timing_jitter,

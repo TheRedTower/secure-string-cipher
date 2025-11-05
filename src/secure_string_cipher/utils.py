@@ -5,7 +5,6 @@ Utility functions for secure-string-cipher
 import os
 import sys
 import time
-from typing import Callable, Tuple
 
 from .config import COLORS
 
