@@ -1,4 +1,8 @@
-# string-cipher
+# secure-string-cipher
+
+[![CI](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml/badge.svg)](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python Versions](https://img.shields.io/pypi/pyversions/secure-string-cipher.svg)](https://pypi.org/project/secure-string-cipher/)
 
 Interactive AES-GCM Encrypt/Decrypt Tool
 
@@ -24,8 +28,8 @@ This installs a globally available `string-cipher` command in an isolated enviro
 ### From source
 
 ```bash
-git clone https://github.com/yourusername/string-cipher.git
-cd string-cipher
+git clone https://github.com/TheRedTower/secure-string-cipher.git
+cd secure-string-cipher
 pip install .
 ```
 

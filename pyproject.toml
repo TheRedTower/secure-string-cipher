@@ -50,6 +50,8 @@ dev = [
 [project.urls]
 "Homepage" = "https://github.com/TheRedTower/secure-string-cipher"
 "Bug Tracker" = "https://github.com/TheRedTower/secure-string-cipher/issues"
+"Documentation" = "https://github.com/TheRedTower/secure-string-cipher/wiki"
+"Changelog" = "https://github.com/TheRedTower/secure-string-cipher/blob/main/CHANGELOG.md"
 
 [project.scripts]
 secure-string-cipher = "secure_string_cipher.cli:main"
