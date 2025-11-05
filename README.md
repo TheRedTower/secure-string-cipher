@@ -20,10 +20,10 @@ Interactive AES-GCM Encrypt/Decrypt Tool
 ### Via pipx (recommended)
 
 ```bash
-pipx install string-cipher
+pipx install secure-string-cipher
 ```
 
-This installs a globally available `string-cipher` command in an isolated environment.
+This installs a globally available `cipher-start` command in an isolated environment.
 
 ### From source
 
@@ -38,13 +38,13 @@ pip install .
 Run the interactive wizard:
 
 ```bash
-string-cipher
+cipher-start
 ```
 
 Or use flags:
 
 ```bash
-string-cipher --help
+cipher-start --help
 ```
 
 ### Programmatic use and test-friendly CLI
@@ -73,15 +73,15 @@ Alternatively, run via Docker without installing anything locally:
 
 ```bash
 # Build the image (once)
-cd string-cipher
-docker build -t yourusername/string-cipher .
+cd secure-string-cipher
+docker build -t yourusername/secure-string-cipher .
 
 # Run interactively
-docker run --rm -it yourusername/string-cipher
+docker run --rm -it yourusername/secure-string-cipher
 
 # Encrypt a file (bind current directory)
-docker run --rm -it -v "$PWD":/data yourusername/string-cipher encrypt-file /data/secret.txt
-docker run --rm -it -v "$PWD":/data yourusername/string-cipher decrypt-file /data/secret.txt.enc
+docker run --rm -it -v "$PWD":/data yourusername/secure-string-cipher encrypt-file /data/secret.txt
+docker run --rm -it -v "$PWD":/data yourusername/secure-string-cipher decrypt-file /data/secret.txt.enc
 ```
 
 ## License

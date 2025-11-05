@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "secure-string-cipher"
-version = "1.0.1-dev"
+version = "1.0.1"
 authors = [
   { name = "TheRedTower", email = "security@avondenecloud.uk" },
 ]
@@ -54,4 +54,4 @@ dev = [
 "Changelog" = "https://github.com/TheRedTower/secure-string-cipher/blob/main/CHANGELOG.md"
 
 [project.scripts]
-secure-string-cipher = "secure_string_cipher.cli:main"
+cipher-start = "secure_string_cipher.cli:main"

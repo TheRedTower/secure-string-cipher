@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 1.0.1 (2025-11-05)
+
+- **Command rename**: CLI command changed from `secure-string-cipher` to `cipher-start` for easier invocation
+- Updated README with correct command usage
+
+## 1.0.0 (2025-11-05)
 
 - CLI testability: `main()` accepts optional `in_stream` and `out_stream` file-like parameters so tests can pass StringIO objects and reliably capture I/O.
 - CLI exit control: add `exit_on_completion` (default True). When False, `main()` returns 0/1 instead of calling `sys.exit()`. Tests use this to avoid catching `SystemExit`.
