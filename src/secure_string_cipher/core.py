@@ -127,7 +127,7 @@ class StreamProcessor:
         if isinstance(self.path, (str, bytes, os.PathLike)):
             self._check_path()
             try:
-                self.file = open(self.path, self.mode)
+                self.file = open(self.path, self.mode)  # type: ignore[assignment]
             except OSError as e:
                 raise CryptoError(f"Failed to open file: {e}")
 
@@ -316,7 +316,7 @@ def encrypt_text(text: str, passphrase: str) -> str:
         # Use in-memory processors to avoid closing the BytesIO buffers
         r = InMemoryStreamProcessor(ri, "rb")
         w = InMemoryStreamProcessor(wi, "wb")
-        encrypt_stream(r, w, passphrase)
+        encrypt_stream(r, w, passphrase)  # type: ignore[arg-type]
 
         wi.seek(0)
         encrypted = wi.getvalue()
@@ -360,7 +360,7 @@ def decrypt_text(token: str, passphrase: str) -> str:
     try:
         r = InMemoryStreamProcessor(ri, "rb")
         w = InMemoryStreamProcessor(wi, "wb")
-        decrypt_stream(r, w, passphrase)
+        decrypt_stream(r, w, passphrase)  # type: ignore[arg-type]
         wi.seek(0)
         result = wi.getvalue().decode("utf-8", "ignore")
         return result

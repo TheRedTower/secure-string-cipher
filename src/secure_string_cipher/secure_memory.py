@@ -122,7 +122,7 @@ class SecureString:
             try:
                 del self._chars
             except Exception:
-                self._chars = None
+                self._chars = None  # type: ignore[assignment]
 
 
 def secure_compare(a: bytes, b: bytes) -> bool:

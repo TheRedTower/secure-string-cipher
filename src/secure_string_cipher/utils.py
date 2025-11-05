@@ -38,7 +38,7 @@ class ProgressBar:
         """
         self.total = total_bytes
         self.width = width
-        self.last_print = 0
+        self.last_print: float = 0.0
 
     def update(self, current: int) -> None:
         """

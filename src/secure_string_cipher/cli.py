@@ -114,9 +114,15 @@ def _get_input(mode: int, in_stream: TextIO, out_stream: TextIO) -> str:
 def _get_password(
     confirm: bool = True,
     operation: str = "",
-    in_stream: TextIO = None,
-    out_stream: TextIO = None,
+    in_stream: Optional[TextIO] = None,
+    out_stream: Optional[TextIO] = None,
 ) -> str:
+    # Provide defaults if None
+    if in_stream is None:
+        in_stream = sys.stdin
+    if out_stream is None:
+        out_stream = sys.stdout
+
     # Show requirements (tests assert that 'Password' appears in output)
     out_stream.write("\n🔑 Password Entry\n")
     out_stream.write(
