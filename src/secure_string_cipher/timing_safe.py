@@ -7,7 +7,7 @@ import secrets
 import time
 from typing import Tuple
 
-from .config import MIN_PASSWORD_LENGTH, PASSWORD_PATTERNS, COMMON_PASSWORDS
+from .config import COMMON_PASSWORDS, MIN_PASSWORD_LENGTH, PASSWORD_PATTERNS
 from .secure_memory import SecureString
 
 

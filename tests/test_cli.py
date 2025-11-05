@@ -4,10 +4,12 @@ Test suite for string_cipher.py CLI functionality
 
 import os
 import sys
-import pytest
-from unittest.mock import patch
 from io import StringIO
-from secure_string_cipher import encrypt_file, decrypt_file
+from unittest.mock import patch
+
+import pytest
+
+from secure_string_cipher import decrypt_file, encrypt_file
 from secure_string_cipher.cli import main
 
 
@@ -56,7 +58,7 @@ class TestCLI:
 
     def test_text_decryption_mode(self, mock_stdio):
         """Test text decryption through CLI."""
-        from secure_string_cipher import encrypt_text, decrypt_text
+        from secure_string_cipher import decrypt_text, encrypt_text
 
         # First create encrypted text directly
         plaintext = "Hello, World!"
@@ -84,7 +86,7 @@ class TestCLI:
 
     def test_file_operations(self, tmp_path):
         """Test file operations directly."""
-        from secure_string_cipher import encrypt_file, decrypt_file
+        from secure_string_cipher import decrypt_file, encrypt_file
 
         # Create a test file
         test_file = tmp_path / "test.txt"

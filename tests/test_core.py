@@ -4,17 +4,14 @@ Test suite for string_cipher.py core functionality
 
 import os
 import tempfile
-import pytest
 from typing import Final
-from secure_string_cipher.core import (
-    derive_key,
-    encrypt_text,
-    decrypt_text,
-    encrypt_stream,
-    decrypt_stream,
-    CryptoError,
-    StreamProcessor,
-)
+
+import pytest
+
+from secure_string_cipher.core import (CryptoError, StreamProcessor,
+                                       decrypt_stream, decrypt_text,
+                                       derive_key, encrypt_stream,
+                                       encrypt_text)
 from secure_string_cipher.timing_safe import check_password_strength
 
 # Test password constants - only used for testing, never in production

@@ -2,8 +2,8 @@
 Secure memory operations for handling sensitive data
 """
 
-import secrets
 import array
+import secrets
 from typing import Union
 
 

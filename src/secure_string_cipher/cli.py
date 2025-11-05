@@ -8,7 +8,7 @@ getpass.getpass so tests that patch stdin/stdout can drive the flows.
 import sys
 from typing import Optional, TextIO
 
-from .core import encrypt_text, decrypt_text, encrypt_file, decrypt_file
+from .core import decrypt_file, decrypt_text, encrypt_file, encrypt_text
 from .timing_safe import check_password_strength
 from .utils import colorize
 

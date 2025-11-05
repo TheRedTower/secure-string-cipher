@@ -8,22 +8,16 @@ import base64
 import io
 import os
 import secrets
-from typing import Tuple, Optional, BinaryIO
+from typing import BinaryIO, Optional, Tuple
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-from .config import (
-    CHUNK_SIZE,
-    SALT_SIZE,
-    NONCE_SIZE,
-    TAG_SIZE,
-    KDF_ITERATIONS,
-    MAX_FILE_SIZE,
-)
-from .utils import ProgressBar, CryptoError
+from .config import (CHUNK_SIZE, KDF_ITERATIONS, MAX_FILE_SIZE, NONCE_SIZE,
+                     SALT_SIZE, TAG_SIZE)
+from .utils import CryptoError, ProgressBar
 
 __all__ = [
     "StreamProcessor",
@@ -206,7 +200,7 @@ def derive_key(passphrase: str, salt: bytes) -> bytes:
     Raises:
         CryptoError: If key derivation fails
     """
-    from .secure_memory import SecureString, SecureBytes
+    from .secure_memory import SecureBytes, SecureString
 
     try:
         with SecureString(passphrase) as secure_pass:
@@ -235,8 +229,8 @@ def encrypt_stream(r: StreamProcessor, w: StreamProcessor, passphrase: str) -> N
     Raises:
         CryptoError: If encryption fails
     """
-    from .timing_safe import add_timing_jitter
     from .secure_memory import SecureBytes
+    from .timing_safe import add_timing_jitter
 
     try:
         salt = secrets.token_bytes(SALT_SIZE)

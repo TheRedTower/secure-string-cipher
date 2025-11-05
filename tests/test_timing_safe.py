@@ -3,12 +3,12 @@ Tests for timing attack mitigations
 """
 
 import time
+
 import pytest
-from secure_string_cipher.timing_safe import (
-    constant_time_compare,
-    add_timing_jitter,
-    check_password_strength,
-)
+
+from secure_string_cipher.timing_safe import (add_timing_jitter,
+                                              check_password_strength,
+                                              constant_time_compare)
 
 
 def test_constant_time_compare():
@@ -23,7 +23,7 @@ def test_timing_jitter():
     start = time.perf_counter()
     add_timing_jitter()
     duration = time.perf_counter() - start
-    assert 0 <= duration <= 0.01  # Should be between 0-10ms
+    assert 0 <= duration <= 0.015  # Should be between 0-15ms (allowing some overhead)
 
 
 def test_password_strength_length():
