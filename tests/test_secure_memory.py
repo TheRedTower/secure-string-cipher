@@ -1,19 +1,22 @@
 """
 Tests for secure memory operations
 """
+
 import pytest
 from secure_string_cipher.secure_memory import (
     secure_wipe,
     SecureBytes,
     SecureString,
-    secure_compare
+    secure_compare,
 )
+
 
 def test_secure_wipe():
     """Test that secure_wipe properly zeros out data."""
     data = bytearray(b"sensitive data")
     secure_wipe(data)
     assert all(b == 0 for b in data)
+
 
 def test_secure_bytes():
     """Test SecureBytes context manager."""
@@ -24,6 +27,7 @@ def test_secure_bytes():
     with pytest.raises(AttributeError):
         secure.data
 
+
 def test_secure_string():
     """Test SecureString context manager."""
     sensitive = "password123"
@@ -33,15 +37,17 @@ def test_secure_string():
     with pytest.raises(AttributeError):
         secure.string
 
+
 def test_secure_compare():
     """Test constant-time comparison."""
     a = b"hello"
     b = b"hello"
     c = b"world"
-    
+
     assert secure_compare(a, b)
     assert not secure_compare(a, c)
     assert not secure_compare(b"short", b"longer")
+
 
 def test_secure_bytes_exception_handling():
     """Test that SecureBytes wipes data even if exception occurs."""
@@ -55,6 +61,7 @@ def test_secure_bytes_exception_handling():
     # Data should be wiped even after exception
     with pytest.raises(AttributeError):
         secure.data
+
 
 def test_secure_string_exception_handling():
     """Test that SecureString wipes data even if exception occurs."""

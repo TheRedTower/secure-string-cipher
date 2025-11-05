@@ -4,6 +4,7 @@ Command-line interface for secure-string-cipher (minimal implementation used by 
 This module provides a simple, test-friendly CLI harness. It avoids using
 getpass.getpass so tests that patch stdin/stdout can drive the flows.
 """
+
 import sys
 from typing import Optional, TextIO
 
@@ -23,15 +24,14 @@ def _print_banner(out_stream: TextIO) -> None:
     )
     # Print the banner to sys.stdout so test patches/capture pick it up
     try:
-        out_stream.write(colorize(banner, 'cyan') + "\n")
+        out_stream.write(colorize(banner, "cyan") + "\n")
         out_stream.flush()
     except Exception:
         # Fallback to print if out_stream is not writable
         try:
-            print(colorize(banner, 'cyan'), file=out_stream)
-        except Exception:
-            pass
-
+            print(colorize(banner, "cyan"), file=out_stream)
+        except Exception:  # nosec B110
+            pass  # Silently ignore if banner cannot be printed
 
 
 def _get_mode(in_stream: TextIO, out_stream: TextIO) -> Optional[int]:
@@ -51,7 +51,7 @@ Available Operations:
 """
     out_stream.write(menu)
     out_stream.flush()
-    
+
     while True:
         try:
             out_stream.write("Select operation [1-5]: ")
@@ -85,7 +85,7 @@ Available Operations:
 
 def _get_input(mode: int, in_stream: TextIO, out_stream: TextIO) -> str:
     if mode in (1, 2):
-        out_stream.write(colorize("\n💬 Enter your message", 'yellow') + "\n")
+        out_stream.write(colorize("\n💬 Enter your message", "yellow") + "\n")
         out_stream.write("➜ ")
         out_stream.flush()
         payload = in_stream.readline()
@@ -102,7 +102,7 @@ def _get_input(mode: int, in_stream: TextIO, out_stream: TextIO) -> str:
         return payload
 
     # file modes
-    out_stream.write(colorize("\n📂 Enter file path", 'yellow') + "\n")
+    out_stream.write(colorize("\n📂 Enter file path", "yellow") + "\n")
     out_stream.write("➜ ")
     out_stream.flush()
     path = in_stream.readline()
@@ -111,10 +111,17 @@ def _get_input(mode: int, in_stream: TextIO, out_stream: TextIO) -> str:
     return path.rstrip("\n")
 
 
-def _get_password(confirm: bool = True, operation: str = "", in_stream: TextIO = None, out_stream: TextIO = None) -> str:
+def _get_password(
+    confirm: bool = True,
+    operation: str = "",
+    in_stream: TextIO = None,
+    out_stream: TextIO = None,
+) -> str:
     # Show requirements (tests assert that 'Password' appears in output)
     out_stream.write("\n🔑 Password Entry\n")
-    out_stream.write("Password must be at least 12 chars, include upper/lower/digits/symbols\n")
+    out_stream.write(
+        "Password must be at least 12 chars, include upper/lower/digits/symbols\n"
+    )
     out_stream.write("Enter passphrase: ")
     out_stream.flush()
     pw = in_stream.readline()
@@ -192,7 +199,9 @@ def main(
 
     # determine operation
     is_encrypt = mode in (1, 3)
-    password = _get_password(confirm=is_encrypt, in_stream=in_stream, out_stream=out_stream)
+    password = _get_password(
+        confirm=is_encrypt, in_stream=in_stream, out_stream=out_stream
+    )
 
     try:
         if mode == 1:
@@ -207,12 +216,12 @@ def main(
             out_stream.write(out + "\n")
             out_stream.flush()
         elif mode == 3:
-            out_path = payload + '.enc'
+            out_path = payload + ".enc"
             encrypt_file(payload, out_path, password)
             out_stream.write(f"Encrypted file -> {out_path}\n")
             out_stream.flush()
         elif mode == 4:
-            out_path = payload + '.dec'
+            out_path = payload + ".dec"
             decrypt_file(payload, out_path, password)
             out_stream.write(f"Decrypted file -> {out_path}\n")
             out_stream.flush()
@@ -235,6 +244,5 @@ def main(
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-    

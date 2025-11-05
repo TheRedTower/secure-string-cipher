@@ -13,23 +13,29 @@ KDF_ITERATIONS = 390_000
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
 MIN_PASSWORD_LENGTH = 12
 PASSWORD_PATTERNS = {
-    'uppercase': lambda s: any(c.isupper() for c in s),
-    'lowercase': lambda s: any(c.islower() for c in s),
-    'digits': lambda s: any(c.isdigit() for c in s),
-    'symbols': lambda s: any(not c.isalnum() for c in s)
+    "uppercase": lambda s: any(c.isupper() for c in s),
+    "lowercase": lambda s: any(c.islower() for c in s),
+    "digits": lambda s: any(c.isdigit() for c in s),
+    "symbols": lambda s: any(not c.isalnum() for c in s),
 }
 COMMON_PASSWORDS = {
-    'password', '123456', 'qwerty', 'admin',
-    'letmein', 'welcome', 'monkey', 'dragon'
+    "password",
+    "123456",
+    "qwerty",
+    "admin",
+    "letmein",
+    "welcome",
+    "monkey",
+    "dragon",
 }
 
 # Terminal colors
 COLORS = {
-    'reset': '\033[0m',
-    'cyan': '\033[96m',
-    'blue': '\033[34m',
-    'red': '\033[91m',
-    'green': '\033[92m'
+    "reset": "\033[0m",
+    "cyan": "\033[96m",
+    "blue": "\033[34m",
+    "red": "\033[91m",
+    "green": "\033[92m",
 }
 
 # Command line interface

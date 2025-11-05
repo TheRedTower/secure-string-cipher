@@ -1,6 +1,7 @@
 """
 Test suite for string_cipher.py CLI functionality
 """
+
 import os
 import sys
 import pytest
@@ -9,16 +10,18 @@ from io import StringIO
 from secure_string_cipher import encrypt_file, decrypt_file
 from secure_string_cipher.cli import main
 
+
 @pytest.fixture
 def mock_stdio():
     """Mock standard input/output for testing."""
-    with patch('sys.stdout', new_callable=StringIO) as mock_out:
-        with patch('sys.stdin', new_callable=StringIO) as mock_in:
+    with patch("sys.stdout", new_callable=StringIO) as mock_out:
+        with patch("sys.stdin", new_callable=StringIO) as mock_in:
             yield mock_in, mock_out
+
 
 class TestCLI:
     """Test command-line interface functionality."""
-    
+
     def test_text_encryption_mode(self, mock_stdio):
         """Test text encryption through CLI."""
         mock_in, mock_out = mock_stdio
@@ -40,7 +43,7 @@ class TestCLI:
         output = mock_out.getvalue()
         assert "🔐" in output  # Check for banner
         assert "Hello, World!" not in output  # Shouldn't contain plaintext in output
-        
+
     def test_invalid_mode(self):
         """Test invalid mode selection in CLI."""
         mock_in = StringIO("6\n5\n")
@@ -89,8 +92,8 @@ class TestCLI:
         test_file.write_text(test_content)
 
         password = "SecurePassword123!@#"
-        enc_file = str(test_file) + '.enc'
-        dec_file = str(test_file) + '.dec'
+        enc_file = str(test_file) + ".enc"
+        dec_file = str(test_file) + ".dec"
 
         # Test direct encryption
         encrypt_file(str(test_file), enc_file, password)
@@ -100,16 +103,16 @@ class TestCLI:
         # Test direct decryption
         decrypt_file(enc_file, dec_file, password)
         assert os.path.exists(dec_file)
-        with open(dec_file, 'r') as f:
+        with open(dec_file, "r") as f:
             assert f.read() == test_content
 
     def test_invalid_mode_selection(self, mock_stdio):
         """Test handling of invalid mode selection."""
         mock_in, mock_out = mock_stdio
-        
+
         mock_in.write("invalid\n")
         mock_in.seek(0)
-        
+
         with pytest.raises(SystemExit) as e:
             main(in_stream=mock_in, out_stream=mock_out)
         assert "Invalid selection" in mock_out.getvalue()
@@ -117,11 +120,11 @@ class TestCLI:
     def test_empty_input_handling(self, mock_stdio):
         """Test handling of empty inputs."""
         mock_in, mock_out = mock_stdio
-        
+
         # Test empty message
         mock_in.write("1\n\n")  # Select encrypt text mode, then empty message
         mock_in.seek(0)
-        
+
         with pytest.raises(SystemExit) as e:
             main(in_stream=mock_in, out_stream=mock_out)
         assert "No message provided" in mock_out.getvalue()
@@ -129,7 +132,7 @@ class TestCLI:
     def test_password_validation(self, mock_stdio):
         """Test password validation in CLI."""
         mock_in, mock_out = mock_stdio
-        
+
         # Test with weak password
         inputs = [
             "1",  # Encrypt text mode
@@ -138,7 +141,7 @@ class TestCLI:
         ]
         mock_in.write("\n".join(inputs))
         mock_in.seek(0)
-        
+
         with pytest.raises(SystemExit) as e:
             main(in_stream=mock_in, out_stream=mock_out)
         assert "Password" in mock_out.getvalue()  # Should show password requirements
