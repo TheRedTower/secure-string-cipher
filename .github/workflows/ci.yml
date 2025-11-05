@@ -69,7 +69,7 @@ jobs:
       run: mypy src tests
         
     - name: Lint with ruff
-      run: ruff src tests
+      run: ruff check src tests
 
   security:
     name: Security Scan

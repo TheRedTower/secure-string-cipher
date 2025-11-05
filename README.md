@@ -6,6 +6,8 @@
 
 Interactive AES-GCM Encrypt/Decrypt Tool
 
+**Requirements:** Python 3.10 or higher
+
 ## Features
 
 - 🔐 Encrypt or decrypt **text** or **files** using a passphrase
