@@ -164,15 +164,19 @@ def derive_key(passphrase: str, salt: bytes) -> bytes:
     Raises:
         CryptoError: If key derivation fails
     """
+    from .secure_memory import SecureString, SecureBytes
+    
     try:
-        kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=salt,
-            iterations=KDF_ITERATIONS,
-            backend=default_backend()
-        )
-        return kdf.derive(passphrase.encode())
+        with SecureString(passphrase) as secure_pass:
+            kdf = PBKDF2HMAC(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=salt,
+                iterations=KDF_ITERATIONS,
+                backend=default_backend()
+            )
+            with SecureBytes(secure_pass.string.encode()) as secure_bytes:
+                return kdf.derive(secure_bytes.data)
     except Exception as e:
         raise CryptoError(f"Key derivation failed: {e}")
 
