@@ -47,6 +47,26 @@ Or use flags:
 string-cipher --help
 ```
 
+### Programmatic use and test-friendly CLI
+
+The CLI entry point is available as a Python function for tests and programmatic usage:
+
+```
+from io import StringIO
+from secure_string_cipher.cli import main
+
+# Provide input/output streams and disable exiting on completion
+mock_in = StringIO("1\nHello, World!\nStrongP@ssw0rd!#\nStrongP@ssw0rd!#\n")
+mock_out = StringIO()
+main(in_stream=mock_in, out_stream=mock_out, exit_on_completion=False)
+print(mock_out.getvalue())
+```
+
+- in_stream/out_stream: file-like objects used for input/output (default to sys.stdin/sys.stdout).
+- exit_on_completion: when True (default), the CLI exits the process on success or error; when False, it returns 0 (success) or 1 (error).
+
+This design makes the CLI deterministic and easy to unit test without relying on global stdout patches.
+
 ### Docker
 
 Alternatively, run via Docker without installing anything locally:
