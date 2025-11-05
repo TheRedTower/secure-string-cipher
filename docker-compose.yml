@@ -2,10 +2,15 @@ version: '3.8'
 
 services:
   cipher:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: secure-string-cipher:latest
+    # Use pre-built image from GitHub Container Registry
+    # Comment out the next line and uncomment 'build' section to build locally
+    image: ghcr.io/theredtower/secure-string-cipher:latest
+    
+    # Uncomment to build from source instead of using pre-built image
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    
     container_name: secure-cipher
     stdin_open: true
     tty: true

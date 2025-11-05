@@ -110,7 +110,31 @@ docker-compose run --rm cipher
 # The vault and your data directory are automatically persisted
 ```
 
-#### Using Docker Directly
+#### Using Pre-built Image from GitHub Container Registry
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/theredtower/secure-string-cipher:latest
+
+# Or pull a specific version
+docker pull ghcr.io/theredtower/secure-string-cipher:1.0.4
+
+# Run interactively (menu-driven)
+docker run --rm -it ghcr.io/theredtower/secure-string-cipher:latest
+
+# Encrypt/decrypt files in current directory
+docker run --rm -it \
+  -v "$PWD:/data" \
+  ghcr.io/theredtower/secure-string-cipher:latest
+
+# With persistent vault for passphrase management
+docker run --rm -it \
+  -v "$PWD:/data" \
+  -v cipher-vault:/home/cipheruser/.secure-cipher \
+  ghcr.io/theredtower/secure-string-cipher:latest
+```
+
+#### Building from Source
 
 ```bash
 # Build the image
