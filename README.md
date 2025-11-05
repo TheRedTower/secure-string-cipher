@@ -93,7 +93,7 @@ docker run --rm -it \
 - **Algorithm:** AES-256-GCM
 - **Key derivation:** PBKDF2-HMAC-SHA256 (390,000 iterations)
 - **Passphrase vault:** AES-256-GCM encrypted with master password
-- **File permissions:** Vault restricted to user-only (600)
+- **File permissions:** Vault restricted to user-only
 
 ## License
 
