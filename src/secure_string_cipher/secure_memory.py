@@ -1,12 +1,9 @@
 """
 Secure memory operations for handling sensitive data
 """
-import ctypes
-import platform
 import secrets
-import mmap
 import array
-from typing import Any, Union
+from typing import Union
 
 def secure_wipe(data: Union[bytes, bytearray, memoryview, array.array]) -> None:
     """
@@ -90,7 +87,7 @@ class SecureString:
     
     def __init__(self, string: str):
         """Initialize with sensitive string."""
-        self._chars = array.array('u', string)
+        self._chars = bytearray(string.encode('utf-16le'))  # Use UTF-16LE to keep characters in memory
         
     def __enter__(self):
         """Context manager entry."""
@@ -109,14 +106,13 @@ class SecureString:
     @property
     def string(self) -> str:
         """Access the secure string."""
-        return self._chars.tounicode()
+        return self._chars.decode('utf-16le')
         
     def wipe(self) -> None:
         """Explicitly wipe the string."""
         if hasattr(self, '_chars'):
-            for i in range(len(self._chars)):
-                self._chars[i] = '\x00'
-            self._chars = array.array('u', '')  # Clear the array
+            secure_wipe(self._chars)
+            self._chars = bytearray()
 
 def secure_compare(a: bytes, b: bytes) -> bool:
     """

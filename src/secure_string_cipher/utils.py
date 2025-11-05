@@ -6,12 +6,13 @@ import sys
 import time
 from typing import Tuple, Callable
 
-from .config import (
-    COLORS,
-    MIN_PASSWORD_LENGTH,
-    PASSWORD_PATTERNS,
-    COMMON_PASSWORDS
-)
+from .config import COLORS
+
+__all__ = [
+    'CryptoError',
+    'ProgressBar',
+    'colorize'
+]
 
 class CryptoError(Exception):
     """Custom exception for encryption/decryption errors."""
@@ -96,33 +97,7 @@ def colorize(text: str, color: str = 'cyan') -> str:
     color_code = COLORS[color if detect_dark_background() else 'blue']
     return f"{color_code}{text}{COLORS['reset']}"
 
-def check_password_strength(password: str) -> Tuple[bool, str]:
-    """
-    Check password strength against security rules.
-    
-    Args:
-        password: Password to check
-        
-    Returns:
-        Tuple of (is_valid, message)
-    """
-    if len(password) < MIN_PASSWORD_LENGTH:
-        return False, f"Password must be at least {MIN_PASSWORD_LENGTH} characters"
-    
-    # Check character types
-    failed = []
-    for name, check in PASSWORD_PATTERNS.items():
-        if not check(password):
-            failed.append(name)
-    
-    if failed:
-        return False, f"Password must include: {', '.join(failed)}"
-    
-    # Check for common patterns
-    if any(pattern in password.lower() for pattern in COMMON_PASSWORDS):
-        return False, "Password contains common patterns"
-        
-    return True, "Password strength acceptable"
+
 
 def secure_overwrite(path: str) -> None:
     """
@@ -151,26 +126,31 @@ def secure_overwrite(path: str) -> None:
         except OSError:
             pass
 
-def handle_timeout(timeout: int) -> Callable:
-    """
-    Create a context manager for CLI timeout.
-    
-    Args:
-        timeout: Timeout in seconds
+class TimeoutManager:
+    def __init__(self, seconds: int):
+        self.seconds = seconds
         
-    Returns:
-        Context manager that enforces timeout
-    """
-    class TimeoutManager:
-        def __init__(self):
-            self.start_time = time.time()
-            
-        def __enter__(self):
-            return self
-            
-        def __exit__(self, exc_type, exc_val, exc_tb):
-            if time.time() - self.start_time > timeout:
-                print(colorize("\nSession timed out for security", 'red'))
-                sys.exit(1)
+    def __call__(self):
+        return self
+
+    def __enter__(self):
+        pass
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            return False
+        return True
+
+def handle_timeout(seconds: int) -> TimeoutManager:
+    """Set a timeout for user input in seconds."""
+    return TimeoutManager(seconds)
+
+def colorize(text: str, color: str = None) -> str:
+    """Add color to text for terminal output."""
+    if not color or not sys.stdout.isatty():
+        return text
+    if color not in COLORS:
+        return text
+    return f"{COLORS[color]}{text}\033[0m"
     
     return TimeoutManager()

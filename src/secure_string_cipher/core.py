@@ -24,6 +24,42 @@ from .config import (
 )
 from .utils import ProgressBar, CryptoError
 
+__all__ = [
+    'StreamProcessor',
+    'CryptoError',
+    'derive_key',
+    'encrypt_text',
+    'decrypt_text',
+    'encrypt_stream',
+    'decrypt_stream',
+    'encrypt_file',
+    'decrypt_file'
+]
+
+class InMemoryStreamProcessor:
+    """Stream processor for in-memory data like strings."""
+    
+    def __init__(self, stream, mode):
+        """Initialize with BytesIO stream."""
+        self.stream = stream
+        self.mode = mode
+        
+    def read(self, size=-1):
+        """Read from stream."""
+        return self.stream.read(size)
+        
+    def write(self, data):
+        """Write to stream."""
+        return self.stream.write(data)
+        
+    def tell(self):
+        """Get current position."""
+        return self.stream.tell()
+        
+    def seek(self, pos):
+        """Seek to position."""
+        return self.stream.seek(pos)
+
 class StreamProcessor:
     """Context manager for secure file operations with progress tracking."""
     
@@ -44,13 +80,14 @@ class StreamProcessor:
         self._progress: Optional[ProgressBar] = None
         self.bytes_processed = 0
         
-        # Security check for large files
-        if mode == 'rb' and os.path.exists(path):
-            size = os.path.getsize(path)
-            if size > MAX_FILE_SIZE:
-                raise CryptoError(
-                    f"File too large. Maximum size is {MAX_FILE_SIZE/(1024*1024):.1f} MB"
-                )
+        if isinstance(path, (str, bytes, os.PathLike)):
+            # Security check for large files
+            if mode == 'rb' and os.path.exists(path):
+                size = os.path.getsize(path)
+                if size > MAX_FILE_SIZE:
+                    raise CryptoError(
+                        f"File too large. Maximum size is {MAX_FILE_SIZE/(1024*1024):.1f} MB"
+                    )
     
     def _check_path(self) -> None:
         """
@@ -86,19 +123,22 @@ class StreamProcessor:
         Raises:
             CryptoError: If file operations fail
         """
-        self._check_path()
-        try:
-            self.file = open(self.path, self.mode)
-        except OSError as e:
-            raise CryptoError(f"Failed to open file: {e}")
-        
-        # Setup progress bar for reading
-        if self.mode == 'rb':
+        if isinstance(self.path, (str, bytes, os.PathLike)):
+            self._check_path()
             try:
-                size = os.path.getsize(self.path)
-                self._progress = ProgressBar(size)
-            except OSError:
-                pass  # Skip progress if we can't get file size
+                self.file = open(self.path, self.mode)
+            except OSError as e:
+                raise CryptoError(f"Failed to open file: {e}")
+            
+            # Setup progress bar for reading
+            if self.mode == 'rb':
+                try:
+                    size = os.path.getsize(self.path)
+                    self._progress = ProgressBar(size)
+                except OSError:
+                    pass  # Skip progress if we can't get file size
+        else:
+            self.file = self.path  # Use provided file object
                 
         return self
     
@@ -212,16 +252,6 @@ def encrypt_stream(r: StreamProcessor, w: StreamProcessor, passphrase: str) -> N
                 add_timing_jitter()  # Add jitter between chunks
                 
             w.write(encryptor.finalize() + encryptor.tag)
-        encryptor = Cipher(
-            algorithms.AES(key),
-            modes.GCM(nonce),
-            backend=default_backend()
-        ).encryptor()
-        
-        for chunk in iter(lambda: r.read(CHUNK_SIZE), b""):
-            w.write(encryptor.update(chunk))
-        
-        w.write(encryptor.finalize() + encryptor.tag)
     except Exception as e:
         raise CryptoError(f"Encryption failed: {e}")
 
@@ -265,28 +295,69 @@ def decrypt_stream(r: StreamProcessor, w: StreamProcessor, passphrase: str) -> N
     except Exception as e:
         raise CryptoError(f"Decryption failed: {e}")
 
-def encrypt_text(plaintext: str, passphrase: str) -> str:
+def encrypt_text(text: str, passphrase: str) -> str:
     """
     Encrypt text using AES-256-GCM.
     
     Args:
-        plaintext: Text to encrypt
+        text: Text to encrypt
         passphrase: Encryption password
         
     Returns:
         Base64-encoded encrypted text
-        
-    Raises:
-        CryptoError: If encryption fails
     """
     try:
-        ri = io.BytesIO(plaintext.encode())
+        data = text.encode('utf-8')
         wi = io.BytesIO()
-        with StreamProcessor(ri, 'rb') as r, StreamProcessor(wi, 'wb') as w:
-            encrypt_stream(r, w, passphrase)
-        return base64.b64encode(wi.getvalue()).decode()
+        
+        # Use a context manager for BytesIO to ensure proper cleanup
+        with io.BytesIO(data) as ri:
+            with StreamProcessor(ri, 'rb') as r, StreamProcessor(wi, 'wb') as w:
+                encrypt_stream(r, w, passphrase)
+                
+        # Get encrypted data after the stream is processed but before final close
+        encrypted = wi.getvalue()
+        return base64.b64encode(encrypted).decode('ascii')
     except Exception as e:
         raise CryptoError(f"Text encryption failed: {e}")
+    finally:
+        if 'wi' in locals():
+            wi.close()
+
+def decrypt_text(token: str, passphrase: str) -> str:
+    """
+    Decrypt text using AES-256-GCM.
+    
+    Args:
+        token: Base64-encoded encrypted text
+        passphrase: Decryption password
+        
+    Returns:
+        Decrypted text
+        
+    Raises:
+        CryptoError: If decryption fails
+    """
+    try:
+        encrypted = base64.b64decode(token)
+    except ValueError:
+        raise CryptoError("Invalid base64 data")
+        
+    ri = io.BytesIO(encrypted)
+    wi = io.BytesIO()
+    
+    try:
+        r = InMemoryStreamProcessor(ri, 'rb')
+        w = InMemoryStreamProcessor(wi, 'wb')
+        decrypt_stream(r, w, passphrase)
+        wi.seek(0)
+        result = wi.getvalue().decode('utf-8', 'ignore')
+        return result
+    except Exception as e:
+        raise CryptoError(f"Text decryption failed: {e}")
+    finally:
+        ri.close()
+        wi.close()
 
 def decrypt_text(token: str, passphrase: str) -> str:
     """
@@ -302,15 +373,22 @@ def decrypt_text(token: str, passphrase: str) -> str:
     Raises:
         CryptoError: If decryption fails or data is corrupted
     """
+    ri = io.BytesIO(base64.b64decode(token))
+    wi = io.BytesIO()
+    
     try:
-        data = base64.b64decode(token)
-        ri = io.BytesIO(data)
-        wi = io.BytesIO()
         with StreamProcessor(ri, 'rb') as r, StreamProcessor(wi, 'wb') as w:
             decrypt_stream(r, w, passphrase)
-        return wi.getvalue().decode('utf-8', 'ignore')
+            
+        # Get result before closing
+        wi.seek(0)
+        decrypted = wi.getvalue()
+        return decrypted.decode('utf-8', 'ignore')
     except Exception as e:
         raise CryptoError(f"Text decryption failed: {e}")
+    finally:
+        ri.close()
+        wi.close()
 
 def encrypt_file(input_path: str, output_path: str, passphrase: str) -> None:
     """
