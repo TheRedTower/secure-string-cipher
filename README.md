@@ -8,12 +8,13 @@ Interactive AES-GCM Encrypt/Decrypt Tool
 
 ## Features
 
-- Encrypt or decrypt **text** or **files** using a passphrase
-- **AES-256-GCM** with PBKDF2-HMAC-SHA256 key derivation (390,000 iterations)
-- Streams file encryption/decryption in 64 KiB chunks (low memory footprint)
-- **Text mode** wraps ciphertext/tag in Base64 for easy copy/paste
-- Optional clipboard copy via **pyperclip** in text mode
-- **Colourised**, menu-driven interactive wizard
+- 🔐 Encrypt or decrypt **text** or **files** using a passphrase
+- 🛡️ **AES-256-GCM** with PBKDF2-HMAC-SHA256 key derivation (390,000 iterations)
+- ⚡ Streams file encryption/decryption in 64 KiB chunks (low memory footprint)
+- 📋 **Text mode** wraps ciphertext/tag in Base64 for easy copy/paste
+- 📎 Optional clipboard copy via **pyperclip** in text mode
+- 🎨 **Colourised**, menu-driven interactive wizard with clear operation descriptions
+- ✅ Test-friendly CLI with dependency injection support
 
 ## Installation
 
@@ -39,6 +40,19 @@ Run the interactive wizard:
 
 ```bash
 cipher-start
+```
+
+The CLI will present you with a clear menu of operations:
+
+```
+Available Operations:
+  1. Encrypt text
+  2. Decrypt text
+  3. Encrypt file
+  4. Decrypt file
+  5. Exit
+
+Select operation [1]:
 ```
 
 Or use flags:
