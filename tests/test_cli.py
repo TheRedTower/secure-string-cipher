@@ -8,7 +8,6 @@ from unittest.mock import patch
 from io import StringIO
 from secure_string_cipher import encrypt_file, decrypt_file
 from secure_string_cipher.cli import main
-from secure_string_cipher.cli import main
 
 @pytest.fixture
 def mock_stdio():
@@ -47,13 +46,13 @@ class TestCLI:
         
     def test_invalid_mode(self):
         """Test invalid mode selection in CLI."""
-        with patch('sys.stdin', new=StringIO("6\n5\n")) as mock_stdin:
-            with patch('sys.stdout', new=StringIO()) as mock_stdout:
-                with pytest.raises(SystemExit):
-                    main()
-                output = mock_stdout.getvalue()
-                assert "Invalid choice" in output
-                assert "Exiting" in output
+        mock_in = StringIO("6\n5\n")
+        mock_out = StringIO()
+        with pytest.raises(SystemExit):
+            main(in_stream=mock_in, out_stream=mock_out)
+        output = mock_out.getvalue()
+        assert "Invalid choice" in output
+        assert "Exiting" in output
 
     @pytest.mark.skip(reason="Input capture not working in test environment")
     def test_text_decryption_mode(self, mock_stdio):
@@ -119,7 +118,7 @@ class TestCLI:
         mock_in.seek(0)
         
         with pytest.raises(SystemExit) as e:
-            main()
+            main(in_stream=mock_in, out_stream=mock_out)
         assert "Invalid selection" in mock_out.getvalue()
 
     def test_empty_input_handling(self, mock_stdio):
@@ -131,7 +130,7 @@ class TestCLI:
         mock_in.seek(0)
         
         with pytest.raises(SystemExit) as e:
-            main()
+            main(in_stream=mock_in, out_stream=mock_out)
         assert "No message provided" in mock_out.getvalue()
 
     def test_password_validation(self, mock_stdio):
@@ -148,5 +147,5 @@ class TestCLI:
         mock_in.seek(0)
         
         with pytest.raises(SystemExit) as e:
-            main()
+            main(in_stream=mock_in, out_stream=mock_out)
         assert "Password" in mock_out.getvalue()  # Should show password requirements

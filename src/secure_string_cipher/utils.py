@@ -93,12 +93,10 @@ def colorize(text: str, color: str = 'cyan') -> str:
     """
     if not sys.stdout.isatty() or os.getenv("NO_COLOR"):
         return text
-        
-    color_code = COLORS[color if detect_dark_background() else 'blue']
+
+    color_key = color if color in COLORS else ('cyan' if detect_dark_background() else 'blue')
+    color_code = COLORS.get(color_key, COLORS['cyan'])
     return f"{color_code}{text}{COLORS['reset']}"
-
-
-
 def secure_overwrite(path: str) -> None:
     """
     Securely overwrite a file before deletion.
@@ -145,12 +143,4 @@ def handle_timeout(seconds: int) -> TimeoutManager:
     """Set a timeout for user input in seconds."""
     return TimeoutManager(seconds)
 
-def colorize(text: str, color: str = None) -> str:
-    """Add color to text for terminal output."""
-    if not color or not sys.stdout.isatty():
-        return text
-    if color not in COLORS:
-        return text
-    return f"{COLORS[color]}{text}\033[0m"
-    
-    return TimeoutManager()
+# Single colorize implementation above; remove duplicate/stale function and stray return

@@ -38,27 +38,23 @@ __all__ = [
 
 class InMemoryStreamProcessor:
     """Stream processor for in-memory data like strings."""
-    
-    def __init__(self, stream, mode):
-        """Initialize with BytesIO stream."""
+
+    def __init__(self, stream: io.BytesIO, mode: str):
+        """Initialize with a BytesIO stream."""
         self.stream = stream
         self.mode = mode
-        
-    def read(self, size=-1):
-        """Read from stream."""
+
+    def read(self, size: int = -1) -> bytes:
         return self.stream.read(size)
-        
-    def write(self, data):
-        """Write to stream."""
+
+    def write(self, data: bytes) -> int:
         return self.stream.write(data)
-        
-    def tell(self):
-        """Get current position."""
+
+    def tell(self) -> int:
         return self.stream.tell()
-        
-    def seek(self, pos):
-        """Seek to position."""
-        return self.stream.seek(pos)
+
+    def seek(self, pos: int, whence: int = 0) -> int:
+        return self.stream.seek(pos, whence)
 
 class StreamProcessor:
     """Context manager for secure file operations with progress tracking."""
@@ -306,23 +302,29 @@ def encrypt_text(text: str, passphrase: str) -> str:
     Returns:
         Base64-encoded encrypted text
     """
+    ri = io.BytesIO(text.encode('utf-8'))
+    wi = io.BytesIO()
+
     try:
-        data = text.encode('utf-8')
-        wi = io.BytesIO()
-        
-        # Use a context manager for BytesIO to ensure proper cleanup
-        with io.BytesIO(data) as ri:
-            with StreamProcessor(ri, 'rb') as r, StreamProcessor(wi, 'wb') as w:
-                encrypt_stream(r, w, passphrase)
-                
-        # Get encrypted data after the stream is processed but before final close
+        # Use in-memory processors to avoid closing the BytesIO buffers
+        r = InMemoryStreamProcessor(ri, 'rb')
+        w = InMemoryStreamProcessor(wi, 'wb')
+        encrypt_stream(r, w, passphrase)
+
+        wi.seek(0)
         encrypted = wi.getvalue()
         return base64.b64encode(encrypted).decode('ascii')
     except Exception as e:
         raise CryptoError(f"Text encryption failed: {e}")
     finally:
-        if 'wi' in locals():
+        try:
+            ri.close()
+        except Exception:
+            pass
+        try:
             wi.close()
+        except Exception:
+            pass
 
 def decrypt_text(token: str, passphrase: str) -> str:
     """
@@ -341,7 +343,8 @@ def decrypt_text(token: str, passphrase: str) -> str:
     try:
         encrypted = base64.b64decode(token)
     except ValueError:
-        raise CryptoError("Invalid base64 data")
+        # Wrap base64 errors to provide a consistent decryption error message
+        raise CryptoError("Text decryption failed")
         
     ri = io.BytesIO(encrypted)
     wi = io.BytesIO()
@@ -359,36 +362,7 @@ def decrypt_text(token: str, passphrase: str) -> str:
         ri.close()
         wi.close()
 
-def decrypt_text(token: str, passphrase: str) -> str:
-    """
-    Decrypt text using AES-256-GCM.
-    
-    Args:
-        token: Base64-encoded encrypted text
-        passphrase: Decryption password
-        
-    Returns:
-        Decrypted text
-        
-    Raises:
-        CryptoError: If decryption fails or data is corrupted
-    """
-    ri = io.BytesIO(base64.b64decode(token))
-    wi = io.BytesIO()
-    
-    try:
-        with StreamProcessor(ri, 'rb') as r, StreamProcessor(wi, 'wb') as w:
-            decrypt_stream(r, w, passphrase)
-            
-        # Get result before closing
-        wi.seek(0)
-        decrypted = wi.getvalue()
-        return decrypted.decode('utf-8', 'ignore')
-    except Exception as e:
-        raise CryptoError(f"Text decryption failed: {e}")
-    finally:
-        ri.close()
-        wi.close()
+
 
 def encrypt_file(input_path: str, output_path: str, passphrase: str) -> None:
     """

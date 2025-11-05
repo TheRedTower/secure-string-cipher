@@ -112,7 +112,11 @@ class SecureString:
         """Explicitly wipe the string."""
         if hasattr(self, '_chars'):
             secure_wipe(self._chars)
-            self._chars = bytearray()
+            # remove the attribute so accesses raise AttributeError as tests expect
+            try:
+                del self._chars
+            except Exception:
+                self._chars = None
 
 def secure_compare(a: bytes, b: bytes) -> bool:
     """
