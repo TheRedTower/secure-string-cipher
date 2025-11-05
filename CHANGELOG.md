@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2 (2025-11-05)
+
+- **Improved CLI menu**: Added descriptive menu showing all available operations with clear descriptions
+- Better user experience with explicit operation choices
+
 ## 1.0.1 (2025-11-05)
 
 - **Command rename**: CLI command changed from `secure-string-cipher` to `cipher-start` for easier invocation

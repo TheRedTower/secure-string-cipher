@@ -39,9 +39,22 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> Optional[int]:
 
     Uses provided in_stream/out_stream for testability.
     """
+    # Display menu
+    menu = """
+Available Operations:
+  1. Encrypt text      - Encrypt a message (returns base64 string)
+  2. Decrypt text      - Decrypt a base64 encrypted message
+  3. Encrypt file      - Encrypt a file (creates .enc file)
+  4. Decrypt file      - Decrypt an encrypted file
+  5. Exit              - Quit the program
+
+"""
+    out_stream.write(menu)
+    out_stream.flush()
+    
     while True:
         try:
-            out_stream.write("Select operation [1]: ")
+            out_stream.write("Select operation [1-5]: ")
             out_stream.flush()
             choice = in_stream.readline()
             if choice == "":
