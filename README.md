@@ -6,7 +6,7 @@
 
 Interactive AES-GCM Encrypt/Decrypt Tool
 
-**Requirements:** Python 3.10 or higher
+**Requirements:** Python 3.10 or higher (tested up to Python 3.14)
 
 ## Features
 
