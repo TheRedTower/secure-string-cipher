@@ -137,10 +137,21 @@ def _handle_clipboard(_text: str) -> None:
     return
 
 
-def main(in_stream: Optional[TextIO] = None, out_stream: Optional[TextIO] = None) -> None:
+def main(
+    in_stream: Optional[TextIO] = None,
+    out_stream: Optional[TextIO] = None,
+    exit_on_completion: bool = True,
+) -> Optional[int]:
     """Run the CLI. Accepts optional in_stream/out_stream for testing.
 
-    Defaults to sys.stdin/sys.stdout when not provided.
+    Args:
+        in_stream: Input stream (defaults to sys.stdin)
+        out_stream: Output stream (defaults to sys.stdout)
+        exit_on_completion: When True (default), exit the process with code 0 on success
+            and 1 on error. When False, return 0 on success or 1 on error.
+
+    Returns:
+        0 on success, 1 on error when exit_on_completion is False. Otherwise None.
     """
     if in_stream is None:
         in_stream = sys.stdin
@@ -152,13 +163,17 @@ def main(in_stream: Optional[TextIO] = None, out_stream: Optional[TextIO] = None
     if mode is None:
         out_stream.write("Exiting\n")
         out_stream.flush()
-        sys.exit(0)
+        if exit_on_completion:
+            sys.exit(0)
+        return 0
 
     # Treat mode 5 as explicit exit (tests provide '5' to exit)
     if mode == 5:
         out_stream.write("Exiting\n")
         out_stream.flush()
-        sys.exit(0)
+        if exit_on_completion:
+            sys.exit(0)
+        return 0
 
     payload = _get_input(mode, in_stream, out_stream)
 
@@ -191,11 +206,20 @@ def main(in_stream: Optional[TextIO] = None, out_stream: Optional[TextIO] = None
         else:
             out_stream.write("Exiting\n")
             out_stream.flush()
-            sys.exit(0)
+            if exit_on_completion:
+                sys.exit(0)
+            return 0
     except Exception as e:
         out_stream.write(f"Error: {e}\n")
         out_stream.flush()
-        sys.exit(1)
+        if exit_on_completion:
+            sys.exit(1)
+        return 1
+
+    # Success path
+    if exit_on_completion:
+        sys.exit(0)
+    return 0
 
 
 if __name__ == '__main__':

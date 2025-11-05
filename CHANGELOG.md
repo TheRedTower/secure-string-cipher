@@ -2,8 +2,9 @@
 
 ## Unreleased
 
-- Make CLI testable: `main()` now accepts optional `in_stream` and `out_stream` file-like parameters so tests can pass StringIO objects and reliably capture I/O without interfering with pytest output capture.
-- Route all CLI input/output through provided streams and avoid writing directly to `sys.__stdout__`.
-- Improve error messages: wrap invalid base64 errors during text decryption into a generic "Text decryption failed" CryptoError to align with tests.
-- Tidy: removed unused helper and imports in `src/secure_string_cipher/cli.py`.
+- CLI testability: `main()` accepts optional `in_stream` and `out_stream` file-like parameters so tests can pass StringIO objects and reliably capture I/O.
+- CLI exit control: add `exit_on_completion` (default True). When False, `main()` returns 0/1 instead of calling `sys.exit()`. Tests use this to avoid catching `SystemExit`.
+- Route all CLI I/O through provided streams; avoid writing to `sys.__stdout__`.
+- Error message consistency: wrap invalid base64 during text decryption into `CryptoError("Text decryption failed")`.
+- Tidy: removed unused helper and imports in `src/secure_string_cipher/cli.py`. Enabled previously skipped CLI tests.
 
