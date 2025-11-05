@@ -12,8 +12,16 @@
   - Vault encrypted with AES-256-GCM using master password
   - Restricted file permissions (600) for vault security
 - **Enhanced CLI**: New menu option (5) for passphrase generation
+- **Docker Improvements**: Completely redesigned Docker setup for security and ease of use
+  - Multi-stage build for minimal image size
+  - Runs as non-root user (UID 1000) for enhanced security
+  - Added docker-compose.yml for painless usage
+  - Persistent volumes for vault storage
+  - Security-hardened with no-new-privileges and tmpfs
+  - Layer caching optimized for fast rebuilds
 - **Comprehensive Testing**: Added 37 new tests for passphrase features (72 tests total)
 - **Python Support**: Confirmed compatibility with Python 3.10-3.14
+- **Documentation**: Updated README with comprehensive Docker usage examples
 
 ## 1.0.3 (2025-11-05)
 

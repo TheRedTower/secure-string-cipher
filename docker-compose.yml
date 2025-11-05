@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  cipher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: secure-string-cipher:latest
+    container_name: secure-cipher
+    stdin_open: true
+    tty: true
+    volumes:
+      # Mount current directory for file operations
+      - ./data:/data
+      # Persist the encrypted vault
+      - cipher-vault:/home/cipheruser/.secure-cipher
+    environment:
+      - CIPHER_VAULT_PATH=/home/cipheruser/.secure-cipher/passphrase_vault.enc
+    user: "1000:1000"  # Run as non-root user
+    security_opt:
+      - no-new-privileges:true
+    read_only: false  # Allow writing to /data and vault
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=100m
+
+volumes:
+  cipher-vault:
+    driver: local

@@ -95,19 +95,64 @@ This design makes the CLI deterministic and easy to unit test without relying on
 
 ### Docker
 
-Alternatively, run via Docker without installing anything locally:
+Run via Docker without installing anything locally. The Docker setup is secure, efficient, and easy to use:
+
+#### Quick Start with Docker Compose (Recommended)
 
 ```bash
-# Build the image (once)
+# Clone the repository
+git clone https://github.com/TheRedTower/secure-string-cipher.git
 cd secure-string-cipher
-docker build -t yourusername/secure-string-cipher .
 
-# Run interactively
-docker run --rm -it yourusername/secure-string-cipher
+# Run interactively with docker-compose
+docker-compose run --rm cipher
 
-# Encrypt a file (bind current directory)
-docker run --rm -it -v "$PWD":/data yourusername/secure-string-cipher encrypt-file /data/secret.txt
-docker run --rm -it -v "$PWD":/data yourusername/secure-string-cipher decrypt-file /data/secret.txt.enc
+# The vault and your data directory are automatically persisted
+```
+
+#### Using Docker Directly
+
+```bash
+# Build the image
+docker build -t secure-string-cipher:latest .
+
+# Run interactively (menu-driven)
+docker run --rm -it secure-string-cipher:latest
+
+# Encrypt/decrypt files in current directory
+docker run --rm -it \
+  -v "$PWD:/data" \
+  secure-string-cipher:latest
+
+# With persistent vault for passphrase management
+docker run --rm -it \
+  -v "$PWD:/data" \
+  -v cipher-vault:/home/cipheruser/.secure-cipher \
+  secure-string-cipher:latest
+```
+
+#### Docker Features
+
+- ✅ **Secure**: Runs as non-root user (UID 1000)
+- ✅ **Minimal**: Multi-stage build for smallest image size
+- ✅ **Efficient**: Layer caching optimized for fast rebuilds
+- ✅ **Persistent**: Vault data preserved in named volumes
+- ✅ **Isolated**: No security privileges, read-only where possible
+
+#### Docker Examples
+
+```bash
+# Generate a passphrase
+docker-compose run --rm cipher
+# Then select option 5
+
+# Encrypt a file in your ./data directory
+docker-compose run --rm cipher
+# Then select option 3 and enter /data/yourfile.txt
+
+# Use with persistent vault across sessions
+docker-compose run --rm cipher  # Store passphrases
+docker-compose run --rm cipher  # Retrieve them later
 ```
 
 ## License

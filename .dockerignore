@@ -1,6 +1,73 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
 *.pyc
 *.pyo
-target/
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+env/
+
+# Testing
+.pytest_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
-.git
+Thumbs.db
+target/
+
+# Documentation (keep README.md)
+docs/
+CONTRIBUTING.md
+
+# CI/CD
+tox.ini
+
+# Local files
+*.enc
+*.dec
+.secure-cipher/
+
+# Test files
+tests/
+string_cipher.py
+String-to-hash.py
+string-to-hash/
