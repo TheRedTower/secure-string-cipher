@@ -4,7 +4,6 @@ Tests for timing attack mitigations
 
 import time
 
-
 from secure_string_cipher.timing_safe import (
     add_timing_jitter,
     check_password_strength,
