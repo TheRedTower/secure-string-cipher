@@ -4,8 +4,12 @@ Tests for secure memory operations
 
 import pytest
 
-from secure_string_cipher.secure_memory import (SecureBytes, SecureString,
-                                                secure_compare, secure_wipe)
+from secure_string_cipher.secure_memory import (
+    SecureBytes,
+    SecureString,
+    secure_compare,
+    secure_wipe,
+)
 
 
 def test_secure_wipe():

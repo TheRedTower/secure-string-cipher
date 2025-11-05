@@ -15,8 +15,14 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-from .config import (CHUNK_SIZE, KDF_ITERATIONS, MAX_FILE_SIZE, NONCE_SIZE,
-                     SALT_SIZE, TAG_SIZE)
+from .config import (
+    CHUNK_SIZE,
+    KDF_ITERATIONS,
+    MAX_FILE_SIZE,
+    NONCE_SIZE,
+    SALT_SIZE,
+    TAG_SIZE,
+)
 from .utils import CryptoError, ProgressBar
 
 __all__ = [

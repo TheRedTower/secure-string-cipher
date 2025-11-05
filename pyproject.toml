@@ -55,3 +55,11 @@ dev = [
 
 [project.scripts]
 cipher-start = "secure_string_cipher.cli:main"
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.isort]
+profile = "black"
+line_length = 88

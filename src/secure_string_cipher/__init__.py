@@ -3,12 +3,23 @@ secure_string_cipher - Core encryption functionality
 """
 
 from .cli import main
-from .core import (CryptoError, StreamProcessor, decrypt_file, decrypt_stream,
-                   decrypt_text, derive_key, encrypt_file, encrypt_stream,
-                   encrypt_text)
+from .core import (
+    CryptoError,
+    StreamProcessor,
+    decrypt_file,
+    decrypt_stream,
+    decrypt_text,
+    derive_key,
+    encrypt_file,
+    encrypt_stream,
+    encrypt_text,
+)
 from .secure_memory import SecureBytes, SecureString, secure_wipe
-from .timing_safe import (add_timing_jitter, check_password_strength,
-                          constant_time_compare)
+from .timing_safe import (
+    add_timing_jitter,
+    check_password_strength,
+    constant_time_compare,
+)
 from .utils import ProgressBar, colorize, handle_timeout, secure_overwrite
 
 __version__ = "1.0.0"

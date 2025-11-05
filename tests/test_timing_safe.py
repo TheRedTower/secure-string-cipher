@@ -6,9 +6,11 @@ import time
 
 import pytest
 
-from secure_string_cipher.timing_safe import (add_timing_jitter,
-                                              check_password_strength,
-                                              constant_time_compare)
+from secure_string_cipher.timing_safe import (
+    add_timing_jitter,
+    check_password_strength,
+    constant_time_compare,
+)
 
 
 def test_constant_time_compare():
