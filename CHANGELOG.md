@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.3 (2025-11-05)
+
+- **Python requirement update**: Minimum Python version increased to 3.10
+- **CI optimization**: Reduced test matrix to Python 3.10 and 3.11 only
+- **Type checking improvements**: Added mypy configuration and fixed all type errors
+- **Code quality**: Fixed Black and isort compatibility issues
+- **Codecov**: Made coverage upload failures non-blocking
+
 ## 1.0.2 (2025-11-05)
 
 - **Improved CLI menu**: Added descriptive menu showing all available operations with clear descriptions
