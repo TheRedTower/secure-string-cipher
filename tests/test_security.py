@@ -1,9 +1,11 @@
 """
-Tests for security utilities (filename sanitization, path validation, symlink detection).
+Tests for security utilities (filename sanitization, path validation, symlink detection, privilege checking).
 """
 
 import os
+import sys
 from pathlib import Path
+from unittest.mock import patch
 import pytest
 from secure_string_cipher.security import (
     sanitize_filename,
@@ -11,6 +13,9 @@ from secure_string_cipher.security import (
     validate_safe_path,
     detect_symlink,
     validate_output_path,
+    check_elevated_privileges,
+    check_sensitive_directory,
+    validate_execution_context,
     SecurityError,
 )
 
@@ -429,3 +434,136 @@ class TestValidateOutputPath:
             assert output.parent == subdir
         finally:
             os.chdir(original_cwd)
+
+
+class TestPrivilegeChecking:
+    """Test privilege and execution context validation."""
+    
+    def test_check_elevated_privileges_normal_user(self):
+        """Test that normal users are not flagged as elevated."""
+        # Mock os.geteuid to return non-zero (normal user)
+        with patch('os.geteuid', return_value=1000):
+            assert check_elevated_privileges() is False
+    
+    def test_check_elevated_privileges_root(self):
+        """Test that root user is detected."""
+        # Mock os.geteuid to return 0 (root)
+        with patch('os.geteuid', return_value=0):
+            assert check_elevated_privileges() is True
+    
+    def test_check_elevated_privileges_no_geteuid(self):
+        """Test fallback when os.geteuid doesn't exist."""
+        # Mock a system without geteuid (like Windows without admin check)
+        original_hasattr = hasattr
+        
+        def mock_hasattr(obj, name):
+            if obj is os and name == 'geteuid':
+                return False
+            return original_hasattr(obj, name)
+        
+        with patch('builtins.hasattr', side_effect=mock_hasattr):
+            # Should return False on unknown systems
+            result = check_elevated_privileges()
+            assert result is False
+    
+    def test_check_sensitive_directory_safe_location(self, tmp_path):
+        """Test that safe directories pass the check."""
+        original_cwd = Path.cwd()
+        try:
+            # tmp_path is not a sensitive directory
+            os.chdir(tmp_path)
+            assert check_sensitive_directory() is None
+        finally:
+            os.chdir(original_cwd)
+    
+    def test_check_sensitive_directory_etc(self):
+        """Test that /etc is detected as sensitive."""
+        # Mock cwd to return /etc
+        with patch('pathlib.Path.cwd', return_value=Path('/etc')):
+            warning = check_sensitive_directory()
+            assert warning is not None
+            assert '/etc' in warning
+            assert 'sensitive directory' in warning.lower()
+    
+    def test_check_sensitive_directory_ssh(self):
+        """Test that ~/.ssh is detected as sensitive."""
+        ssh_path = Path.home() / '.ssh'
+        
+        # Mock cwd to return ~/.ssh
+        with patch('pathlib.Path.cwd', return_value=ssh_path):
+            warning = check_sensitive_directory()
+            assert warning is not None
+            assert '.ssh' in warning
+            assert 'sensitive directory' in warning.lower()
+    
+    def test_check_sensitive_directory_subdirectory(self):
+        """Test that subdirectories of sensitive paths are detected."""
+        etc_sub = Path('/etc/systemd')
+        
+        # Mock cwd to return /etc/systemd
+        with patch('pathlib.Path.cwd', return_value=etc_sub):
+            warning = check_sensitive_directory()
+            assert warning is not None
+            assert 'sensitive directory' in warning.lower()
+    
+    def test_validate_execution_context_safe(self, tmp_path):
+        """Test that safe execution context passes validation."""
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            
+            # Mock non-root user
+            with patch('os.geteuid', return_value=1000):
+                assert validate_execution_context(exit_on_error=False) is True
+        finally:
+            os.chdir(original_cwd)
+    
+    def test_validate_execution_context_root_raises_error(self):
+        """Test that root execution raises SecurityError."""
+        # Mock root user
+        with patch('os.geteuid', return_value=0):
+            with pytest.raises(SecurityError) as exc_info:
+                validate_execution_context(exit_on_error=False)
+            
+            error_msg = str(exc_info.value)
+            assert 'elevated privileges' in error_msg.lower()
+            assert 'root' in error_msg.lower() or 'sudo' in error_msg.lower()
+    
+    def test_validate_execution_context_root_exits(self, capsys):
+        """Test that root execution exits when exit_on_error=True."""
+        # Mock root user
+        with patch('os.geteuid', return_value=0):
+            with pytest.raises(SystemExit) as exc_info:
+                validate_execution_context(exit_on_error=True)
+            
+            assert exc_info.value.code == 1
+            
+            # Check that error was printed to stderr
+            captured = capsys.readouterr()
+            assert 'elevated privileges' in captured.err.lower()
+    
+    def test_validate_execution_context_sensitive_dir_raises(self):
+        """Test that sensitive directory raises SecurityError."""
+        # Mock cwd to /etc
+        with patch('pathlib.Path.cwd', return_value=Path('/etc')):
+            # Mock non-root user so only directory check fails
+            with patch('os.geteuid', return_value=1000):
+                with pytest.raises(SecurityError) as exc_info:
+                    validate_execution_context(exit_on_error=False)
+                
+                error_msg = str(exc_info.value)
+                assert 'sensitive directory' in error_msg.lower()
+                assert '/etc' in error_msg
+    
+    def test_validate_execution_context_multiple_errors(self):
+        """Test that multiple security violations are reported together."""
+        # Mock root user AND sensitive directory
+        with patch('os.geteuid', return_value=0):
+            with patch('pathlib.Path.cwd', return_value=Path('/etc')):
+                with pytest.raises(SecurityError) as exc_info:
+                    validate_execution_context(exit_on_error=False)
+                
+                error_msg = str(exc_info.value)
+                # Should contain both errors
+                assert 'elevated privileges' in error_msg.lower()
+                assert 'sensitive directory' in error_msg.lower()

@@ -1,12 +1,13 @@
 """
-Security utilities for filename sanitization and path validation.
+Security utilities for filename sanitization, path validation, and privilege checking.
 
 This module provides security functions to prevent path traversal attacks,
-Unicode exploits, symlink attacks, and other filename-based vulnerabilities.
+Unicode exploits, symlink attacks, and unsafe execution contexts.
 """
 
 import os
 import re
+import sys
 import unicodedata
 from pathlib import Path
 from typing import Optional, Union
@@ -275,3 +276,144 @@ def validate_output_path(
     validate_safe_path(output_path, allowed_dir)
     
     return output_path
+
+
+def check_elevated_privileges() -> bool:
+    """
+    Check if the program is running with elevated privileges (root/sudo).
+    
+    Returns:
+        True if running with elevated privileges, False otherwise
+        
+    Examples:
+        >>> check_elevated_privileges()  # Normal user
+        False
+        >>> check_elevated_privileges()  # Running as root
+        True
+    """
+    # Unix-like systems
+    if hasattr(os, 'geteuid'):
+        return os.geteuid() == 0
+    
+    # Windows - check for admin privileges
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            return ctypes.windll.shell32.IsUserAnAdmin() != 0
+        except (AttributeError, OSError):
+            return False
+    
+    return False
+
+
+def check_sensitive_directory() -> Optional[str]:
+    """
+    Check if running from a sensitive system directory.
+    
+    Detects if the current working directory is in a sensitive location
+    where cryptographic operations could be dangerous (e.g., /etc, ~/.ssh).
+    
+    Returns:
+        Warning message if in sensitive directory, None otherwise
+        
+    Examples:
+        >>> check_sensitive_directory()  # Running from /home/user
+        None
+        >>> check_sensitive_directory()  # Running from /etc
+        '⚠️  Running from sensitive directory: /etc'
+    """
+    cwd = Path.cwd()
+    
+    # Sensitive directories that should not contain encrypted files
+    sensitive_paths = [
+        '/etc',
+        '/bin',
+        '/sbin',
+        '/boot',
+        '/sys',
+        '/proc',
+        '/dev',
+        Path.home() / '.ssh',
+        Path.home() / '.gnupg',
+    ]
+    
+    # Check if cwd is a sensitive path or a subdirectory of one
+    for sensitive in sensitive_paths:
+        try:
+            # Convert to absolute path without requiring existence
+            if sensitive == Path(sensitive):
+                sensitive = Path(sensitive)
+            else:
+                sensitive = Path(sensitive)
+            
+            # Try to check if cwd is relative to sensitive path
+            # This works even if paths don't exist
+            cwd.resolve().relative_to(sensitive.resolve())
+            return (
+                f"⚠️  Running from sensitive directory: {cwd}\n"
+                f"   This directory contains system or security files.\n"
+                f"   Consider running from a safer location like ~/Documents or ~/Downloads"
+            )
+        except (ValueError, OSError):
+            # ValueError: not relative to this path
+            # OSError: path doesn't exist (can't resolve)
+            continue
+    
+    return None
+
+
+def validate_execution_context(exit_on_error: bool = True) -> bool:
+    """
+    Validate that the execution context is safe for cryptographic operations.
+    
+    Checks for:
+    - Elevated privileges (root/sudo)
+    - Sensitive system directories
+    
+    Args:
+        exit_on_error: If True, exits the program on security violations.
+                      If False, returns False on violations.
+        
+    Returns:
+        True if execution context is safe, False if unsafe
+        
+    Raises:
+        SecurityError: If exit_on_error=False and context is unsafe
+        
+    Examples:
+        >>> validate_execution_context()  # Normal user, safe directory
+        True
+        >>> validate_execution_context()  # Running as root
+        False (exits program or raises SecurityError)
+    """
+    errors = []
+    
+    # Check for elevated privileges
+    if check_elevated_privileges():
+        errors.append(
+            "🚫 SECURITY ERROR: Running with elevated privileges (root/sudo)\n"
+            "   This is dangerous and unnecessary for encryption operations.\n"
+            "   Reasons why this is unsafe:\n"
+            "   - Could corrupt system files if encryption goes wrong\n"
+            "   - Encrypted files would be owned by root\n"
+            "   - Violates principle of least privilege\n"
+            "   - Could be exploited by vulnerabilities\n"
+            "\n"
+            "   Solution: Run this program as a normal user without sudo"
+        )
+    
+    # Check for sensitive directory
+    sensitive_warning = check_sensitive_directory()
+    if sensitive_warning:
+        errors.append(sensitive_warning)
+    
+    if errors:
+        error_message = "\n\n".join(errors)
+        
+        if exit_on_error:
+            print(error_message, file=sys.stderr)
+            sys.exit(1)
+        else:
+            raise SecurityError(error_message)
+    
+    return True

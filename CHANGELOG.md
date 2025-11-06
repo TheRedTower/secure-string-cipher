@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.8 (2025-01-11)
+
+- **Security Enhancement**: Added privilege and execution context validation
+  - New security functions:
+    - `check_elevated_privileges()` - Detects if running as root/sudo (Unix) or administrator (Windows)
+    - `check_sensitive_directory()` - Detects execution from sensitive system directories (/etc, ~/.ssh, etc.)
+    - `validate_execution_context()` - Comprehensive execution safety validation
+  - Protections against:
+    - Running with elevated privileges (prevents file ownership issues and system file corruption)
+    - Execution from sensitive directories (prevents accidental encryption of system/security files)
+    - Multiple security violations detected and reported together
+  - Comprehensive test suite with 12 new test cases using mocked os.geteuid()
+  - Tests cover: normal users, root detection, sensitive directories, multiple violations
+  - Cross-platform support (Unix/Linux/macOS with os.geteuid, Windows with ctypes)
+- **Test Suite**: 123 total tests passing (72 original + 51 security tests)
+
 ## 1.0.7 (2025-01-11)
 
 - **Security Enhancement**: Added path validation and symlink attack detection
