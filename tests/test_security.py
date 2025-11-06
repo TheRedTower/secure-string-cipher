@@ -716,7 +716,26 @@ class TestSecureAtomicWrite:
         # Create a read-only directory
         readonly_dir = tmp_path / "readonly"
         readonly_dir.mkdir()
-        readonly_dir.chmod(0o444)
+        
+        # Try to make directory read-only
+        # Note: This might not work in all CI environments (Docker, etc.)
+        try:
+            readonly_dir.chmod(0o444)
+            # Verify the directory is actually read-only
+            test_file = readonly_dir / ".write_test"
+            try:
+                test_file.touch()
+                # If we can write, skip this test as the environment doesn't support it
+                pytest.skip("Environment does not support directory write restrictions")
+            except (PermissionError, OSError):
+                # Good, directory is actually read-only
+                pass
+            finally:
+                # Clean up test file if it was created
+                if test_file.exists():
+                    test_file.unlink()
+        except (OSError, PermissionError):
+            pytest.skip("Environment does not support chmod on directories")
 
         dest = readonly_dir / "test.txt"
 
@@ -725,7 +744,10 @@ class TestSecureAtomicWrite:
                 secure_atomic_write(dest, b"data")
         finally:
             # Restore permissions for cleanup
-            readonly_dir.chmod(0o755)
+            try:
+                readonly_dir.chmod(0o755)
+            except (OSError, PermissionError):
+                pass
 
     def test_secure_atomic_write_preserves_on_failure(self, tmp_path):
         """Test that existing file is preserved if write fails."""
