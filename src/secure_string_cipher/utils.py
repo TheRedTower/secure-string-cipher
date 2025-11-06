@@ -2,6 +2,7 @@
 Utility functions for secure-string-cipher
 """
 
+import contextlib
 import os
 import sys
 import time
@@ -124,10 +125,8 @@ def secure_overwrite(path: str) -> None:
             f.flush()
             os.fsync(f.fileno())
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(path)
-        except OSError:
-            pass
 
 
 class TimeoutManager:
@@ -141,9 +140,7 @@ class TimeoutManager:
         pass
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is not None:
-            return False
-        return True
+        return exc_type is None
 
 
 def handle_timeout(seconds: int) -> TimeoutManager:

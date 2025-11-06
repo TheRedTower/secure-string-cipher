@@ -57,7 +57,7 @@ class PassphraseVault:
             # If decryption fails (wrong password or corrupted), return empty
             raise ValueError(
                 "Failed to decrypt vault. Wrong master password or corrupted vault file."
-            )
+            ) from None
 
     def _save_vault(self, vault_data: dict[str, str], master_password: str) -> None:
         """Encrypt and save the vault.

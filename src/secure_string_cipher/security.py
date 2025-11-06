@@ -142,10 +142,7 @@ def validate_safe_path(
     # Convert to Path objects
     file_path = Path(file_path).resolve()
 
-    if allowed_dir is None:
-        allowed_dir = Path.cwd()
-    else:
-        allowed_dir = Path(allowed_dir).resolve()
+    allowed_dir = Path.cwd() if allowed_dir is None else Path(allowed_dir).resolve()
 
     # Check if resolved path is within allowed directory
     try:
@@ -155,7 +152,7 @@ def validate_safe_path(
     except ValueError:
         raise SecurityError(
             f"Path traversal detected: '{file_path}' is outside allowed directory '{allowed_dir}'"
-        )
+        ) from None
 
 
 def detect_symlink(file_path: str | Path, follow_links: bool = False) -> bool:
@@ -199,12 +196,11 @@ def detect_symlink(file_path: str | Path, follow_links: bool = False) -> bool:
         try:
             target = file_path.resolve()
             target.relative_to(Path.cwd())
-            return True
         except (ValueError, OSError):
             raise SecurityError(
                 f"Symlink attack detected: '{file_path}' points to '{target}' "
                 f"which is outside the current directory"
-            )
+            ) from None
 
     # Check if any parent directory is a symlink
     for parent in file_path.parents:
@@ -221,7 +217,7 @@ def detect_symlink(file_path: str | Path, follow_links: bool = False) -> bool:
             except (ValueError, OSError):
                 raise SecurityError(
                     f"Symlink attack in path: '{parent}' points outside current directory"
-                )
+                ) from None
 
     return True
 
@@ -337,15 +333,14 @@ def check_sensitive_directory() -> str | None:
     # Check if cwd is a sensitive path or a subdirectory of one
     for sensitive in sensitive_paths:
         try:
-            # Convert to absolute path without requiring existence
-            if sensitive == Path(sensitive):
-                sensitive = Path(sensitive)
-            else:
-                sensitive = Path(sensitive)
+            # Convert to Path
+            sensitive_path = (
+                Path(sensitive) if isinstance(sensitive, str) else Path(str(sensitive))
+            )
 
             # Try to check if cwd is relative to sensitive path
             # This works even if paths don't exist
-            cwd.resolve().relative_to(sensitive.resolve())
+            cwd.resolve().relative_to(sensitive_path.resolve())
             return (
                 f"⚠️  Running from sensitive directory: {cwd}\n"
                 f"   This directory contains system or security files.\n"

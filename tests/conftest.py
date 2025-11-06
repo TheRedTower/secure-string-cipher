@@ -2,6 +2,7 @@
 Shared test configuration and fixtures
 """
 
+import contextlib
 import os
 import tempfile
 
@@ -41,7 +42,5 @@ def large_test_file():
 
     yield path
 
-    try:
+    with contextlib.suppress(OSError):
         os.unlink(path)
-    except OSError:
-        pass

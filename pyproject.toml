@@ -72,6 +72,9 @@ select = [
 ]
 ignore = [
     "E501",  # line too long (handled by formatter)
+    "SIM102",  # Use single if statement (readability preference)
+    "SIM105",  # Use contextlib.suppress (explicit is better)
+    "SIM117",  # Combine with statements (readability preference)
 ]
 
 [tool.ruff.format]

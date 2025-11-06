@@ -26,7 +26,7 @@ def test_secure_bytes():
         assert bytes(secure.data) == sensitive
     # After context exit, buffer should be wiped
     with pytest.raises(AttributeError):
-        secure.data
+        secure.data  # noqa: B018
 
 
 def test_secure_string():
@@ -36,7 +36,7 @@ def test_secure_string():
         assert secure.string == sensitive
     # After context exit, string should be wiped
     with pytest.raises(AttributeError):
-        secure.string
+        secure.string  # noqa: B018
 
 
 def test_secure_compare():
@@ -61,7 +61,7 @@ def test_secure_bytes_exception_handling():
         pass
     # Data should be wiped even after exception
     with pytest.raises(AttributeError):
-        secure.data
+        secure.data  # noqa: B018
 
 
 def test_secure_string_exception_handling():
@@ -75,4 +75,4 @@ def test_secure_string_exception_handling():
         pass
     # String should be wiped even after exception
     with pytest.raises(AttributeError):
-        secure.string
+        secure.string  # noqa: B018

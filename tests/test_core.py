@@ -2,6 +2,7 @@
 Test suite for string_cipher.py core functionality
 """
 
+import contextlib
 import os
 import tempfile
 from typing import Final
@@ -37,10 +38,8 @@ def temp_file():
     fd, path = tempfile.mkstemp()
     os.close(fd)
     yield path
-    try:
+    with contextlib.suppress(OSError):
         os.unlink(path)
-    except OSError:
-        pass
 
 
 class TestPasswordValidation:

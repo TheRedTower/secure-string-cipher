@@ -112,7 +112,7 @@ class StreamProcessor:
                     f.write(b"test")
                 os.unlink(test_file)
             except OSError as e:
-                raise CryptoError(f"Cannot write to directory: {e}")
+                raise CryptoError(f"Cannot write to directory: {e}") from e
 
     def __enter__(self) -> StreamProcessor:
         """
@@ -129,7 +129,7 @@ class StreamProcessor:
             try:
                 self.file = open(self.path, self.mode)  # type: ignore[assignment]
             except OSError as e:
-                raise CryptoError(f"Failed to open file: {e}")
+                raise CryptoError(f"Failed to open file: {e}") from e
 
             # Setup progress bar for reading
             if self.mode == "rb":
@@ -189,7 +189,7 @@ class StreamProcessor:
             self.bytes_processed += n
             return n
         except OSError as e:
-            raise CryptoError(f"Write failed: {e}")
+            raise CryptoError(f"Write failed: {e}") from e
 
 
 def derive_key(passphrase: str, salt: bytes) -> bytes:
@@ -220,7 +220,7 @@ def derive_key(passphrase: str, salt: bytes) -> bytes:
             with SecureBytes(secure_pass.string.encode()) as secure_bytes:
                 return kdf.derive(secure_bytes.data)
     except Exception as e:
-        raise CryptoError(f"Key derivation failed: {e}")
+        raise CryptoError(f"Key derivation failed: {e}") from e
 
 
 def encrypt_stream(r: StreamProcessor, w: StreamProcessor, passphrase: str) -> None:
@@ -256,7 +256,7 @@ def encrypt_stream(r: StreamProcessor, w: StreamProcessor, passphrase: str) -> N
 
             w.write(encryptor.finalize() + encryptor.tag)
     except Exception as e:
-        raise CryptoError(f"Encryption failed: {e}")
+        raise CryptoError(f"Encryption failed: {e}") from e
 
 
 def decrypt_stream(r: StreamProcessor, w: StreamProcessor, passphrase: str) -> None:
@@ -295,7 +295,7 @@ def decrypt_stream(r: StreamProcessor, w: StreamProcessor, passphrase: str) -> N
     except CryptoError:
         raise
     except Exception as e:
-        raise CryptoError(f"Decryption failed: {e}")
+        raise CryptoError(f"Decryption failed: {e}") from e
 
 
 def encrypt_text(text: str, passphrase: str) -> str:
@@ -322,7 +322,7 @@ def encrypt_text(text: str, passphrase: str) -> str:
         encrypted = wi.getvalue()
         return base64.b64encode(encrypted).decode("ascii")
     except Exception as e:
-        raise CryptoError(f"Text encryption failed: {e}")
+        raise CryptoError(f"Text encryption failed: {e}") from e
     finally:
         try:
             ri.close()
@@ -352,7 +352,7 @@ def decrypt_text(token: str, passphrase: str) -> str:
         encrypted = base64.b64decode(token)
     except ValueError:
         # Wrap base64 errors to provide a consistent decryption error message
-        raise CryptoError("Text decryption failed")
+        raise CryptoError("Text decryption failed") from None
 
     ri = io.BytesIO(encrypted)
     wi = io.BytesIO()
@@ -365,7 +365,7 @@ def decrypt_text(token: str, passphrase: str) -> str:
         result = wi.getvalue().decode("utf-8", "ignore")
         return result
     except Exception as e:
-        raise CryptoError(f"Text decryption failed: {e}")
+        raise CryptoError(f"Text decryption failed: {e}") from e
     finally:
         ri.close()
         wi.close()
