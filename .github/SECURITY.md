@@ -44,19 +44,6 @@ We take security bugs seriously. We appreciate your efforts to responsibly discl
    - Fix development: 1-2 weeks
    - Public disclosure: After fix is validated and released (typically 90 days from initial report or when fix is deployed, whichever is sooner)
 
-### PGP Key for Encrypted Communication
-
-For highly sensitive security reports, you can encrypt your message using our PGP key:
-
-```
------BEGIN PGP PUBLIC KEY BLOCK-----
-[To be added - Generate and insert your PGP public key here]
-Key Fingerprint: [To be added]
------END PGP PUBLIC KEY BLOCK-----
-```
-
-Alternatively, contact us via email to request our current PGP key.
-
 ## Security Measures
 
 This project implements several security measures:
