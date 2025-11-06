@@ -74,16 +74,15 @@ This project implements several security measures:
    - Secure password input
 
 3. **File Security**
-   - File size limits
-   - Safe file operations
-   - Overwrite protection
-   - Secure file deletion
+   - File size limits (100 MB default)
+   - Safe file operations with atomic writes
+   - Overwrite protection (prompts before overwriting)
+   - Secure file permissions (0o600)
 
 4. **Runtime Security**
-   - Input validation
-   - Memory management
-   - Session timeouts
-   - Error handling
+   - Input validation and sanitization
+   - Memory wiping for sensitive data
+   - Error handling without information leakage
 
 ## Development Security
 
@@ -101,7 +100,6 @@ When contributing:
 
 3. **Testing**
    - Security test cases
-   - Fuzzing
    - Edge cases
    - Error conditions
 
@@ -114,14 +112,14 @@ When contributing:
 
 ### Package Verification
 
-1. **Verify Package Integrity**
+1. **Install from Official Source**
    ```bash
-   # Install from PyPI with hash checking
-   pip install secure-string-cipher --require-hashes
+   # Install from PyPI
+   pip install secure-string-cipher
    ```
 
 2. **Check Package Source**
-   - Always install from official PyPI: `pip install secure-string-cipher`
+   - Always install from official PyPI: https://pypi.org/project/secure-string-cipher/
    - Verify the package author: TheRedTower
    - Check the GitHub repository: https://github.com/TheRedTower/secure-string-cipher
 
@@ -139,10 +137,10 @@ When contributing:
    - Never share passphrases via insecure channels
 
 2. **File Handling**
-   - Always securely delete original files after encryption
    - Store encrypted files in secure locations
    - Maintain backups of encrypted files (but never store passphrases with them)
    - Test decryption before deleting original files
+   - Be aware that original files are not automatically securely deleted
 
 3. **Environment Security**
    - Use the tool on trusted, malware-free systems
@@ -165,9 +163,9 @@ When contributing:
    - All dependencies are from trusted, well-maintained sources
 
 3. **Automated Scanning**
-   - GitHub Dependabot enabled for automatic vulnerability detection
    - Pre-commit hooks with `detect-secrets` to prevent credential leaks
    - CI/CD pipeline includes security checks on every commit
+   - `pip-audit` for vulnerability scanning in dependencies
 
 ### Software Bill of Materials (SBOM)
 
