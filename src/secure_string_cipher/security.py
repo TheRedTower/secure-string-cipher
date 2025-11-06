@@ -15,13 +15,14 @@ from typing import Optional, Union
 
 class SecurityError(Exception):
     """Raised when a security policy is violated."""
+
     pass
 
 
 def sanitize_filename(filename: str, max_length: int = 255) -> str:
     """
     Sanitize filename to prevent security issues.
-    
+
     Protections:
     - Path traversal attempts (../, /)
     - Unicode attacks (RTL override, homoglyphs)
@@ -29,14 +30,14 @@ def sanitize_filename(filename: str, max_length: int = 255) -> str:
     - Excessive length
     - Hidden files (leading dots)
     - Special/unsafe characters
-    
+
     Args:
         filename: Original filename to sanitize
         max_length: Maximum allowed filename length (default 255)
-        
+
     Returns:
         Sanitized safe filename
-        
+
     Examples:
         >>> sanitize_filename("../../../etc/passwd")
         'etc_passwd'
@@ -47,39 +48,36 @@ def sanitize_filename(filename: str, max_length: int = 255) -> str:
     """
     # Normalize Unicode (NFKD decomposition)
     # This prevents homoglyph attacks and normalizes lookalike characters
-    filename = unicodedata.normalize('NFKD', filename)
-    
+    filename = unicodedata.normalize("NFKD", filename)
+
     # Remove all control characters (including null bytes)
     # Control characters are in category 'C'
-    filename = ''.join(
-        c for c in filename 
-        if unicodedata.category(c)[0] != 'C'
-    )
-    
+    filename = "".join(c for c in filename if unicodedata.category(c)[0] != "C")
+
     # Normalize path separators (both Unix and Windows)
     # This allows os.path.basename to work correctly
-    filename = filename.replace('\\', '/')
-    
+    filename = filename.replace("\\", "/")
+
     # Extract basename only - removes ALL path components
     # This handles ../../../etc/passwd -> passwd
     filename = os.path.basename(filename)
-    
+
     # Remove path traversal sequences that might remain
-    filename = filename.replace('..', '')
-    
+    filename = filename.replace("..", "")
+
     # Remove leading dots to prevent hidden file creation
-    filename = filename.lstrip('.')
-    
+    filename = filename.lstrip(".")
+
     # Replace unsafe characters with underscores
     # Allow only: alphanumeric, dash, underscore, dot
-    filename = re.sub(r'[^a-zA-Z0-9._-]', '_', filename)
-    
+    filename = re.sub(r"[^a-zA-Z0-9._-]", "_", filename)
+
     # Collapse multiple consecutive underscores to single underscore
-    filename = re.sub(r'_+', '_', filename)
-    
+    filename = re.sub(r"_+", "_", filename)
+
     # Remove leading/trailing underscores
-    filename = filename.strip('_')
-    
+    filename = filename.strip("_")
+
     # Limit filename length
     if len(filename) > max_length:
         name, ext = os.path.splitext(filename)
@@ -87,22 +85,22 @@ def sanitize_filename(filename: str, max_length: int = 255) -> str:
         available = max_length - len(ext) - 1
         name = name[:available]
         filename = name + ext
-    
+
     # Ensure filename is not empty
     if not filename:
-        filename = 'decrypted_file'
-    
+        filename = "decrypted_file"
+
     return filename
 
 
 def validate_filename_safety(original: str, sanitized: str) -> Optional[str]:
     """
     Check if filename was modified during sanitization and return warning.
-    
+
     Args:
         original: Original filename before sanitization
         sanitized: Filename after sanitization
-        
+
     Returns:
         Warning message if filename was changed, None otherwise
     """
@@ -117,26 +115,25 @@ def validate_filename_safety(original: str, sanitized: str) -> Optional[str]:
 
 
 def validate_safe_path(
-    file_path: Union[str, Path], 
-    allowed_dir: Optional[Union[str, Path]] = None
+    file_path: Union[str, Path], allowed_dir: Optional[Union[str, Path]] = None
 ) -> bool:
     """
     Validate that a file path is safe and doesn't escape allowed directory.
-    
+
     This function prevents directory traversal attacks by ensuring the resolved
     path stays within the allowed directory boundary.
-    
+
     Args:
         file_path: Path to validate
-        allowed_dir: Directory that file_path must be within. 
+        allowed_dir: Directory that file_path must be within.
                     If None, uses current working directory.
-        
+
     Returns:
         True if path is safe, False otherwise
-        
+
     Raises:
         SecurityError: If path attempts to escape allowed directory
-        
+
     Examples:
         >>> validate_safe_path("/tmp/safe.txt", "/tmp")
         True
@@ -145,12 +142,12 @@ def validate_safe_path(
     """
     # Convert to Path objects
     file_path = Path(file_path).resolve()
-    
+
     if allowed_dir is None:
         allowed_dir = Path.cwd()
     else:
         allowed_dir = Path(allowed_dir).resolve()
-    
+
     # Check if resolved path is within allowed directory
     try:
         # Will raise ValueError if file_path is not relative to allowed_dir
@@ -165,24 +162,24 @@ def validate_safe_path(
 def detect_symlink(file_path: Union[str, Path], follow_links: bool = False) -> bool:
     """
     Detect if a path is or contains a symbolic link.
-    
+
     This prevents symlink attacks where an attacker creates a symlink
     pointing to a sensitive file (e.g., /etc/passwd) and tricks the
     program into overwriting it.
-    
+
     Args:
         file_path: Path to check for symlinks
         follow_links: If False, raises error on any symlink.
                      If True, only checks if target is outside cwd.
-        
+
     Returns:
         True if path is safe (no symlinks or acceptable symlink)
         False if symlink detected (when follow_links=False)
-        
+
     Raises:
         SecurityError: If symlink detected and follow_links=False, or if
                       symlink points outside current working directory
-        
+
     Examples:
         >>> detect_symlink("/tmp/normal.txt")
         True
@@ -190,7 +187,7 @@ def detect_symlink(file_path: Union[str, Path], follow_links: bool = False) -> b
         False (raises SecurityError)
     """
     file_path = Path(file_path)
-    
+
     # Check if the path itself is a symlink
     if file_path.is_symlink():
         if not follow_links:
@@ -198,7 +195,7 @@ def detect_symlink(file_path: Union[str, Path], follow_links: bool = False) -> b
                 f"Symlink detected: '{file_path}' is a symbolic link. "
                 f"This could be a symlink attack."
             )
-        
+
         # If following links, ensure target is within cwd
         try:
             target = file_path.resolve()
@@ -209,7 +206,7 @@ def detect_symlink(file_path: Union[str, Path], follow_links: bool = False) -> b
                 f"Symlink attack detected: '{file_path}' points to '{target}' "
                 f"which is outside the current directory"
             )
-    
+
     # Check if any parent directory is a symlink
     for parent in file_path.parents:
         if parent.is_symlink():
@@ -217,7 +214,7 @@ def detect_symlink(file_path: Union[str, Path], follow_links: bool = False) -> b
                 raise SecurityError(
                     f"Symlink in path detected: '{parent}' is a symbolic link"
                 )
-            
+
             # Check if symlink target is within cwd
             try:
                 target = parent.resolve()
@@ -226,32 +223,32 @@ def detect_symlink(file_path: Union[str, Path], follow_links: bool = False) -> b
                 raise SecurityError(
                     f"Symlink attack in path: '{parent}' points outside current directory"
                 )
-    
+
     return True
 
 
 def validate_output_path(
     output_path: Union[str, Path],
     allowed_dir: Optional[Union[str, Path]] = None,
-    allow_symlinks: bool = False
+    allow_symlinks: bool = False,
 ) -> Path:
     """
     Comprehensive validation for output file paths.
-    
+
     Combines sanitization, path validation, and symlink detection into
     one convenient function for validating output file paths.
-    
+
     Args:
         output_path: Path to validate and sanitize
         allowed_dir: Directory that output must be within (default: cwd)
         allow_symlinks: Whether to allow symlinks (default: False)
-        
+
     Returns:
         Validated and sanitized Path object
-        
+
     Raises:
         SecurityError: If any security check fails
-        
+
     Examples:
         >>> validate_output_path("output.txt")
         PosixPath('/current/dir/output.txt')
@@ -259,32 +256,32 @@ def validate_output_path(
         SecurityError: Path traversal detected
     """
     output_path = Path(output_path)
-    
+
     # Sanitize the filename component
     sanitized_name = sanitize_filename(output_path.name)
     output_path = output_path.parent / sanitized_name
-    
+
     # Check for symlinks
     detect_symlink(output_path, follow_links=allow_symlinks)
-    
+
     # Validate path doesn't escape allowed directory
     if allowed_dir is None:
         allowed_dir = Path.cwd()
-    
+
     # Resolve to absolute path
     output_path = output_path.resolve()
     validate_safe_path(output_path, allowed_dir)
-    
+
     return output_path
 
 
 def check_elevated_privileges() -> bool:
     """
     Check if the program is running with elevated privileges (root/sudo).
-    
+
     Returns:
         True if running with elevated privileges, False otherwise
-        
+
     Examples:
         >>> check_elevated_privileges()  # Normal user
         False
@@ -292,30 +289,31 @@ def check_elevated_privileges() -> bool:
         True
     """
     # Unix-like systems
-    if hasattr(os, 'geteuid'):
+    if hasattr(os, "geteuid"):
         return os.geteuid() == 0
-    
+
     # Windows - check for admin privileges
-    if sys.platform == 'win32':
+    if sys.platform == "win32":
         try:
             import ctypes
+
             return ctypes.windll.shell32.IsUserAnAdmin() != 0
         except (AttributeError, OSError):
             return False
-    
+
     return False
 
 
 def check_sensitive_directory() -> Optional[str]:
     """
     Check if running from a sensitive system directory.
-    
+
     Detects if the current working directory is in a sensitive location
     where cryptographic operations could be dangerous (e.g., /etc, ~/.ssh).
-    
+
     Returns:
         Warning message if in sensitive directory, None otherwise
-        
+
     Examples:
         >>> check_sensitive_directory()  # Running from /home/user
         None
@@ -323,20 +321,20 @@ def check_sensitive_directory() -> Optional[str]:
         '⚠️  Running from sensitive directory: /etc'
     """
     cwd = Path.cwd()
-    
+
     # Sensitive directories that should not contain encrypted files
     sensitive_paths = [
-        '/etc',
-        '/bin',
-        '/sbin',
-        '/boot',
-        '/sys',
-        '/proc',
-        '/dev',
-        Path.home() / '.ssh',
-        Path.home() / '.gnupg',
+        "/etc",
+        "/bin",
+        "/sbin",
+        "/boot",
+        "/sys",
+        "/proc",
+        "/dev",
+        Path.home() / ".ssh",
+        Path.home() / ".gnupg",
     ]
-    
+
     # Check if cwd is a sensitive path or a subdirectory of one
     for sensitive in sensitive_paths:
         try:
@@ -345,7 +343,7 @@ def check_sensitive_directory() -> Optional[str]:
                 sensitive = Path(sensitive)
             else:
                 sensitive = Path(sensitive)
-            
+
             # Try to check if cwd is relative to sensitive path
             # This works even if paths don't exist
             cwd.resolve().relative_to(sensitive.resolve())
@@ -358,28 +356,28 @@ def check_sensitive_directory() -> Optional[str]:
             # ValueError: not relative to this path
             # OSError: path doesn't exist (can't resolve)
             continue
-    
+
     return None
 
 
 def validate_execution_context(exit_on_error: bool = True) -> bool:
     """
     Validate that the execution context is safe for cryptographic operations.
-    
+
     Checks for:
     - Elevated privileges (root/sudo)
     - Sensitive system directories
-    
+
     Args:
         exit_on_error: If True, exits the program on security violations.
                       If False, returns False on violations.
-        
+
     Returns:
         True if execution context is safe, False if unsafe
-        
+
     Raises:
         SecurityError: If exit_on_error=False and context is unsafe
-        
+
     Examples:
         >>> validate_execution_context()  # Normal user, safe directory
         True
@@ -387,7 +385,7 @@ def validate_execution_context(exit_on_error: bool = True) -> bool:
         False (exits program or raises SecurityError)
     """
     errors = []
-    
+
     # Check for elevated privileges
     if check_elevated_privileges():
         errors.append(
@@ -401,19 +399,19 @@ def validate_execution_context(exit_on_error: bool = True) -> bool:
             "\n"
             "   Solution: Run this program as a normal user without sudo"
         )
-    
+
     # Check for sensitive directory
     sensitive_warning = check_sensitive_directory()
     if sensitive_warning:
         errors.append(sensitive_warning)
-    
+
     if errors:
         error_message = "\n\n".join(errors)
-        
+
         if exit_on_error:
             print(error_message, file=sys.stderr)
             sys.exit(1)
         else:
             raise SecurityError(error_message)
-    
+
     return True
