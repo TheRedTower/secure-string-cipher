@@ -1,6 +1,23 @@
 # Changelog
 
-## 1.0.8 (2025-01-11)
+## 1.0.9 (2025-11-06)
+
+- **Security Enhancement**: Added secure temporary file and atomic write operations
+  - New security functions:
+    - `create_secure_temp_file()` - Creates temporary files with 0o600 permissions (owner read/write only)
+    - `secure_atomic_write()` - Performs atomic file writes with secure permissions
+  - Features:
+    - Context manager for automatic cleanup of temporary files
+    - Atomic operations prevent race conditions and partial writes
+    - Configurable file permissions (default: 0o600)
+    - Directory validation before file creation
+    - Protection against unauthorized file access
+    - Automatic cleanup on errors
+  - Comprehensive test suite with 14 new test cases
+  - Tests cover: secure permissions, cleanup on exception, error handling, large files, empty files
+- **Test Suite**: 137 total tests passing (123 original + 14 new security tests)
+
+## 1.0.8 (2025-11-06)
 
 - **Security Enhancement**: Added privilege and execution context validation
   - New security functions:
@@ -16,7 +33,7 @@
   - Cross-platform support (Unix/Linux/macOS with os.geteuid, Windows with ctypes)
 - **Test Suite**: 123 total tests passing (72 original + 51 security tests)
 
-## 1.0.7 (2025-01-11)
+## 1.0.7 (2025-11-06)
 
 - **Security Enhancement**: Added path validation and symlink attack detection
   - New security functions:
@@ -31,7 +48,7 @@
   - Tests cover: safe paths, subdirectories, path traversal, absolute paths, symlinks, parent symlinks
 - **Test Suite**: 111 total tests passing (72 original + 39 security tests)
 
-## 1.0.6 (2025-01-11)
+## 1.0.6 (2025-11-06)
 
 - **Security Enhancement**: Added filename sanitization module to prevent path traversal attacks
   - New `security.py` module with `sanitize_filename()` and `validate_filename_safety()` functions

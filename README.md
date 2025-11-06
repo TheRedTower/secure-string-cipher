@@ -115,7 +115,7 @@ make ci
 ### Available Commands
 
 ```bash
-make format      # Auto-format with Black + isort
+make format      # Auto-format with Ruff
 make lint        # Check formatting, types, and code quality
 make test        # Run tests
 make test-cov    # Run tests with coverage report
