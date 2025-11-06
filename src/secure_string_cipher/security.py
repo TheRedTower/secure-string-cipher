@@ -2,13 +2,14 @@
 Security utilities for filename sanitization and path validation.
 
 This module provides security functions to prevent path traversal attacks,
-Unicode exploits, and other filename-based vulnerabilities.
+Unicode exploits, symlink attacks, and other filename-based vulnerabilities.
 """
 
 import os
 import re
 import unicodedata
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 
 
 class SecurityError(Exception):
@@ -112,3 +113,165 @@ def validate_filename_safety(original: str, sanitized: str) -> Optional[str]:
             f"   Reason: Contains potentially unsafe characters or path components"
         )
     return None
+
+
+def validate_safe_path(
+    file_path: Union[str, Path], 
+    allowed_dir: Optional[Union[str, Path]] = None
+) -> bool:
+    """
+    Validate that a file path is safe and doesn't escape allowed directory.
+    
+    This function prevents directory traversal attacks by ensuring the resolved
+    path stays within the allowed directory boundary.
+    
+    Args:
+        file_path: Path to validate
+        allowed_dir: Directory that file_path must be within. 
+                    If None, uses current working directory.
+        
+    Returns:
+        True if path is safe, False otherwise
+        
+    Raises:
+        SecurityError: If path attempts to escape allowed directory
+        
+    Examples:
+        >>> validate_safe_path("/tmp/safe.txt", "/tmp")
+        True
+        >>> validate_safe_path("/tmp/../etc/passwd", "/tmp")
+        False (raises SecurityError)
+    """
+    # Convert to Path objects
+    file_path = Path(file_path).resolve()
+    
+    if allowed_dir is None:
+        allowed_dir = Path.cwd()
+    else:
+        allowed_dir = Path(allowed_dir).resolve()
+    
+    # Check if resolved path is within allowed directory
+    try:
+        # Will raise ValueError if file_path is not relative to allowed_dir
+        file_path.relative_to(allowed_dir)
+        return True
+    except ValueError:
+        raise SecurityError(
+            f"Path traversal detected: '{file_path}' is outside allowed directory '{allowed_dir}'"
+        )
+
+
+def detect_symlink(file_path: Union[str, Path], follow_links: bool = False) -> bool:
+    """
+    Detect if a path is or contains a symbolic link.
+    
+    This prevents symlink attacks where an attacker creates a symlink
+    pointing to a sensitive file (e.g., /etc/passwd) and tricks the
+    program into overwriting it.
+    
+    Args:
+        file_path: Path to check for symlinks
+        follow_links: If False, raises error on any symlink.
+                     If True, only checks if target is outside cwd.
+        
+    Returns:
+        True if path is safe (no symlinks or acceptable symlink)
+        False if symlink detected (when follow_links=False)
+        
+    Raises:
+        SecurityError: If symlink detected and follow_links=False, or if
+                      symlink points outside current working directory
+        
+    Examples:
+        >>> detect_symlink("/tmp/normal.txt")
+        True
+        >>> detect_symlink("/tmp/link_to_passwd")  # symlink to /etc/passwd
+        False (raises SecurityError)
+    """
+    file_path = Path(file_path)
+    
+    # Check if the path itself is a symlink
+    if file_path.is_symlink():
+        if not follow_links:
+            raise SecurityError(
+                f"Symlink detected: '{file_path}' is a symbolic link. "
+                f"This could be a symlink attack."
+            )
+        
+        # If following links, ensure target is within cwd
+        try:
+            target = file_path.resolve()
+            target.relative_to(Path.cwd())
+            return True
+        except (ValueError, OSError):
+            raise SecurityError(
+                f"Symlink attack detected: '{file_path}' points to '{target}' "
+                f"which is outside the current directory"
+            )
+    
+    # Check if any parent directory is a symlink
+    for parent in file_path.parents:
+        if parent.is_symlink():
+            if not follow_links:
+                raise SecurityError(
+                    f"Symlink in path detected: '{parent}' is a symbolic link"
+                )
+            
+            # Check if symlink target is within cwd
+            try:
+                target = parent.resolve()
+                target.relative_to(Path.cwd())
+            except (ValueError, OSError):
+                raise SecurityError(
+                    f"Symlink attack in path: '{parent}' points outside current directory"
+                )
+    
+    return True
+
+
+def validate_output_path(
+    output_path: Union[str, Path],
+    allowed_dir: Optional[Union[str, Path]] = None,
+    allow_symlinks: bool = False
+) -> Path:
+    """
+    Comprehensive validation for output file paths.
+    
+    Combines sanitization, path validation, and symlink detection into
+    one convenient function for validating output file paths.
+    
+    Args:
+        output_path: Path to validate and sanitize
+        allowed_dir: Directory that output must be within (default: cwd)
+        allow_symlinks: Whether to allow symlinks (default: False)
+        
+    Returns:
+        Validated and sanitized Path object
+        
+    Raises:
+        SecurityError: If any security check fails
+        
+    Examples:
+        >>> validate_output_path("output.txt")
+        PosixPath('/current/dir/output.txt')
+        >>> validate_output_path("../../../etc/passwd")
+        SecurityError: Path traversal detected
+    """
+    output_path = Path(output_path)
+    
+    # Sanitize the filename component
+    sanitized_name = sanitize_filename(output_path.name)
+    output_path = output_path.parent / sanitized_name
+    
+    # Check for symlinks
+    detect_symlink(output_path, follow_links=allow_symlinks)
+    
+    # Validate path doesn't escape allowed directory
+    if allowed_dir is None:
+        allowed_dir = Path.cwd()
+    
+    # Resolve to absolute path
+    output_path = output_path.resolve()
+    validate_safe_path(output_path, allowed_dir)
+    
+    return output_path

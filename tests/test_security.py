@@ -1,11 +1,16 @@
 """
-Tests for security utilities (filename sanitization).
+Tests for security utilities (filename sanitization, path validation, symlink detection).
 """
 
+import os
+from pathlib import Path
 import pytest
 from secure_string_cipher.security import (
     sanitize_filename,
     validate_filename_safety,
+    validate_safe_path,
+    detect_symlink,
+    validate_output_path,
     SecurityError,
 )
 
@@ -170,3 +175,257 @@ class TestSecurityErrorException:
         with pytest.raises(SecurityError) as exc_info:
             raise SecurityError("Test error")
         assert "Test error" in str(exc_info.value)
+
+
+class TestPathValidation:
+    """Test path validation security."""
+    
+    def test_safe_path_within_allowed_dir(self, tmp_path):
+        """Test that paths within allowed directory are accepted."""
+        allowed_dir = tmp_path
+        safe_file = allowed_dir / "safe.txt"
+        safe_file.touch()
+        
+        assert validate_safe_path(safe_file, allowed_dir) is True
+    
+    def test_safe_path_subdirectory(self, tmp_path):
+        """Test that paths in subdirectories are accepted."""
+        allowed_dir = tmp_path
+        subdir = allowed_dir / "subdir"
+        subdir.mkdir()
+        safe_file = subdir / "file.txt"
+        safe_file.touch()
+        
+        assert validate_safe_path(safe_file, allowed_dir) is True
+    
+    def test_path_traversal_outside_directory(self, tmp_path):
+        """Test that path traversal attempts are blocked."""
+        allowed_dir = tmp_path / "allowed"
+        allowed_dir.mkdir()
+        
+        # Try to escape to parent
+        dangerous_path = allowed_dir / ".." / "escaped.txt"
+        
+        with pytest.raises(SecurityError) as exc_info:
+            validate_safe_path(dangerous_path, allowed_dir)
+        assert "Path traversal detected" in str(exc_info.value)
+        assert "outside allowed directory" in str(exc_info.value)
+    
+    def test_absolute_path_outside_allowed(self, tmp_path):
+        """Test that absolute paths outside allowed dir are blocked."""
+        allowed_dir = tmp_path / "allowed"
+        allowed_dir.mkdir()
+        
+        # Try to access /etc/passwd
+        if os.name != 'nt':  # Unix-like systems
+            with pytest.raises(SecurityError) as exc_info:
+                validate_safe_path("/etc/passwd", allowed_dir)
+            assert "Path traversal detected" in str(exc_info.value)
+    
+    def test_path_validation_with_cwd_default(self, tmp_path):
+        """Test that validation defaults to current working directory."""
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            safe_file = tmp_path / "file.txt"
+            safe_file.touch()
+            
+            # Should accept file in cwd when no allowed_dir specified
+            assert validate_safe_path(safe_file) is True
+        finally:
+            os.chdir(original_cwd)
+    
+    def test_relative_path_resolution(self, tmp_path):
+        """Test that relative paths are resolved correctly."""
+        allowed_dir = tmp_path
+        
+        # Create nested structure
+        subdir = allowed_dir / "sub"
+        subdir.mkdir()
+        file_path = subdir / "file.txt"
+        file_path.touch()
+        
+        # Test with relative path containing ./
+        relative_path = allowed_dir / "sub" / "." / "file.txt"
+        assert validate_safe_path(relative_path, allowed_dir) is True
+
+
+class TestSymlinkDetection:
+    """Test symlink attack detection."""
+    
+    def test_regular_file_no_symlink(self, tmp_path):
+        """Test that regular files pass symlink check."""
+        regular_file = tmp_path / "regular.txt"
+        regular_file.touch()
+        
+        assert detect_symlink(regular_file) is True
+    
+    def test_symlink_detected_and_blocked(self, tmp_path):
+        """Test that symlinks are detected and blocked by default."""
+        target = tmp_path / "target.txt"
+        target.write_text("sensitive data")
+        
+        link = tmp_path / "link.txt"
+        link.symlink_to(target)
+        
+        with pytest.raises(SecurityError) as exc_info:
+            detect_symlink(link)
+        assert "Symlink detected" in str(exc_info.value)
+        assert "symbolic link" in str(exc_info.value)
+    
+    def test_symlink_to_outside_directory_blocked(self, tmp_path):
+        """Test that symlinks pointing outside cwd are blocked."""
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            
+            # Create symlink pointing outside tmp_path
+            outside_target = tmp_path.parent / "outside.txt"
+            outside_target.touch()
+            
+            link = tmp_path / "dangerous_link.txt"
+            link.symlink_to(outside_target)
+            
+            with pytest.raises(SecurityError) as exc_info:
+                detect_symlink(link, follow_links=True)
+            assert "Symlink attack detected" in str(exc_info.value)
+            assert "outside the current directory" in str(exc_info.value)
+        finally:
+            os.chdir(original_cwd)
+    
+    def test_symlink_within_cwd_allowed_when_following(self, tmp_path):
+        """Test that symlinks within cwd are allowed when follow_links=True."""
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            
+            target = tmp_path / "target.txt"
+            target.write_text("data")
+            
+            link = tmp_path / "link.txt"
+            link.symlink_to(target)
+            
+            # Should be allowed when following links and target is within cwd
+            assert detect_symlink(link, follow_links=True) is True
+        finally:
+            os.chdir(original_cwd)
+    
+    def test_symlink_in_parent_path_detected(self, tmp_path):
+        """Test that symlinks in parent directories are detected."""
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            
+            # Create symlinked directory
+            real_dir = tmp_path / "real_dir"
+            real_dir.mkdir()
+            
+            link_dir = tmp_path / "link_dir"
+            link_dir.symlink_to(real_dir)
+            
+            # File inside symlinked directory
+            file_in_link = link_dir / "file.txt"
+            
+            with pytest.raises(SecurityError) as exc_info:
+                detect_symlink(file_in_link, follow_links=False)
+            assert "Symlink in path detected" in str(exc_info.value)
+        finally:
+            os.chdir(original_cwd)
+    
+    def test_nonexistent_file_no_error(self, tmp_path):
+        """Test that checking nonexistent files doesn't raise errors."""
+        nonexistent = tmp_path / "does_not_exist.txt"
+        
+        # Should not raise - file doesn't exist yet (for output paths)
+        # The is_symlink() check returns False for nonexistent paths
+        assert detect_symlink(nonexistent) is True
+
+
+class TestValidateOutputPath:
+    """Test comprehensive output path validation."""
+    
+    def test_valid_output_path(self, tmp_path):
+        """Test that valid output paths are accepted."""
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            
+            output = validate_output_path("output.txt")
+            
+            assert output.name == "output.txt"
+            assert output.parent == tmp_path
+        finally:
+            os.chdir(original_cwd)
+    
+    def test_output_path_sanitizes_filename(self, tmp_path):
+        """Test that output path sanitizes the filename."""
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            
+            # Filename with unsafe characters
+            output = validate_output_path("file<>name.txt")
+            
+            assert output.name == "file_name.txt"  # Sanitized
+        finally:
+            os.chdir(original_cwd)
+    
+    def test_output_path_blocks_traversal(self, tmp_path):
+        """Test that output path blocks directory traversal."""
+        allowed_dir = tmp_path / "allowed"
+        allowed_dir.mkdir()
+        
+        with pytest.raises(SecurityError) as exc_info:
+            validate_output_path("../escaped.txt", allowed_dir=allowed_dir)
+        assert "Path traversal detected" in str(exc_info.value)
+    
+    def test_output_path_blocks_symlinks(self, tmp_path):
+        """Test that output path blocks symlinks by default."""
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            
+            target = tmp_path / "target.txt"
+            target.touch()
+            
+            link = tmp_path / "link.txt"
+            link.symlink_to(target)
+            
+            with pytest.raises(SecurityError):
+                validate_output_path(link)
+        finally:
+            os.chdir(original_cwd)
+    
+    def test_output_path_allows_symlinks_when_enabled(self, tmp_path):
+        """Test that symlinks can be allowed with flag."""
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            
+            target = tmp_path / "target.txt"
+            target.touch()
+            
+            link = tmp_path / "link.txt"
+            link.symlink_to(target)
+            
+            # Should succeed with allow_symlinks=True
+            output = validate_output_path(link, allow_symlinks=True)
+            assert output.resolve() == link.resolve()
+        finally:
+            os.chdir(original_cwd)
+    
+    def test_output_path_with_subdirectory(self, tmp_path):
+        """Test output path in subdirectory."""
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            
+            subdir = tmp_path / "subdir"
+            subdir.mkdir()
+            
+            output = validate_output_path("subdir/output.txt")
+            
+            assert output.name == "output.txt"
+            assert output.parent == subdir
+        finally:
+            os.chdir(original_cwd)

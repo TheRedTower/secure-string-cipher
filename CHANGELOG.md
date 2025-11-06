@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.7 (2025-01-11)
+
+- **Security Enhancement**: Added path validation and symlink attack detection
+  - New security functions:
+    - `validate_safe_path()` - Ensures file paths stay within allowed directory boundaries
+    - `detect_symlink()` - Detects and blocks symbolic link attacks
+    - `validate_output_path()` - Comprehensive output path validation combining sanitization, path validation, and symlink detection
+  - Protections against:
+    - Directory traversal attacks (prevents writes outside allowed directory)
+    - Symlink attacks (prevents writing through symlinks to sensitive files like /etc/passwd)
+    - Path manipulation exploits
+  - Comprehensive test suite with 18 new test cases using tmp_path fixtures
+  - Tests cover: safe paths, subdirectories, path traversal, absolute paths, symlinks, parent symlinks
+- **Test Suite**: 111 total tests passing (72 original + 39 security tests)
+
 ## 1.0.6 (2025-01-11)
 
 - **Security Enhancement**: Added filename sanitization module to prevent path traversal attacks
