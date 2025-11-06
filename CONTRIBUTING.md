@@ -1,112 +1,110 @@
-# Contributing to Secure String Cipher
+# Contributing
 
-First off, thank you for considering contributing to Secure String Cipher! This project aims to provide a secure, user-friendly encryption utility, and we value any contributions that help achieve this goal.
+Thanks for considering contributing to Secure String Cipher! We appreciate any help making this encryption tool better.
 
 ## Security First
 
-Since this is a security-focused project, we have some special considerations:
+Since this is a security tool, we have a few special requirements:
 
-1. **Security Reviews**: All changes that affect cryptographic operations must be reviewed by at least two maintainers
-2. **No Security Through Obscurity**: All security measures must be well-documented and based on proven cryptographic principles
-3. **Dependencies**: Changes to cryptographic dependencies must include a security impact analysis
+1. **Security reviews** - Changes to cryptographic operations need review from at least two maintainers
+2. **No security through obscurity** - All security measures must be well-documented and based on proven principles
+3. **Dependency changes** - Updates to crypto dependencies must include a security impact analysis
 
 ## Code of Conduct
 
-This project adheres to a Code of Conduct adapted from the Contributor Covenant. By participating, you are expected to uphold this code.
+This project follows a Code of Conduct adapted from the Contributor Covenant. By participating, you agree to uphold it.
 
-## How Can I Contribute?
+## How to Contribute
 
 ### Reporting Bugs
 
-* **Security Vulnerabilities**: Please report security issues privately to [security contact]
-* **Regular Bugs**: Use the GitHub issue tracker
-* Include detailed steps to reproduce
-* Mention your operating system and Python version
-* Attach relevant logs or screenshots
+* **Security issues** - Please report these privately to security@avondenecloud.uk
+* **Regular bugs** - Use the GitHub issue tracker
+* Include steps to reproduce, your OS, Python version, and any relevant logs
 
-### Suggesting Enhancements
+### Suggesting Features
 
 * Use the GitHub issue tracker
-* Explain the use case
-* Consider backward compatibility
-* Think about security implications
+* Explain your use case
+* Consider backward compatibility and security implications
 
 ### Pull Requests
 
-1. Fork the repo and create your branch from `main`
-2. If you've added code:
-   * Add tests
-   * Update documentation
+1. Fork the repo and create a branch from `main`
+2. If you add code:
+   * Write tests
+   * Update docs
    * Follow the style guide
-3. Ensure all tests pass
-4. Make sure your commits are clear and focused
+3. Make sure all tests pass
+4. Keep commits clear and focused
 
-## Development Process
+## Development Setup
 
-1. **Setup Development Environment**
+1. **Create your environment**
    ```bash
    python -m venv venv
-   source venv/bin/activate  # or `venv\Scripts\activate` on Windows
+   source venv/bin/activate  # Windows: venv\Scripts\activate
    pip install -e ".[dev]"
    ```
 
-2. **Run Tests**
+2. **Run tests**
    ```bash
    pytest
+   # Or with coverage
+   pytest --cov=secure_string_cipher
    ```
 
-3. **Check Code Style**
+3. **Check code quality**
    ```bash
-   black .
-   isort .
-   flake8
+   make format  # Auto-fix formatting
+   make lint    # Check types and style
+   make ci      # Run everything
    ```
 
 ## Style Guide
 
 * Follow PEP 8
 * Use type hints
-* Document all functions and classes
-* Keep functions focused and small
-* Use descriptive variable names
+* Document all public functions and classes
+* Keep functions small and focused
+* Use descriptive names
 * Comment complex algorithms
 
-## Test Guidelines
+## Testing
 
-* Write tests for all new features
-* Maintain 90%+ code coverage
-* Include both positive and negative test cases
+* Write tests for new features
+* Maintain 90%+ coverage
+* Include positive and negative test cases
 * Test edge cases and error conditions
-* Use parameterized tests for multiple scenarios
+* Use parameterized tests when appropriate
 
 ## Documentation
 
-* Keep README.md up to date
+* Update README.md if needed
 * Document security considerations
-* Update docstrings
-* Add inline comments for complex logic
+* Keep docstrings current
+* Comment complex logic
 
-## Version Control Practices
+## Git Practices
 
-* Use meaningful commit messages
-* One feature/fix per commit
-* Reference issues in commits
-* Keep commits small and focused
+* Write clear commit messages
+* One feature or fix per commit
+* Reference issues in commits (e.g., "Fixes #123")
+* Keep commits focused
 
 ## Release Process
 
 1. Update version in `pyproject.toml`
 2. Update CHANGELOG.md
-3. Run full test suite
+3. Run full test suite (`make ci`)
 4. Create tagged release
-5. Build and publish to PyPI
+5. Publish to PyPI (automated via GitHub Actions)
 
 ## Questions?
 
-Feel free to ask in:
+Ask in:
 * GitHub Issues
 * Project Discussions
-* Development Chat
 
 ## Project Structure
 
@@ -116,16 +114,13 @@ secure-string-cipher/
 │   └── secure_string_cipher/
 │       ├── __init__.py
 │       ├── cli.py
-│       └── core.py
+│       ├── core.py
+│       ├── security.py
+│       ├── passphrase_generator.py
+│       └── passphrase_manager.py
 ├── tests/
-│   ├── __init__.py
-│   ├── test_cli.py
-│   └── test_core.py
-├── docs/
-├── README.md
-├── CONTRIBUTING.md
-├── LICENSE
-└── pyproject.toml
-```
+│   ├── unit/
+│   └── integration/
+````
 
 Thank you for contributing!

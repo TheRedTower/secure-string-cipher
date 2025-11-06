@@ -10,12 +10,12 @@ A simple, secure AES-256-GCM encryption tool with an interactive menu interface.
 
 ## Features
 
-- **Encrypt/Decrypt** text and files using AES-256-GCM
-- **Passphrase Generator** with entropy calculation
-- **Encrypted Vault** to store your passphrases
-- Streams large files in chunks (low memory usage)
-- Text mode outputs Base64 for easy copy/paste
-- Optional clipboard integration
+- Encrypt and decrypt text and files with AES-256-GCM
+- Generate strong random passphrases with entropy calculation
+- Store passphrases in an encrypted vault (optional)
+- Stream large files in chunks for low memory usage
+- Text output in Base64 for easy copy/paste
+- Clipboard integration available
 
 ## Installation
 
@@ -34,25 +34,41 @@ pip install .
 
 ## Usage
 
-Just run:
+Run the interactive CLI:
 
 ```bash
 cipher-start
 ```
 
-You'll see a menu:
+You'll see this menu:
 
 ```
-Available Operations:
-  1. Encrypt text          - Encrypt a message (returns base64 string)
-  2. Decrypt text          - Decrypt a base64 encrypted message
-  3. Encrypt file          - Encrypt a file (creates .enc file)
-  4. Decrypt file          - Decrypt an encrypted file
-  5. Generate passphrase   - Create a secure random passphrase
-  6. Exit                  - Quit the program
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                    ⚡ AVAILABLE OPERATIONS ⚡                     ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+┃                                                                  ┃
+┃  📝  TEXT & FILE ENCRYPTION                                      ┃
+┃                                                                  ┃
+┃    [1] Encrypt Text     →  Encrypt a message (base64 output)    ┃
+┃    [2] Decrypt Text     →  Decrypt an encrypted message         ┃
+┃    [3] Encrypt File     →  Encrypt a file (creates .enc)        ┃
+┃    [4] Decrypt File     →  Decrypt an encrypted file            ┃
+┃                                                                  ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+┃  🔑  PASSPHRASE VAULT (Optional)                                ┃
+┃                                                                  ┃
+┃    [5] Generate Passphrase  →  Create secure random password    ┃
+┃    [6] Store in Vault       →  Save passphrase securely         ┃
+┃    [7] Retrieve from Vault  →  Get stored passphrase            ┃
+┃    [8] List Vault Entries   →  View all stored labels           ┃
+┃    [9] Manage Vault         →  Update or delete entries         ┃
+┃                                                                  ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+┃    [0] Exit               →  Quit application                   ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ```
 
-Pick an option and follow the prompts.
+Choose an option and follow the prompts.
 
 ## Docker
 
@@ -86,50 +102,51 @@ docker run --rm -it \
   ghcr.io/theredtower/secure-string-cipher:latest
 ```
 
-**Image specs:** 78MB, Alpine-based, runs as non-root, 0 critical/high/medium vulnerabilities.
+**Image details:** 78MB Alpine-based image, runs as non-root user, no critical vulnerabilities.
 
 ## Security
 
-- **Algorithm:** AES-256-GCM
+- **Encryption:** AES-256-GCM with authenticated encryption
 - **Key derivation:** PBKDF2-HMAC-SHA256 (390,000 iterations)
-- **Passphrase vault:** AES-256-GCM encrypted with master password
-- **File permissions:** Vault restricted to user-only
+- **Passphrase vault:** Encrypted with AES-256-GCM using your master password
+- **File permissions:** Vault files are user-only (chmod 600)
+- **Password requirements:** Minimum 12 characters with complexity checks
 
 ## Development
 
 ### Quick Start
 
 ```bash
-# Clone and install
+# Clone and install with dev dependencies
 git clone https://github.com/TheRedTower/secure-string-cipher.git
 cd secure-string-cipher
 pip install -e ".[dev]"
 
-# Auto-format code before committing
+# Format code before committing
 make format
 
-# Run all checks (format + lint + test)
+# Run the full test suite
 make ci
 ```
 
 ### Available Commands
 
 ```bash
-make format      # Auto-format with Ruff
+make format      # Auto-format code with Ruff
 make lint        # Check formatting, types, and code quality
-make test        # Run tests
+make test        # Run test suite
 make test-cov    # Run tests with coverage report
 make clean       # Remove temporary files
-make ci          # Run full CI pipeline locally
+make ci          # Run complete CI pipeline locally
 ```
 
-### Code Quality Tools
+### Tools
 
-- **Ruff**: Ultra-fast all-in-one tool that replaces Black, isort, flake8, and more
-- **mypy**: Static type checker (catches type errors)
-- **pytest**: Testing framework
+- **Ruff** – Fast linter and formatter (replaces Black, isort, flake8)
+- **mypy** – Static type checking
+- **pytest** – Testing framework with 150+ tests
 
-**Before pushing**, run `make format` to auto-fix all issues, then `make ci` to verify everything passes.
+Run `make format` before pushing, then `make ci` to verify everything passes.
 
 ## License
 

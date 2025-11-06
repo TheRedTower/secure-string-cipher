@@ -2,189 +2,183 @@
 
 ## Supported Versions
 
-We release security patches for the following versions:
+We provide security patches for these versions:
 
 | Version | Supported          |
-| ------- | ----------------- |
-| 1.0.x   | :white_check_mark: |
-| < 1.0   | :x:                |
+| ------- | ------------------ |
+| 1.0.x   | ✅ Yes             |
+| < 1.0   | ❌ No              |
 
 ## Reporting a Vulnerability
 
-We take security bugs seriously. We appreciate your efforts to responsibly disclose your findings.
+We take security bugs seriously. Thanks for helping us keep this project secure.
 
-### How to Report a Security Vulnerability
+### How to Report
 
-**Please use one of these secure reporting methods:**
+**Choose one of these methods:**
 
-1. **GitHub Security Advisories** (Preferred)
-   - Navigate to [Security Advisories](https://github.com/TheRedTower/secure-string-cipher/security/advisories)
+1. **GitHub Security Advisories** (preferred)
+   - Go to [Security Advisories](https://github.com/TheRedTower/secure-string-cipher/security/advisories)
    - Click "Report a vulnerability"
-   - Fill in the private advisory form
+   - Fill out the private form
 
-2. **Email Disclosure**
-   - Send your findings to: **security@avondenecloud.uk**
-   - **DO NOT** create a public GitHub issue for the vulnerability
+2. **Email**
+   - Send to: **security@avondenecloud.uk**
+   - Don't create a public GitHub issue for vulnerabilities
 
 ### What to Include
 
-- Description of the vulnerability
-- Steps to reproduce
+- What's vulnerable and how it works
+- Steps to reproduce the issue
 - Potential impact
-- Suggested fix (if possible)
+- Ideas for a fix (if you have them)
 
 ### What to Expect
 
-1. **Acknowledgment**: We aim to acknowledge receipt within 24 hours.
-2. **Updates**: We'll provide updates at least every 72 hours.
-3. **Timeline**: 
-   - Initial response: 24 hours
-   - Security advisory: 72 hours
-   - Fix development: 1-2 weeks
-   - Public disclosure: After fix is validated and released (typically 90 days from initial report or when fix is deployed, whichever is sooner)
+1. **Initial response:** Within 24 hours
+2. **Status updates:** At least every 72 hours
+3. **Fix timeline:** 
+   - We'll publish a security advisory within 72 hours
+   - Develop and test a fix within 1-2 weeks
+   - Public disclosure after the fix is released (typically within 90 days)
 
-## Security Measures
+## Security Features
 
 This project implements several security measures:
 
-1. **Cryptographic Operations**
-   - AES-256-GCM for encryption
-   - PBKDF2-HMAC-SHA256 for key derivation
-   - Secure random number generation
-   - Authenticated encryption
+1. **Cryptography**
+   - AES-256-GCM for encryption (authenticated encryption mode)
+   - PBKDF2-HMAC-SHA256 for key derivation (390,000 iterations)
+   - Cryptographically secure random number generation
 
-2. **Password Security**
-   - Minimum length requirements
-   - Complexity validation
-   - Common password checking
-   - Secure password input
+2. **Password Protection**
+   - Minimum 12 characters required
+   - Complexity requirements (mixed case, numbers, symbols)
+   - Common password pattern detection
+   - Constant-time password comparison to prevent timing attacks
 
 3. **File Security**
-   - File size limits (100 MB default)
-   - Safe file operations with atomic writes
-   - Overwrite protection (prompts before overwriting)
-   - Secure file permissions (0o600)
+   - 100 MB file size limit
+   - Atomic file writes (no partial writes on failure)
+   - Overwrite confirmation prompts
+   - Secure file permissions (chmod 600 for vault files)
 
-4. **Runtime Security**
-   - Input validation and sanitization
-   - Memory wiping for sensitive data
-   - Error handling without information leakage
+4. **Runtime Protection**
+   - Input sanitization and validation
+   - Secure memory wiping for sensitive data
+   - Error messages don't leak sensitive information
 
-## Development Security
+## For Contributors
 
 When contributing:
 
 1. **Dependencies**
    - Use latest stable versions
-   - Regular security updates
-   - Vulnerability scanning
+   - Check for security updates regularly
+   - Run `pip-audit` for vulnerability scanning
 
 2. **Code Review**
-   - Security-focused review
-   - Static analysis
-   - Dynamic testing
+   - Security-focused reviews
+   - Static analysis with Ruff and mypy
+   - Test security edge cases
 
 3. **Testing**
-   - Security test cases
-   - Edge cases
-   - Error conditions
+   - Write tests for security-critical code
+   - Test edge cases and error conditions
+   - Verify input validation
 
 4. **Documentation**
-   - Security considerations
-   - Usage warnings
-   - Best practices
+   - Document security considerations
+   - Include usage warnings where appropriate
+   - Follow best practices
 
-## Security Best Practices for Users
+## User Security Guide
 
-### Package Verification
+### Installing Safely
 
-1. **Install from Official Source**
+1. **Install from the official source**
    ```bash
-   # Install from PyPI
    pip install secure-string-cipher
    ```
 
-2. **Check Package Source**
-   - Always install from official PyPI: https://pypi.org/project/secure-string-cipher/
-   - Verify the package author: TheRedTower
-   - Check the GitHub repository: https://github.com/TheRedTower/secure-string-cipher
+2. **Verify the package**
+   - Official PyPI: https://pypi.org/project/secure-string-cipher/
+   - Maintainer: TheRedTower
+   - Source code: https://github.com/TheRedTower/secure-string-cipher
 
-3. **Review Dependencies**
+3. **Check dependencies**
    ```bash
    pip show secure-string-cipher
    ```
 
-### Safe Usage Practices
+### Using it Securely
 
-1. **Passphrase Management**
+1. **Passphrases**
    - Use strong, unique passphrases (12+ characters, mixed case, numbers, symbols)
-   - Never reuse passphrases across different encrypted files
-   - Store passphrases securely (use a password manager)
-   - Never share passphrases via insecure channels
+   - Don't reuse passphrases across different files
+   - Store passphrases in a password manager
+   - Never share passphrases over insecure channels
 
 2. **File Handling**
    - Store encrypted files in secure locations
-   - Maintain backups of encrypted files (but never store passphrases with them)
+   - Keep backups of encrypted files (but not with their passphrases)
    - Test decryption before deleting original files
-   - Be aware that original files are not automatically securely deleted
+   - Original files aren't automatically deleted after encryption
 
-3. **Environment Security**
+3. **Environment**
    - Use the tool on trusted, malware-free systems
-   - Avoid using on shared or public computers
-   - Clear terminal history after use if it contains sensitive data
-   - Keep the software updated to the latest version
+   - Avoid shared or public computers
+   - Clear your terminal history if it contains sensitive commands
+   - Keep the software updated
 
-## Supply Chain Security
+## Supply Chain
 
-### Dependency Management
+### Dependencies
 
-1. **Dependency Vetting**
-   - All dependencies are reviewed for security issues
-   - We use `pip-audit` for vulnerability scanning
-   - Regular updates to address known vulnerabilities
+1. **What we depend on**
+   - `cryptography` - Industry-standard cryptographic library
+   - `pyperclip` - Clipboard support
+   - All from trusted, well-maintained sources
 
-2. **Minimal Dependencies**
-   - Core dependencies: 
-     - `cryptography` (industry-standard cryptographic library)
-     - `pyperclip` (clipboard support)
-   - All dependencies are from trusted, well-maintained sources
+2. **How we vet dependencies**
+   - Review dependencies for security issues
+   - Run `pip-audit` for vulnerability scanning
+   - Update promptly to address vulnerabilities
 
-3. **Automated Scanning**
-   - Pre-commit hooks with `detect-secrets` to prevent credential leaks
-   - CI/CD pipeline includes security checks on every commit
-   - `pip-audit` for vulnerability scanning in dependencies
+3. **Automated checks**
+   - Pre-commit hooks with `detect-secrets` (prevents credential leaks)
+   - CI/CD pipeline runs security checks on every commit
+   - `pip-audit` scans for known vulnerabilities
 
-### Software Bill of Materials (SBOM)
+### Software Bill of Materials
 
-To generate an SBOM for this project:
+Generate an SBOM:
 
 ```bash
 pip install cyclonedx-bom
 cyclonedx-py -r --format json -o sbom.json
 ```
 
-Or view dependencies:
+Or view the dependency tree:
 
 ```bash
 pip install pipdeptree
 pipdeptree -p secure-string-cipher
 ```
 
-## Security Audit History
+## Audit History
 
-| Date       | Type          | Auditor   | Status    | Notes                  |
-|------------|---------------|-----------|-----------|------------------------|
-| 2025-11-06 | Self-Audit    | Internal  | Completed | Initial security review|
-
-_This table will be updated as security audits are performed._
+| Date       | Type       | Auditor  | Status    | Notes                   |
+|------------|------------|----------|-----------|-------------------------|
+| 2025-11-06 | Self-Audit | Internal | Completed | Initial security review |
 
 ## Contact
 
-- **Security Issues**: security@avondenecloud.uk
-- **GitHub Security Advisories**: https://github.com/TheRedTower/secure-string-cipher/security/advisories
-- **General Support**: Open a GitHub issue (non-security related only)
+- **Security issues:** security@avondenecloud.uk
+- **GitHub Security Advisories:** https://github.com/TheRedTower/secure-string-cipher/security/advisories
+- **General support:** Open a GitHub issue (non-security only)
 
 ---
 
-**Last Updated**: November 6, 2025  
-**Version**: 1.0
+**Last updated:** November 6, 2025  
+**Version:** 1.0
