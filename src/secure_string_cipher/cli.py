@@ -17,12 +17,15 @@ from .utils import colorize
 
 def _print_banner(out_stream: TextIO) -> None:
     banner = (
-        "\n╭──────────────────────────────────────╮\n"
-        "│   🔐 Secure String Cipher Utility    │\n"
-        "│        AES-256-GCM Encryption        │\n"
-        "│                                      │\n"
-        "│      Encrypt/Decrypt Securely        │\n"
-        "╰──────────────────────────────────────╯\n"
+        "\n"
+        "╔═══════════════════════════════════════════════════════════════════════╗\n"
+        "║                                                                       ║\n"
+        "║               🔐  SECURE STRING CIPHER UTILITY  🔐                    ║\n"
+        "║                    AES-256-GCM Encryption                             ║\n"
+        "║                  ─────────────────────────────                        ║\n"
+        "║                   Your Data. Encrypted. Secure.                       ║\n"
+        "║                                                                       ║\n"
+        "╚═══════════════════════════════════════════════════════════════════════╝\n"
     )
     # Print the banner to sys.stdout so test patches/capture pick it up
     try:
@@ -41,29 +44,53 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
 
     Uses provided in_stream/out_stream for testability.
     """
-    # Display menu
-    menu = """
-╭─────────────────────────────────────────────────────────────────╮
-│                     AVAILABLE OPERATIONS                        │
-├─────────────────────────────────────────────────────────────────┤
-│  📝 TEXT & FILE ENCRYPTION                                      │
-│    1. Encrypt text      - Encrypt a message (base64 output)     │
-│    2. Decrypt text      - Decrypt an encrypted message          │
-│    3. Encrypt file      - Encrypt a file (creates .enc file)    │
-│    4. Decrypt file      - Decrypt an encrypted file             │
-│                                                                  │
-│  🔑 PASSPHRASE TOOLS (Optional - for password management)       │
-│    5. Generate passphrase    - Create a secure random password  │
-│    6. Store in vault         - Save a passphrase securely       │
-│    7. Retrieve from vault    - Get a stored passphrase          │
-│    8. List vault entries     - View all stored labels           │
-│    9. Manage vault           - Update/delete vault entries      │
-│                                                                  │
-│  🚪 EXIT                                                         │
-│    0. Exit              - Quit the program                      │
-╰─────────────────────────────────────────────────────────────────╯
+    # --- Programmatically build the menu for perfect alignment ---
+    WIDTH = 70
 
-"""
+    def line(content=""):
+        # This is a simplified way to handle width; a more robust solution
+        # for complex CJK/emoji text would use a library like `wcwidth`.
+        # For this specific menu, manual adjustment is sufficient.
+        padding = WIDTH - 4
+        if "📝" in content or "🔑" in content:
+            padding -= 1  # Adjust for emoji width
+        return f"┃ {content:<{padding}} ┃\n"
+
+    header = "┏" + "━" * (WIDTH - 2) + "┓\n"
+    separator = "┣" + "━" * (WIDTH - 2) + "┫\n"
+    footer = "┗" + "━" * (WIDTH - 2) + "┛\n"
+
+    title = "⚡ AVAILABLE OPERATIONS ⚡"
+
+    menu_parts = [
+        header,
+        f"┃ {title:^{WIDTH-4}} ┃\n",
+        separator,
+        line(),
+        line("📝  TEXT & FILE ENCRYPTION"),
+        line(),
+        line("   [1] Encrypt Text     →  Encrypt a message (base64 output)"),
+        line("   [2] Decrypt Text     →  Decrypt an encrypted message"),
+        line("   [3] Encrypt File     →  Encrypt a file (creates .enc)"),
+        line("   [4] Decrypt File     →  Decrypt an encrypted file"),
+        line(),
+        separator,
+        line("🔑  PASSPHRASE VAULT (Optional)"),
+        line(),
+        line("   [5] Generate Passphrase  →  Create secure random password"),
+        line("   [6] Store in Vault       →  Save passphrase securely"),
+        line("   [7] Retrieve from Vault  →  Get stored passphrase"),
+        line("   [8] List Vault Entries   →  View all stored labels"),
+        line("   [9] Manage Vault         →  Update or delete entries"),
+        line(),
+        separator,
+        line("   [0] Exit               →  Quit application"),
+        footer
+    ]
+
+    menu = "".join(menu_parts)
+    # --- End of menu construction ---
+
     out_stream.write(menu)
     out_stream.flush()
 
