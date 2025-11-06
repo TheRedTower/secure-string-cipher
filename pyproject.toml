@@ -35,14 +35,24 @@ classifiers = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0.0",
+    "pytest>=8.0.0",
     "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.5.0",        # Parallel test execution
+    "pytest-timeout>=2.2.0",      # Prevent hanging tests
+    "pytest-mock>=3.12.0",        # Better mocking
+    "pytest-randomly>=3.15.0",    # Random test order
+    "pytest-benchmark>=4.0.0",    # Performance testing
+    "hypothesis>=6.92.0",         # Property-based testing
+    "faker>=20.0.0",              # Test data generation
+    "freezegun>=1.4.0",           # Time mocking
     "mypy>=1.0.0",
     "ruff>=0.8.0",
 ]
 test = [
-    "pytest>=7.0.0",
+    "pytest>=8.0.0",
     "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.5.0",        # Parallel execution
+    "pytest-timeout>=2.2.0",      # Timeout protection
 ]
 
 [project.urls]
@@ -88,3 +98,74 @@ warn_unused_configs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true
 no_implicit_optional = false
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--tb=short",
+    "--cov=src/secure_string_cipher",
+    "--cov-report=term-missing",
+    "--cov-report=html:htmlcov",
+    "--cov-report=json:coverage.json",
+    "--cov-fail-under=79",
+    "--timeout=30",
+    "--maxfail=5",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "e2e: marks tests as end-to-end tests",
+    "security: marks tests as security-focused tests",
+    "benchmark: marks tests as performance benchmarks",
+    "unit: marks tests as unit tests",
+    "smoke: marks tests as smoke tests",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+parallel = true
+omit = [
+    "tests/*",
+    "*/test_*.py",
+    "*/__pycache__/*",
+    "*/venv/*",
+    "*/virtualenv/*",
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+skip_empty = true
+sort = "Cover"
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.coverage.json]
+output = "coverage.json"
+pretty_print = true
