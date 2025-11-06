@@ -78,7 +78,9 @@ class TestMenuDisplay:
 class TestValidInputs:
     """Test all valid input options (0-9)."""
 
-    @pytest.mark.parametrize("choice", ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"])
+    @pytest.mark.parametrize(
+        "choice", ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+    )
     def test_valid_single_digit_choices(self, choice):
         """All single-digit choices 0-9 should be accepted."""
         in_stream = io.StringIO(f"{choice}\n")
