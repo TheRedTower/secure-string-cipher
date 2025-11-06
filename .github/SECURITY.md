@@ -25,7 +25,6 @@ We take security bugs seriously. We appreciate your efforts to responsibly discl
 2. **Email Disclosure**
    - Send your findings to: **security@avondenecloud.uk**
    - **DO NOT** create a public GitHub issue for the vulnerability
-   - For sensitive information, encrypt using our PGP key (see below)
 
 ### What to Include
 
@@ -145,8 +144,9 @@ When contributing:
    - Regular updates to address known vulnerabilities
 
 2. **Minimal Dependencies**
-   - Core dependencies: `cryptography` (industry-standard library)
-   - Optional dependencies: `pyperclip` (clipboard support)
+   - Core dependencies: 
+     - `cryptography` (industry-standard cryptographic library)
+     - `pyperclip` (clipboard support)
    - All dependencies are from trusted, well-maintained sources
 
 3. **Automated Scanning**
