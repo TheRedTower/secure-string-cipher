@@ -3,131 +3,118 @@
 ## Quick Start
 
 ```bash
-# Clone and install
+# Clone and install with dev dependencies
 git clone https://github.com/TheRedTower/secure-string-cipher.git
 cd secure-string-cipher
 pip install -e ".[dev]"
 ```
 
-## Development Workflow
+## Workflow
 
-### Before Every Commit
+### Before Committing
 
 ```bash
-make format    # Auto-fix all formatting issues
-make ci        # Run full CI pipeline (format check + lint + tests)
+make format    # Fix formatting automatically
+make ci        # Run full CI pipeline locally
 ```
 
-### Available Commands
+### Commands
 
 ```bash
-make help      # Show all available commands
-make format    # Auto-format code with Ruff
-make lint      # Check code quality (Ruff + mypy)
-make test      # Run tests
-make test-cov  # Run tests with coverage report
+make help      # List all commands
+make format    # Auto-format with Ruff
+make lint      # Check style, types, and code quality
+make test      # Run test suite
+make test-cov  # Run tests with coverage
 make clean     # Remove temporary files
-make ci        # Full CI check (format + lint + test)
+make ci        # Run complete CI checks
 ```
 
-## Tools Explained
+## Tools
 
-### Ruff (All-in-One Tool)
-- **Replaces**: Black (formatter), isort (import sorter), flake8 (linter), and more
-- **Speed**: 10-100x faster than Black
-- **What it does**: Formats code, sorts imports, catches bugs
-- **Configuration**: `pyproject.toml` → `[tool.ruff]`
+### Ruff (Linter + Formatter)
+- Replaces Black, isort, flake8, and more
+- 10-100x faster than Black
+- Formats code, sorts imports, catches bugs
+- Config in `pyproject.toml` under `[tool.ruff]`
 
 ### mypy (Type Checker)
-- **Purpose**: Catches type-related bugs before runtime
-- **What it checks**: Function arguments, return types, None checks
-- **Configuration**: `pyproject.toml` → `[tool.mypy]`
+- Catches type errors before runtime
+- Checks arguments, return types, None handling
+- Config in `pyproject.toml` under `[tool.mypy]`
 
-### pytest (Test Framework)
-- **Purpose**: Runs automated tests
-- **Features**: Fixtures, parametrization, coverage reports
-- **Run tests**: `pytest tests/` or `make test`
+### pytest (Testing)
+- Runs automated tests (150+ tests)
+- Fixtures, parametrization, coverage reports
+- Run with `pytest tests/` or `make test`
 
-## CI/CD Pipeline
+## CI/CD
 
-### GitHub Actions Workflow
-```yaml
-Single job: quality
-├── Install dependencies (with pip cache)
-├── Check code quality (Ruff lint)
-├── Check formatting (Ruff format)
-├── Type check (mypy)
-├── Run tests (pytest + coverage)
-└── Upload coverage (Codecov)
-```
+The GitHub Actions workflow runs:
+1. Install dependencies (with caching)
+2. Check code quality (Ruff lint)
+3. Check formatting (Ruff format)
+4. Type check (mypy)
+5. Run tests (pytest + coverage)
+6. Upload coverage (Codecov)
 
-**Smart caching**: Dependencies are cached between runs for faster CI
-
-### Why This is Better
-- **Before**: 2 jobs (test + lint), ~3 minutes
-- **After**: 1 job with caching, ~1-2 minutes
-- **Simpler**: One tool (Ruff) instead of three (Black + isort + flake8)
-- **Faster**: Ruff is orders of magnitude faster than Black
+All in one job, takes 1-2 minutes.
 
 ## Common Tasks
 
-### Add a New Feature
+### Adding a Feature
 ```bash
-# 1. Create a feature branch
+# Create a branch
 git checkout -b feature/my-feature
 
-# 2. Make your changes
-# Edit files...
-
-# 3. Format and test
+# Make changes, then test
 make format
 make ci
 
-# 4. Commit and push
+# Commit and push
 git add .
 git commit -m "feat: add my feature"
 git push origin feature/my-feature
 ```
 
-### Fix Formatting Issues
+### Fix Formatting
 ```bash
 # Auto-fix everything
 make format
 
-# Check what would change (without modifying)
+# Check without modifying
 ruff format --check src tests
 ```
-
 ### Run Specific Tests
 ```bash
-# Run one test file
+# One test file
 pytest tests/test_security.py
 
-# Run one test class
+# One test class
 pytest tests/test_security.py::TestFilenameSanitization
 
-# Run one test function
+# One test function
 pytest tests/test_security.py::TestFilenameSanitization::test_safe_filename_unchanged
 ```
 
-### Debug Failing CI
+### Debug CI Failures
 ```bash
-# Run exactly what CI runs
+# Run what CI runs
 make ci
 
-# If formatting fails:
+# If formatting fails
 make format
 
-# If linting fails:
+# If linting fails
 ruff check --fix src tests
 
-# If tests fail:
+# If tests fail
 pytest tests/ -v
 ```
 
-## Release Process
+## Releases
 
-### Version Bumping
+### Version Bump
 1. Update version in `pyproject.toml`
 2. Update `CHANGELOG.md`
 3. Commit: `git commit -m "chore: bump version to X.Y.Z"`
@@ -136,47 +123,47 @@ pytest tests/ -v
 
 ### Publishing to PyPI
 ```bash
-# Build package
+# Build
 python -m build
 
-# Upload to PyPI
+# Upload
 python -m twine upload dist/*
 ```
 
 ## Tips
 
-- **Run `make format` before every commit** - saves CI time
-- **Run `make ci` locally** - catches issues before pushing
-- **Use `make help`** - see all available commands
-- **Check `.github/workflows/ci.yml`** - see exact CI steps
+- Run `make format` before committing - saves CI time
+- Run `make ci` locally - catches issues early
+- Use `make help` to see all commands
+- Check `.github/workflows/ci.yml` to see exact CI steps
 
 ## Troubleshooting
 
 ### Ruff Errors
 ```bash
-# See what's wrong
+# See problems
 ruff check src tests
 
 # Auto-fix
 ruff check --fix src tests
 
-# Some fixes are unsafe (require manual review)
+# Include unsafe fixes (review manually)
 ruff check --fix --unsafe-fixes src tests
 ```
 
 ### Test Failures
 ```bash
-# Run with verbose output
+# Verbose output
 pytest tests/ -v
 
-# Run with detailed traceback
+# Extra verbose
 pytest tests/ -vv
 
 # Stop at first failure
 pytest tests/ -x
 ```
 
-### Type Errors (mypy)
+### Type Errors
 ```bash
 # Check types
 mypy src tests
