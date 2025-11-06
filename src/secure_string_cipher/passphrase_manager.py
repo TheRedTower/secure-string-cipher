@@ -6,15 +6,20 @@ in an encrypted vault file. Users can retrieve their passphrases by providing
 the master password.
 """
 
+import hashlib
+import hmac
 import json
 import os
+import shutil
+from datetime import datetime
 from pathlib import Path
 
 from .core import decrypt_text, encrypt_text
+from .security import secure_atomic_write
 
 
 class PassphraseVault:
-    """Manages encrypted passphrase storage."""
+    """Manages encrypted passphrase storage with integrity protection."""
 
     def __init__(self, vault_path: str | None = None):
         """Initialize the passphrase vault.
@@ -28,31 +33,102 @@ class PassphraseVault:
             vault_dir = home / ".secure-cipher"
             vault_dir.mkdir(exist_ok=True, mode=0o700)
             self.vault_path = vault_dir / "passphrase_vault.enc"
+            self.backup_dir = vault_dir / "backups"
+            self.backup_dir.mkdir(exist_ok=True, mode=0o700)
         else:
             self.vault_path = Path(vault_path)
+            self.backup_dir = self.vault_path.parent / "backups"
+            self.backup_dir.mkdir(exist_ok=True, mode=0o700)
+
+    def _compute_hmac(self, data: str, master_password: str) -> str:
+        """Compute HMAC for integrity verification.
+
+        Args:
+            data: Data to compute HMAC for
+            master_password: Key for HMAC
+
+        Returns:
+            Hex-encoded HMAC
+        """
+        key = hashlib.sha256(master_password.encode()).digest()
+        return hmac.new(key, data.encode(), hashlib.sha256).hexdigest()
+
+    def _create_backup(self) -> None:
+        """Create a timestamped backup of the vault file.
+        
+        Keeps last 5 backups and removes older ones.
+        """
+        if not self.vault_path.exists():
+            return
+
+        # Create timestamped backup
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = self.backup_dir / f"vault_backup_{timestamp}.enc"
+        
+        shutil.copy2(self.vault_path, backup_path)
+        os.chmod(backup_path, 0o600)
+
+        # Keep only last 5 backups
+        backups = sorted(self.backup_dir.glob("vault_backup_*.enc"))
+        if len(backups) > 5:
+            for old_backup in backups[:-5]:
+                old_backup.unlink()
 
     def _load_vault(self, master_password: str) -> dict[str, str]:
-        """Load and decrypt the vault.
+        """Load and decrypt the vault with integrity verification.
 
         Args:
             master_password: Master password to decrypt the vault
 
         Returns:
             Dictionary mapping labels to encrypted passphrases
+            
+        Raises:
+            ValueError: If vault is corrupted or tampered with
         """
         if not self.vault_path.exists():
             return {}
 
         try:
             with open(self.vault_path) as f:
-                encrypted_vault = f.read().strip()
+                vault_contents = f.read().strip()
 
-            if not encrypted_vault:
+            if not vault_contents:
                 return {}
+
+            # Split encrypted data and HMAC
+            if "\n---HMAC---\n" in vault_contents:
+                encrypted_vault, stored_hmac = vault_contents.split("\n---HMAC---\n")
+                
+                # Verify HMAC integrity
+                computed_hmac = self._compute_hmac(encrypted_vault, master_password)
+                if not hmac.compare_digest(computed_hmac, stored_hmac):
+                    # HMAC mismatch could be wrong password OR tampering
+                    # Try to decrypt to differentiate
+                    try:
+                        decrypt_text(encrypted_vault, master_password)
+                        # If decryption succeeds, file was tampered (HMAC wrong but decrypt works)
+                        raise ValueError(
+                            "Vault integrity check failed! File may have been tampered with. "
+                            "Check backups in ~/.secure-cipher/backups/"
+                        )
+                    except Exception:
+                        # If decryption also fails, it's likely wrong password
+                        raise ValueError(
+                            "Wrong master password or corrupted vault file"
+                        ) from None
+            else:
+                # Legacy vault without HMAC (from older version)
+                encrypted_vault = vault_contents
 
             # Decrypt the vault contents
             decrypted_json = decrypt_text(encrypted_vault, master_password)
             return json.loads(decrypted_json)
+        except json.JSONDecodeError:
+            raise ValueError("Vault file is corrupted. Check backups.") from None
+        except ValueError:
+            # Re-raise our custom error messages
+            raise
         except Exception:
             # If decryption fails (wrong password or corrupted), return empty
             raise ValueError(
@@ -60,24 +136,29 @@ class PassphraseVault:
             ) from None
 
     def _save_vault(self, vault_data: dict[str, str], master_password: str) -> None:
-        """Encrypt and save the vault.
+        """Encrypt and save the vault with integrity protection.
 
         Args:
             vault_data: Dictionary mapping labels to passphrases
             master_password: Master password to encrypt the vault
         """
+        # Create backup before modifying
+        self._create_backup()
+
         # Convert to JSON
         json_data = json.dumps(vault_data, indent=2)
 
         # Encrypt the entire vault
         encrypted_vault = encrypt_text(json_data, master_password)
 
-        # Save to file with restricted permissions
-        with open(self.vault_path, "w") as f:
-            f.write(encrypted_vault)
+        # Compute HMAC for integrity verification
+        vault_hmac = self._compute_hmac(encrypted_vault, master_password)
+        
+        # Combine encrypted data and HMAC
+        vault_contents = f"{encrypted_vault}\n---HMAC---\n{vault_hmac}"
 
-        # Set file permissions to 600 (owner read/write only)
-        os.chmod(self.vault_path, 0o600)
+        # Use atomic write to prevent corruption during write
+        secure_atomic_write(self.vault_path, vault_contents.encode('utf-8'), mode=0o600)
 
     def store_passphrase(
         self, label: str, passphrase: str, master_password: str
@@ -203,3 +284,42 @@ class PassphraseVault:
             Path to the vault file as a string
         """
         return str(self.vault_path)
+
+    def list_backups(self) -> list[str]:
+        """List available backup files.
+
+        Returns:
+            List of backup file paths sorted by date (newest first)
+        """
+        backups = sorted(
+            self.backup_dir.glob("vault_backup_*.enc"),
+            reverse=True
+        )
+        return [str(b) for b in backups]
+
+    def restore_from_backup(self, backup_index: int = 0) -> None:
+        """Restore vault from a backup file.
+
+        Args:
+            backup_index: Index of backup to restore (0 = most recent)
+
+        Raises:
+            ValueError: If no backups available or index out of range
+        """
+        backups = sorted(
+            self.backup_dir.glob("vault_backup_*.enc"),
+            reverse=True
+        )
+        
+        if not backups:
+            raise ValueError("No backups available")
+        
+        if backup_index >= len(backups):
+            raise ValueError(
+                f"Backup index {backup_index} out of range. "
+                f"Only {len(backups)} backup(s) available."
+            )
+        
+        backup_file = backups[backup_index]
+        shutil.copy2(backup_file, self.vault_path)
+        os.chmod(self.vault_path, 0o600)
