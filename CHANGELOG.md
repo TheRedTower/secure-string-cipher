@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.0.10 (2025-11-06)
+
+- **Development Environment**: Critical infrastructure improvements and bug fixes
+  - **Security Enhancements**:
+    - Added `detect-secrets` for automatic secret scanning in pre-commit hooks
+    - Added `pip-audit` for dependency vulnerability scanning in CI
+    - Created `.secrets.baseline` for secret detection tracking
+    - No vulnerabilities found in current dependencies
+  - **Docker Improvements**:
+    - Confirmed Python 3.14 support (latest version)
+    - Updated Dockerfile labels to v1.0.10
+  - **Testing Infrastructure**:
+    - Reorganized test suite into hierarchical structure (unit/, integration/, e2e/)
+    - Added 13 comprehensive integration workflow tests
+    - Total test count: 150 tests (137 original + 13 new integration tests)
+    - Coverage maintained at 79%
+    - Parallel test execution: 24% faster with pytest-xdist
+  - **Code Quality**:
+    - Fixed all linting errors (import sorting, type hints, whitespace)
+    - Modernized type hints (Dict → dict, Optional → | None)
+    - Fixed blind exception catching (Exception → CryptoError)
+    - All mypy type checking passes
+  - **Dependency Cleanup**:
+    - Removed unused dev dependencies: faker, freezegun, pytest-randomly, pytest-benchmark
+    - Reduced attack surface by 4 packages
+    - Kept hypothesis for future property-based testing
+  - **CI/CD Pipeline**:
+    - Enhanced with security scanning steps
+    - Added caching for faster builds
+    - Matrix testing on Python 3.10 & 3.11
+    - All quality checks passing
+  - **Documentation**:
+    - Added PHASE2_COMPLETE.md documenting test reorganization
+    - Added DEV_ENVIRONMENT_ANALYSIS.md with comprehensive tooling review
+    - Updated pre-commit configuration with security hooks
+
 ## 1.0.9 (2025-11-06)
 
 - **Security Enhancement**: Added secure temporary file and atomic write operations
