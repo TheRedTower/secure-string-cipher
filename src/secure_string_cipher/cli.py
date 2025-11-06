@@ -43,13 +43,25 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
     """
     # Display menu
     menu = """
-Available Operations:
-  1. Encrypt text          - Encrypt a message (returns base64 string)
-  2. Decrypt text          - Decrypt a base64 encrypted message
-  3. Encrypt file          - Encrypt a file (creates .enc file)
-  4. Decrypt file          - Decrypt an encrypted file
-  5. Generate passphrase   - Create a secure random passphrase
-  6. Exit                  - Quit the program
+╭─────────────────────────────────────────────────────────────────╮
+│                     AVAILABLE OPERATIONS                        │
+├─────────────────────────────────────────────────────────────────┤
+│  📝 TEXT & FILE ENCRYPTION                                      │
+│    1. Encrypt text      - Encrypt a message (base64 output)     │
+│    2. Decrypt text      - Decrypt an encrypted message          │
+│    3. Encrypt file      - Encrypt a file (creates .enc file)    │
+│    4. Decrypt file      - Decrypt an encrypted file             │
+│                                                                  │
+│  🔑 PASSPHRASE TOOLS (Optional - for password management)       │
+│    5. Generate passphrase    - Create a secure random password  │
+│    6. Store in vault         - Save a passphrase securely       │
+│    7. Retrieve from vault    - Get a stored passphrase          │
+│    8. List vault entries     - View all stored labels           │
+│    9. Manage vault           - Update/delete vault entries      │
+│                                                                  │
+│  🚪 EXIT                                                         │
+│    0. Exit              - Quit the program                      │
+╰─────────────────────────────────────────────────────────────────╯
 
 """
     out_stream.write(menu)
@@ -57,7 +69,7 @@ Available Operations:
 
     while True:
         try:
-            out_stream.write("Select operation [1-6]: ")
+            out_stream.write("Select operation [0-9]: ")
             out_stream.flush()
             choice = in_stream.readline()
             if choice == "":
@@ -74,7 +86,7 @@ Available Operations:
             # default
             return 1
 
-        if choice in {"1", "2", "3", "4", "5", "6"}:
+        if choice in {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}:
             try:
                 return int(choice)
             except ValueError:
@@ -295,7 +307,7 @@ def _handle_retrieve_passphrase(in_stream: TextIO, out_stream: TextIO) -> None:
         out_stream.flush()
 
 
-def _handle_list_passphrases(in_stream: TextIO, out_stream: TextIO) -> None:
+def _handle_list_vault(in_stream: TextIO, out_stream: TextIO) -> None:
     """Handle listing all passphrase labels in the vault."""
     vault = PassphraseVault()
 
@@ -331,6 +343,103 @@ def _handle_list_passphrases(in_stream: TextIO, out_stream: TextIO) -> None:
         out_stream.flush()
 
 
+def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
+    """Handle vault management (update/delete passphrases)."""
+    vault = PassphraseVault()
+
+    if not vault.vault_exists():
+        out_stream.write(
+            "Error: No vault found. Create one by storing a passphrase first (option 6).\n"
+        )
+        out_stream.flush()
+        return
+
+    out_stream.write(colorize("\n⚙️  Vault Management", "cyan") + "\n")
+    out_stream.write("\nSelect action:\n")
+    out_stream.write("  1. Update passphrase\n")
+    out_stream.write("  2. Delete passphrase\n")
+    out_stream.write("  3. Cancel\n")
+    out_stream.write("Choice [1]: ")
+    out_stream.flush()
+
+    choice = in_stream.readline().rstrip("\n")
+    if not choice:
+        choice = "1"
+
+    if choice == "3":
+        out_stream.write("Cancelled.\n")
+        out_stream.flush()
+        return
+
+    out_stream.write("\nEnter master password: ")
+    out_stream.flush()
+    master_pw = in_stream.readline().rstrip("\n")
+
+    if not master_pw:
+        out_stream.write("Error: Master password cannot be empty\n")
+        out_stream.flush()
+        return
+
+    try:
+        labels = vault.list_labels(master_pw)
+        if not labels:
+            out_stream.write("Vault is empty. No passphrases to manage.\n")
+            out_stream.flush()
+            return
+
+        out_stream.write("\nAvailable passphrases:\n")
+        for i, lbl in enumerate(labels, 1):
+            out_stream.write(f"  {i}. {lbl}\n")
+
+        out_stream.write("\nEnter label to manage: ")
+        out_stream.flush()
+        label = in_stream.readline().rstrip("\n")
+
+        if not label:
+            out_stream.write("Error: Label cannot be empty\n")
+            out_stream.flush()
+            return
+
+        if choice == "1":
+            # Update passphrase
+            out_stream.write(f"\nEnter new passphrase for '{label}': ")
+            out_stream.flush()
+            new_passphrase = in_stream.readline().rstrip("\n")
+
+            if not new_passphrase:
+                out_stream.write("Error: Passphrase cannot be empty\n")
+                out_stream.flush()
+                return
+
+            vault.update_passphrase(label, new_passphrase, master_pw)
+            out_stream.write(
+                colorize(f"\n✅ Passphrase '{label}' updated successfully!", "green")
+                + "\n"
+            )
+            out_stream.flush()
+
+        elif choice == "2":
+            # Delete passphrase
+            out_stream.write(f"\nAre you sure you want to delete '{label}'? (yes/no): ")
+            out_stream.flush()
+            confirm = in_stream.readline().rstrip("\n").lower()
+
+            if confirm == "yes":
+                vault.delete_passphrase(label, master_pw)
+                out_stream.write(
+                    colorize(f"\n✅ Passphrase '{label}' deleted successfully!", "green")
+                    + "\n"
+                )
+                out_stream.flush()
+            else:
+                out_stream.write("Delete cancelled.\n")
+                out_stream.flush()
+
+    except Exception as e:
+        out_stream.write(f"Error managing vault: {e}\n")
+        out_stream.flush()
+
+
 def main(
     in_stream: TextIO | None = None,
     out_stream: TextIO | None = None,
@@ -361,7 +470,7 @@ def main(
             sys.exit(0)
         return 0
 
-    # Handle passphrase generation (5) and exit (6)
+    # Handle passphrase and vault operations (5-9)
     if mode == 5:
         # Generate passphrase
         _handle_generate_passphrase(in_stream, out_stream)
@@ -369,6 +478,30 @@ def main(
             sys.exit(0)
         return 0
     elif mode == 6:
+        # Store passphrase in vault
+        _handle_store_passphrase(in_stream, out_stream)
+        if exit_on_completion:
+            sys.exit(0)
+        return 0
+    elif mode == 7:
+        # Retrieve passphrase from vault
+        _handle_retrieve_passphrase(in_stream, out_stream)
+        if exit_on_completion:
+            sys.exit(0)
+        return 0
+    elif mode == 8:
+        # List vault entries
+        _handle_list_vault(in_stream, out_stream)
+        if exit_on_completion:
+            sys.exit(0)
+        return 0
+    elif mode == 9:
+        # Manage vault (update/delete)
+        _handle_manage_vault(in_stream, out_stream)
+        if exit_on_completion:
+            sys.exit(0)
+        return 0
+    elif mode == 0:
         # Exit
         out_stream.write("Exiting\n")
         out_stream.flush()
