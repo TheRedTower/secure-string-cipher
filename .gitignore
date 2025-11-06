@@ -44,6 +44,13 @@ htmlcov/
 .pytest_cache/
 .hypothesis/
 
+# Linting and formatting
+.ruff_cache/
+.mypy_cache/
+
+# Benchmarks
+.benchmarks/
+
 # Distribution
 dist/
 build/
