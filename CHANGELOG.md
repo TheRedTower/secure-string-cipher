@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.6 (2025-01-11)
+
+- **Security Enhancement**: Added filename sanitization module to prevent path traversal attacks
+  - New `security.py` module with `sanitize_filename()` and `validate_filename_safety()` functions
+  - Protections against:
+    - Path traversal attempts (../, /, backslashes)
+    - Unicode attacks (RTL override, homoglyphs, zero-width characters)
+    - Control characters and null bytes
+    - Hidden file creation (leading dots)
+    - Excessive filename length (255 char limit)
+    - Special/unsafe characters (replaced with underscores)
+  - Comprehensive test suite with 21 new test cases covering all attack vectors
+  - Prepared for future original filename storage feature (v1.0.7+)
+- **Test Suite**: 93 total tests passing (72 original + 21 security tests)
+
 ## 1.0.4 (2025-11-05)
 
 - **Passphrase Generation**: Added secure passphrase generator with multiple strategies

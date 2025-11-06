@@ -11,6 +11,7 @@ from typing import Optional, TextIO
 from .core import decrypt_file, decrypt_text, encrypt_file, encrypt_text
 from .passphrase_generator import generate_passphrase
 from .passphrase_manager import PassphraseVault
+from .security import sanitize_filename, validate_filename_safety
 from .timing_safe import check_password_strength
 from .utils import colorize
 
@@ -403,6 +404,9 @@ def main(
             out_stream.write(f"Encrypted file -> {out_path}\n")
             out_stream.flush()
         elif mode == 4:
+            # Decrypt file
+            # TODO: When we implement original filename storage in encrypted files,
+            # use sanitize_filename() and validate_filename_safety() to secure the output name
             out_path = payload + ".dec"
             decrypt_file(payload, out_path, password)
             out_stream.write(f"Decrypted file -> {out_path}\n")
