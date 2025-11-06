@@ -3,7 +3,6 @@ Tests for security utilities (filename sanitization, path validation, symlink de
 """
 
 import os
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -123,7 +122,7 @@ class TestFilenameSanitization:
         assert "ssh" not in sanitize_filename("../../../../.ssh/authorized_keys")
 
         # System file overwrite
-        assert "passwd" == sanitize_filename("../../../etc/passwd")
+        assert sanitize_filename("../../../etc/passwd") == "passwd"
 
         # Windows system file
         result = sanitize_filename("..\\..\\..\\Windows\\System32\\config\\SAM")

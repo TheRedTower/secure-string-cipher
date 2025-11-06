@@ -9,7 +9,6 @@ the master password.
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from .core import decrypt_text, encrypt_text
 
@@ -17,7 +16,7 @@ from .core import decrypt_text, encrypt_text
 class PassphraseVault:
     """Manages encrypted passphrase storage."""
 
-    def __init__(self, vault_path: Optional[str] = None):
+    def __init__(self, vault_path: str | None = None):
         """Initialize the passphrase vault.
 
         Args:
@@ -32,7 +31,7 @@ class PassphraseVault:
         else:
             self.vault_path = Path(vault_path)
 
-    def _load_vault(self, master_password: str) -> Dict[str, str]:
+    def _load_vault(self, master_password: str) -> dict[str, str]:
         """Load and decrypt the vault.
 
         Args:
@@ -45,7 +44,7 @@ class PassphraseVault:
             return {}
 
         try:
-            with open(self.vault_path, "r") as f:
+            with open(self.vault_path) as f:
                 encrypted_vault = f.read().strip()
 
             if not encrypted_vault:
@@ -60,7 +59,7 @@ class PassphraseVault:
                 "Failed to decrypt vault. Wrong master password or corrupted vault file."
             )
 
-    def _save_vault(self, vault_data: Dict[str, str], master_password: str) -> None:
+    def _save_vault(self, vault_data: dict[str, str], master_password: str) -> None:
         """Encrypt and save the vault.
 
         Args:
@@ -138,7 +137,7 @@ class PassphraseVault:
 
         return vault_data[label]
 
-    def list_labels(self, master_password: str) -> List[str]:
+    def list_labels(self, master_password: str) -> list[str]:
         """List all passphrase labels in the vault.
 
         Args:

@@ -95,6 +95,42 @@ docker run --rm -it \
 - **Passphrase vault:** AES-256-GCM encrypted with master password
 - **File permissions:** Vault restricted to user-only
 
+## Development
+
+### Quick Start
+
+```bash
+# Clone and install
+git clone https://github.com/TheRedTower/secure-string-cipher.git
+cd secure-string-cipher
+pip install -e ".[dev]"
+
+# Auto-format code before committing
+make format
+
+# Run all checks (format + lint + test)
+make ci
+```
+
+### Available Commands
+
+```bash
+make format      # Auto-format with Black + isort
+make lint        # Check formatting, types, and code quality
+make test        # Run tests
+make test-cov    # Run tests with coverage report
+make clean       # Remove temporary files
+make ci          # Run full CI pipeline locally
+```
+
+### Code Quality Tools
+
+- **Ruff**: Ultra-fast all-in-one tool that replaces Black, isort, flake8, and more
+- **mypy**: Static type checker (catches type errors)
+- **pytest**: Testing framework
+
+**Before pushing**, run `make format` to auto-fix all issues, then `make ci` to verify everything passes.
+
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.

@@ -103,7 +103,7 @@ class TestCLI:
         # Test direct decryption
         decrypt_file(enc_file, dec_file, password)
         assert os.path.exists(dec_file)
-        with open(dec_file, "r") as f:
+        with open(dec_file) as f:
             assert f.read() == test_content
 
     def test_invalid_mode_selection(self, mock_stdio):

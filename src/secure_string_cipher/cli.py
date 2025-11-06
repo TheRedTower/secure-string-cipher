@@ -6,12 +6,11 @@ getpass.getpass so tests that patch stdin/stdout can drive the flows.
 """
 
 import sys
-from typing import Optional, TextIO
+from typing import TextIO
 
 from .core import decrypt_file, decrypt_text, encrypt_file, encrypt_text
 from .passphrase_generator import generate_passphrase
 from .passphrase_manager import PassphraseVault
-from .security import sanitize_filename, validate_filename_safety
 from .timing_safe import check_password_strength
 from .utils import colorize
 
@@ -37,7 +36,7 @@ def _print_banner(out_stream: TextIO) -> None:
             pass  # Silently ignore if banner cannot be printed
 
 
-def _get_mode(in_stream: TextIO, out_stream: TextIO) -> Optional[int]:
+def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
     """Prompt user for mode. Return None on EOF or if user signals exit.
 
     Uses provided in_stream/out_stream for testability.
@@ -118,8 +117,8 @@ def _get_input(mode: int, in_stream: TextIO, out_stream: TextIO) -> str:
 def _get_password(
     confirm: bool = True,
     operation: str = "",
-    in_stream: Optional[TextIO] = None,
-    out_stream: Optional[TextIO] = None,
+    in_stream: TextIO | None = None,
+    out_stream: TextIO | None = None,
 ) -> str:
     # Provide defaults if None
     if in_stream is None:
@@ -333,10 +332,10 @@ def _handle_list_passphrases(in_stream: TextIO, out_stream: TextIO) -> None:
 
 
 def main(
-    in_stream: Optional[TextIO] = None,
-    out_stream: Optional[TextIO] = None,
+    in_stream: TextIO | None = None,
+    out_stream: TextIO | None = None,
     exit_on_completion: bool = True,
-) -> Optional[int]:
+) -> int | None:
     """Run the CLI. Accepts optional in_stream/out_stream for testing.
 
     Args:

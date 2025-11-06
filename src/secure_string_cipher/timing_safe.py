@@ -5,7 +5,6 @@ Timing attack mitigations and secure password handling
 import hmac
 import secrets
 import time
-from typing import Tuple
 
 from .config import COMMON_PASSWORDS, MIN_PASSWORD_LENGTH
 from .secure_memory import SecureString
@@ -29,7 +28,7 @@ def add_timing_jitter() -> None:
     time.sleep(jitter)
 
 
-def check_password_strength(password: str) -> Tuple[bool, str]:
+def check_password_strength(password: str) -> tuple[bool, str]:
     """
     Check password strength with constant-time operations.
 

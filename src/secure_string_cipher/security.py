@@ -10,7 +10,6 @@ import re
 import sys
 import unicodedata
 from pathlib import Path
-from typing import Optional, Union
 
 
 class SecurityError(Exception):
@@ -93,7 +92,7 @@ def sanitize_filename(filename: str, max_length: int = 255) -> str:
     return filename
 
 
-def validate_filename_safety(original: str, sanitized: str) -> Optional[str]:
+def validate_filename_safety(original: str, sanitized: str) -> str | None:
     """
     Check if filename was modified during sanitization and return warning.
 
@@ -115,7 +114,7 @@ def validate_filename_safety(original: str, sanitized: str) -> Optional[str]:
 
 
 def validate_safe_path(
-    file_path: Union[str, Path], allowed_dir: Optional[Union[str, Path]] = None
+    file_path: str | Path, allowed_dir: str | Path | None = None
 ) -> bool:
     """
     Validate that a file path is safe and doesn't escape allowed directory.
@@ -159,7 +158,7 @@ def validate_safe_path(
         )
 
 
-def detect_symlink(file_path: Union[str, Path], follow_links: bool = False) -> bool:
+def detect_symlink(file_path: str | Path, follow_links: bool = False) -> bool:
     """
     Detect if a path is or contains a symbolic link.
 
@@ -228,8 +227,8 @@ def detect_symlink(file_path: Union[str, Path], follow_links: bool = False) -> b
 
 
 def validate_output_path(
-    output_path: Union[str, Path],
-    allowed_dir: Optional[Union[str, Path]] = None,
+    output_path: str | Path,
+    allowed_dir: str | Path | None = None,
     allow_symlinks: bool = False,
 ) -> Path:
     """
@@ -304,7 +303,7 @@ def check_elevated_privileges() -> bool:
     return False
 
 
-def check_sensitive_directory() -> Optional[str]:
+def check_sensitive_directory() -> str | None:
     """
     Check if running from a sensitive system directory.
 

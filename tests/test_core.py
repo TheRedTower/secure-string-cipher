@@ -151,9 +151,10 @@ class TestFileEncryption:
 
         # Encrypt
         enc_file = temp_file + ".enc"
-        with StreamProcessor(temp_file, "rb") as r, StreamProcessor(
-            enc_file, "wb"
-        ) as w:
+        with (
+            StreamProcessor(temp_file, "rb") as r,
+            StreamProcessor(enc_file, "wb") as w,
+        ):
             encrypt_stream(r, w, TEST_PASSWORDS["VALID"])
 
         # Decrypt
@@ -185,9 +186,10 @@ class TestFileEncryption:
         dec_file = temp_file + ".dec"
 
         # Encrypt
-        with StreamProcessor(temp_file, "rb") as r, StreamProcessor(
-            enc_file, "wb"
-        ) as w:
+        with (
+            StreamProcessor(temp_file, "rb") as r,
+            StreamProcessor(enc_file, "wb") as w,
+        ):
             encrypt_stream(r, w, TEST_PASSWORDS["VALID"])
 
         # Decrypt

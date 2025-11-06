@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test Python ${{ matrix.python-version }}
+  quality:
+    name: Quality & Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -20,53 +20,37 @@ jobs:
         python-version: ["3.10", "3.11"]
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+        cache: 'pip'
         
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        python -m pip install tox tox-gh-actions pytest pytest-cov black isort mypy
-        python -m pip install -e ".[test]"
+        pip install -e ".[dev]"
         
-    - name: Run tests with coverage
-      run: |
-        pytest tests/ --cov=secure_string_cipher --cov-report=xml
+    - name: Check code quality (Ruff)
+      run: ruff check src tests
+      if: matrix.python-version == '3.11'
         
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
+    - name: Check formatting (Ruff)
+      run: ruff format --check src tests
+      if: matrix.python-version == '3.11'
+        
+    - name: Type check (mypy)
+      run: mypy src tests
+      if: matrix.python-version == '3.11'
+        
+    - name: Run tests
+      run: pytest tests/ --cov=secure_string_cipher --cov-report=xml -v
+        
+    - name: Upload coverage
+      uses: codecov/codecov-action@v4
+      if: matrix.python-version == '3.11'
       with:
         file: ./coverage.xml
         fail_ci_if_error: false
-
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.11"
-        
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        python -m pip install black isort mypy ruff
-        
-    - name: Check formatting with Black
-      run: black --check src tests
-        
-    - name: Check imports with isort
-      run: isort --check-only --diff src tests
-        
-    - name: Static type checking with mypy
-      run: mypy src tests
-        
-    - name: Lint with ruff
-      run: ruff check src tests
+      continue-on-error: true

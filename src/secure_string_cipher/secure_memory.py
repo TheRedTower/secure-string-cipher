@@ -4,10 +4,9 @@ Secure memory operations for handling sensitive data
 
 import array
 import secrets
-from typing import Union
 
 
-def secure_wipe(data: Union[bytes, bytearray, memoryview, array.array]) -> None:
+def secure_wipe(data: bytes | bytearray | memoryview | array.array) -> None:
     """
     Securely wipe sensitive data from memory.
 

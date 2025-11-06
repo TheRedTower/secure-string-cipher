@@ -9,7 +9,6 @@ Provides multiple strategies for generating cryptographically secure passphrases
 
 import secrets
 import string
-from typing import Tuple
 
 # Curated word list for passphrase generation (EFF-style, easy to type and remember)
 # These are common, memorable words that are easy to type
@@ -1853,7 +1852,7 @@ def generate_passphrase(
     length: int = 24,
     include_symbols: bool = True,
     number_count: int = 4,
-) -> Tuple[str, float]:
+) -> tuple[str, float]:
     """Generate a secure passphrase using the specified strategy.
 
     Args:

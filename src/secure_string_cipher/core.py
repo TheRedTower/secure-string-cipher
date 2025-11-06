@@ -8,7 +8,7 @@ import base64
 import io
 import os
 import secrets
-from typing import BinaryIO, Optional
+from typing import BinaryIO
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
@@ -75,8 +75,8 @@ class StreamProcessor:
         """
         self.path = path
         self.mode = mode
-        self.file: Optional[BinaryIO] = None
-        self._progress: Optional[ProgressBar] = None
+        self.file: BinaryIO | None = None
+        self._progress: ProgressBar | None = None
         self.bytes_processed = 0
 
         if isinstance(path, (str, bytes, os.PathLike)):
@@ -85,7 +85,7 @@ class StreamProcessor:
                 size = os.path.getsize(path)
                 if size > MAX_FILE_SIZE:
                     raise CryptoError(
-                        f"File too large. Maximum size is {MAX_FILE_SIZE/(1024*1024):.1f} MB"
+                        f"File too large. Maximum size is {MAX_FILE_SIZE / (1024 * 1024):.1f} MB"
                     )
 
     def _check_path(self) -> None:
@@ -114,7 +114,7 @@ class StreamProcessor:
             except OSError as e:
                 raise CryptoError(f"Cannot write to directory: {e}")
 
-    def __enter__(self) -> "StreamProcessor":
+    def __enter__(self) -> StreamProcessor:
         """
         Open file and setup progress tracking.
 
@@ -383,9 +383,10 @@ def encrypt_file(input_path: str, output_path: str, passphrase: str) -> None:
     Raises:
         CryptoError: If encryption fails
     """
-    with StreamProcessor(input_path, "rb") as r, StreamProcessor(
-        output_path, "wb"
-    ) as w:
+    with (
+        StreamProcessor(input_path, "rb") as r,
+        StreamProcessor(output_path, "wb") as w,
+    ):
         encrypt_stream(r, w, passphrase)
 
 
@@ -401,7 +402,8 @@ def decrypt_file(input_path: str, output_path: str, passphrase: str) -> None:
     Raises:
         CryptoError: If decryption fails
     """
-    with StreamProcessor(input_path, "rb") as r, StreamProcessor(
-        output_path, "wb"
-    ) as w:
+    with (
+        StreamProcessor(input_path, "rb") as r,
+        StreamProcessor(output_path, "wb") as w,
+    ):
         decrypt_stream(r, w, passphrase)
