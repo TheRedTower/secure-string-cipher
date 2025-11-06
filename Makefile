@@ -30,7 +30,7 @@ test:  ## Run tests with pytest
 
 test-fast:  ## Run tests in parallel (3-4x faster)
 	@echo "🚀 Running tests in parallel..."
-	pytest -n auto --dist loadfile -p no:benchmark
+	pytest -n auto --dist loadfile
 
 test-watch:  ## Run tests in watch mode (auto-rerun on changes)
 	@echo "👀 Watching for changes..."

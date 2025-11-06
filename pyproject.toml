@@ -40,13 +40,11 @@ dev = [
     "pytest-xdist>=3.5.0",        # Parallel test execution
     "pytest-timeout>=2.2.0",      # Prevent hanging tests
     "pytest-mock>=3.12.0",        # Better mocking
-    "pytest-randomly>=3.15.0",    # Random test order
-    "pytest-benchmark>=4.0.0",    # Performance testing
     "hypothesis>=6.92.0",         # Property-based testing
-    "faker>=20.0.0",              # Test data generation
-    "freezegun>=1.4.0",           # Time mocking
     "mypy>=1.0.0",
     "ruff>=0.8.0",
+    "detect-secrets>=1.4.0",      # Secret scanning
+    "pip-audit>=2.6.0",           # Vulnerability scanning
 ]
 test = [
     "pytest>=8.0.0",

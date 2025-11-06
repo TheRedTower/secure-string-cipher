@@ -43,6 +43,16 @@ jobs:
     - name: Type check (mypy)
       run: mypy src tests
       if: matrix.python-version == '3.11'
+    
+    - name: Security scan - Secrets
+      run: detect-secrets scan --baseline .secrets.baseline
+      if: matrix.python-version == '3.11'
+      continue-on-error: true
+    
+    - name: Security scan - Vulnerabilities
+      run: pip-audit --desc
+      if: matrix.python-version == '3.11'
+      continue-on-error: true
         
     - name: Run tests
       run: pytest tests/ --cov=secure_string_cipher --cov-report=xml -v
