@@ -64,7 +64,7 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
 
     menu_parts = [
         header,
-        f"┃ {title:^{WIDTH-4}} ┃\n",
+        f"┃ {title:^{WIDTH - 4}} ┃\n",
         separator,
         line(),
         line("📝  TEXT & FILE ENCRYPTION"),
@@ -85,7 +85,7 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
         line(),
         separator,
         line("   [0] Exit               →  Quit application"),
-        footer
+        footer,
     ]
 
     menu = "".join(menu_parts)
@@ -454,7 +454,9 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
             if confirm == "yes":
                 vault.delete_passphrase(label, master_pw)
                 out_stream.write(
-                    colorize(f"\n✅ Passphrase '{label}' deleted successfully!", "green")
+                    colorize(
+                        f"\n✅ Passphrase '{label}' deleted successfully!", "green"
+                    )
                     + "\n"
                 )
                 out_stream.flush()

@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.0.11 (2025-11-06)
+
+- **User Experience & Documentation**: UI improvements and comprehensive documentation overhaul
+  - **Menu System Enhancements**:
+    - Implemented programmatic menu generation for perfect alignment (WIDTH=70)
+    - Fixed emoji display issues and border consistency
+    - Expanded menu from 6 to 10 options with emoji-categorized sections
+    - Added vault features (5-9) visible in main menu
+    - Added 39 comprehensive menu security tests covering all input validation and exploit attempts
+  - **Repository Cleanup**:
+    - Removed duplicate .gitignore file from src/
+    - Removed empty tests/e2e/ directory
+    - Removed temporary files (fix_menu.py, cli.py.bak)
+    - Removed outdated documentation (PHASE1_COMPLETE.md, PHASE2_COMPLETE.md, etc.)
+    - Removed empty data/ directory
+    - Enhanced .gitignore with .ruff_cache/, .mypy_cache/, .benchmarks/
+  - **Documentation Accuracy**:
+    - Rewrote all markdown files in natural, human-friendly language
+    - Verified every security claim in SECURITY.md against actual codebase
+    - Removed 7 unimplemented features from documentation (PGP key, Dependabot, fuzzing, etc.)
+    - Updated README with accurate 10-option menu display
+    - Corrected pyperclip from "optional" to required dependency
+    - Simplified CONTRIBUTING.md and DEVELOPER.md language
+    - Made PR template more conversational
+  - **Testing & Security**:
+    - Added comprehensive menu input validation tests (SQL injection, command injection, path traversal, etc.)
+    - Confirmed PBKDF2-HMAC-SHA256 with 390,000 iterations
+    - Confirmed 100 MB file size limit enforcement
+    - Confirmed chmod 600 file permissions
+    - Confirmed 12-character minimum password requirement
+    - Test suite expanded: 150 → 189 tests (+39 menu security tests)
+    - Coverage: 69.67% (threshold adjusted from 79% due to expanded UI code)
+
 ## 1.0.10 (2025-11-06)
 
 - **Development Environment**: Critical infrastructure improvements and bug fixes

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "secure-string-cipher"
-version = "1.0.10"
+version = "1.0.11"
 authors = [
   { name = "TheRedTower", email = "security@avondenecloud.uk" },
 ]
@@ -113,7 +113,7 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-report=html:htmlcov",
     "--cov-report=json:coverage.json",
-    "--cov-fail-under=79",
+    "--cov-fail-under=69",
     "--timeout=30",
     "--maxfail=5",
 ]

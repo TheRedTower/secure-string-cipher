@@ -66,6 +66,6 @@ CMD []
 # Metadata
 LABEL maintainer="TheRedTower <security@avondenecloud.uk>" \
       description="Secure AES-256-GCM encryption utility with passphrase management" \
-      version="1.0.10" \
+      version="1.0.11" \
       org.opencontainers.image.source="https://github.com/TheRedTower/secure-string-cipher" \
       org.opencontainers.image.licenses="MIT"
