@@ -5,18 +5,20 @@ Test helper utilities and shared test functions.
 import os
 import string
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
 
-def create_test_files(directory: Path, count: int = 5, prefix: str = "test") -> List[Path]:
+def create_test_files(
+    directory: Path, count: int = 5, prefix: str = "test"
+) -> list[Path]:
     """
     Create multiple test files in a directory.
-    
+
     Args:
         directory: Directory to create files in
         count: Number of files to create
         prefix: Prefix for filenames
-        
+
     Returns:
         List of created file paths
     """
@@ -31,11 +33,11 @@ def create_test_files(directory: Path, count: int = 5, prefix: str = "test") -> 
 def create_nested_structure(base_dir: Path, depth: int = 3) -> Path:
     """
     Create a nested directory structure for testing.
-    
+
     Args:
         base_dir: Base directory to start from
         depth: How many levels deep to create
-        
+
     Returns:
         Path to the deepest directory
     """
@@ -49,7 +51,7 @@ def create_nested_structure(base_dir: Path, depth: int = 3) -> Path:
 def assert_file_secure(file_path: Path, expected_mode: int = 0o600) -> None:
     """
     Assert that a file has secure permissions.
-    
+
     Args:
         file_path: Path to file to check
         expected_mode: Expected permission mode
@@ -57,15 +59,14 @@ def assert_file_secure(file_path: Path, expected_mode: int = 0o600) -> None:
     stat_info = file_path.stat()
     actual_mode = stat_info.st_mode & 0o777
     assert actual_mode == expected_mode, (
-        f"File {file_path} has mode {oct(actual_mode)}, "
-        f"expected {oct(expected_mode)}"
+        f"File {file_path} has mode {oct(actual_mode)}, expected {oct(expected_mode)}"
     )
 
 
 def assert_directory_secure(dir_path: Path, expected_mode: int = 0o700) -> None:
     """
     Assert that a directory has secure permissions.
-    
+
     Args:
         dir_path: Path to directory to check
         expected_mode: Expected permission mode
@@ -81,11 +82,11 @@ def assert_directory_secure(dir_path: Path, expected_mode: int = 0o700) -> None:
 def generate_test_string(length: int = 100, chars: str = string.printable) -> str:
     """
     Generate a test string with predictable content.
-    
+
     Args:
         length: Length of string to generate
         chars: Characters to use
-        
+
     Returns:
         Generated test string
     """
@@ -107,11 +108,11 @@ def skip_if_root() -> bool:
 def skip_if_no_permission_support() -> bool:
     """Check if filesystem supports permission restrictions."""
     import tempfile
-    
+
     with tempfile.TemporaryDirectory() as tmpdir:
         test_dir = Path(tmpdir) / "test"
         test_dir.mkdir(mode=0o000)
-        
+
         # Try to write - if it succeeds, permissions aren't respected
         try:
             (test_dir / "test.txt").write_text("test")
@@ -125,11 +126,11 @@ def skip_if_no_permission_support() -> bool:
 def compare_file_contents(file1: Path, file2: Path) -> bool:
     """
     Compare contents of two files.
-    
+
     Args:
         file1: First file path
         file2: Second file path
-        
+
     Returns:
         True if contents match, False otherwise
     """
@@ -143,18 +144,20 @@ def get_file_size(file_path: Path) -> int:
 
 class TestTimer:
     """Context manager for timing test operations."""
-    
+
     def __init__(self) -> None:
         self.start_time: float = 0
         self.end_time: float = 0
         self.elapsed: float = 0
-    
+
     def __enter__(self) -> "TestTimer":
         import time
+
         self.start_time = time.perf_counter()
         return self
-    
+
     def __exit__(self, *args: Any) -> None:
         import time
+
         self.end_time = time.perf_counter()
         self.elapsed = self.end_time - self.start_time

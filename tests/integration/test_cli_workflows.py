@@ -5,10 +5,6 @@ These tests verify end-to-end functionality of CLI operations,
 including file encryption/decryption workflows and vault operations.
 """
 
-import os
-import tempfile
-from pathlib import Path
-
 import pytest
 
 
@@ -18,7 +14,7 @@ class TestEncryptionWorkflows:
 
     def test_encrypt_decrypt_text_workflow(self, tmp_path):
         """Test complete text encryption and decryption workflow."""
-        from secure_string_cipher.core import encrypt_text, decrypt_text
+        from secure_string_cipher.core import decrypt_text, encrypt_text
 
         # Test data
         original_text = "This is a secret message!"
@@ -35,15 +31,15 @@ class TestEncryptionWorkflows:
 
     def test_encrypt_decrypt_file_workflow(self, tmp_path):
         """Test complete file encryption and decryption workflow."""
-        from secure_string_cipher.core import encrypt_file, decrypt_file
+        from secure_string_cipher.core import decrypt_file, encrypt_file
 
         # Create test file
         input_file = tmp_path / "test_input.txt"
         input_file.write_text("This is secret file content!\n" * 100)
-        
+
         output_file = tmp_path / "test_output.enc"
         decrypted_file = tmp_path / "test_decrypted.txt"
-        
+
         password = "FileTestPassword123!@#"
 
         # Encrypt file
@@ -63,15 +59,15 @@ class TestEncryptionWorkflows:
 
     def test_encrypt_large_file_workflow(self, tmp_path):
         """Test encryption of larger files."""
-        from secure_string_cipher.core import encrypt_file, decrypt_file
+        from secure_string_cipher.core import decrypt_file, encrypt_file
 
         # Create a 1MB test file
         large_file = tmp_path / "large_test.txt"
         large_file.write_text("A" * (1024 * 1024))  # 1MB
-        
+
         encrypted_file = tmp_path / "large_test.enc"
         decrypted_file = tmp_path / "large_decrypted.txt"
-        
+
         password = "LargeFilePassword123!@#"
 
         # Encrypt
@@ -96,24 +92,24 @@ class TestVaultWorkflows:
 
         # Set up vault path
         vault_path = tmp_path / "test_vault.json"
-        
+
         master_password = "MasterPassword123!@#"
-        
+
         # Create vault and store passphrase
         vault = PassphraseVault(str(vault_path))
         vault.store_passphrase("github", "GitHubPassword123!@#", master_password)
         vault.store_passphrase("aws", "AWSPassword456!@#", master_password)
-        
+
         # Verify vault file exists
         assert vault_path.exists()
 
         # Create new vault instance (simulates reopening)
         vault2 = PassphraseVault(str(vault_path))
-        
+
         # Retrieve passphrases
         github_pass = vault2.retrieve_passphrase("github", master_password)
         aws_pass = vault2.retrieve_passphrase("aws", master_password)
-        
+
         assert github_pass == "GitHubPassword123!@#"
         assert aws_pass == "AWSPassword456!@#"
 
@@ -128,21 +124,21 @@ class TestVaultWorkflows:
 
         # Store initial
         vault.store_passphrase("service", "InitialPassword123", master_password)
-        
+
         # Verify it was stored
         stored_pass = vault.retrieve_passphrase("service", master_password)
         assert stored_pass == "InitialPassword123"
 
         # Update
         vault.update_passphrase("service", "UpdatedPassword456", master_password)
-        
+
         # Verify update
         updated_pass = vault.retrieve_passphrase("service", master_password)
         assert updated_pass == "UpdatedPassword456"
 
         # Delete
         vault.delete_passphrase("service", master_password)
-        
+
         # Verify deleted
         labels = vault.list_labels(master_password)
         assert "service" not in labels
@@ -182,23 +178,23 @@ class TestSecurityWorkflows:
 
     def test_filename_sanitization_workflow(self, tmp_path):
         """Test filename sanitization in real file operations."""
+        from secure_string_cipher.core import encrypt_file
         from secure_string_cipher.security import sanitize_filename
-        from secure_string_cipher.core import encrypt_file, decrypt_file
 
         # Dangerous filename
         dangerous_name = "../../etc/passwd"
         safe_name = sanitize_filename(dangerous_name)
-        
+
         # Create file with sanitized name
         input_file = tmp_path / "test.txt"
         input_file.write_text("test content")
-        
+
         output_file = tmp_path / safe_name
         password = "TestPassword123!@#"
 
         # Should not traverse directories
         encrypt_file(str(input_file), str(output_file), password)
-        
+
         # Verify file is in expected location
         assert output_file.exists()
         assert output_file.parent == tmp_path
@@ -206,12 +202,12 @@ class TestSecurityWorkflows:
 
     def test_path_validation_workflow(self, tmp_path):
         """Test path validation in file operations."""
-        from secure_string_cipher.security import validate_safe_path, SecurityError
         from secure_string_cipher.core import encrypt_file
+        from secure_string_cipher.security import SecurityError, validate_safe_path
 
         input_file = tmp_path / "test.txt"
         input_file.write_text("test content")
-        
+
         # Try to write outside allowed directory
         dangerous_output = tmp_path.parent / "escape.enc"
         password = "TestPassword123!@#"
@@ -235,7 +231,8 @@ class TestErrorHandlingWorkflows:
 
     def test_wrong_password_workflow(self, tmp_path):
         """Test decryption with wrong password."""
-        from secure_string_cipher.core import encrypt_text, decrypt_text
+        from secure_string_cipher.core import decrypt_text, encrypt_text
+        from secure_string_cipher.utils import CryptoError
 
         original = "Secret message"
         correct_password = "CorrectPassword123!@#"
@@ -245,19 +242,20 @@ class TestErrorHandlingWorkflows:
         encrypted = encrypt_text(original, correct_password)
 
         # Try to decrypt with wrong password
-        with pytest.raises(Exception):  # Should raise decryption error
+        with pytest.raises(CryptoError):  # Should raise decryption error
             decrypt_text(encrypted, wrong_password)
 
     def test_corrupted_data_workflow(self, tmp_path):
         """Test handling of corrupted encrypted data."""
         from secure_string_cipher.core import decrypt_text
+        from secure_string_cipher.utils import CryptoError
 
         # Corrupted encrypted data
         corrupted_data = "this is not valid encrypted data"
         password = "TestPassword123!@#"
 
         # Should handle gracefully
-        with pytest.raises(Exception):
+        with pytest.raises(CryptoError):
             decrypt_text(corrupted_data, password)
 
     def test_missing_file_workflow(self, tmp_path):
@@ -281,8 +279,9 @@ class TestPerformanceWorkflows:
 
     def test_large_text_encryption_performance(self):
         """Test encryption performance with large text."""
-        from secure_string_cipher.core import encrypt_text, decrypt_text
         import time
+
+        from secure_string_cipher.core import decrypt_text, encrypt_text
 
         # 100KB of text
         large_text = "A" * (100 * 1024)
@@ -307,8 +306,9 @@ class TestPerformanceWorkflows:
 
     def test_multiple_vault_operations_performance(self, tmp_path, monkeypatch):
         """Test vault performance with multiple operations."""
-        from secure_string_cipher.passphrase_manager import PassphraseVault
         import time
+
+        from secure_string_cipher.passphrase_manager import PassphraseVault
 
         vault_path = tmp_path / "test_vault.json"
 
@@ -328,5 +328,9 @@ class TestPerformanceWorkflows:
         retrieve_time = time.perf_counter() - start
 
         # Performance assertions (relaxed for real-world conditions)
-        assert store_time < 30.0, f"Storing 50 items took {store_time:.2f}s, expected <30s"
-        assert retrieve_time < 10.0, f"Retrieving 50 items took {retrieve_time:.2f}s, expected <10s"
+        assert store_time < 30.0, (
+            f"Storing 50 items took {store_time:.2f}s, expected <30s"
+        )
+        assert retrieve_time < 10.0, (
+            f"Retrieving 50 items took {retrieve_time:.2f}s, expected <10s"
+        )

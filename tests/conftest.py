@@ -5,8 +5,8 @@ Shared test configuration and fixtures
 import contextlib
 import os
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
 
 import pytest
 
@@ -45,9 +45,9 @@ def temp_file() -> Generator[Path, None, None]:
     """Create a temporary file for tests."""
     with tempfile.NamedTemporaryFile(delete=False) as tf:
         path = Path(tf.name)
-    
+
     yield path
-    
+
     with contextlib.suppress(OSError):
         path.unlink()
 
@@ -88,9 +88,9 @@ def reset_environment():
     """Reset environment state between tests."""
     # Store original environment
     original_env = os.environ.copy()
-    
+
     yield
-    
+
     # Restore original environment
     os.environ.clear()
     os.environ.update(original_env)
@@ -107,16 +107,9 @@ def mock_vault_path(temp_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 # Configure pytest-timeout default
 def pytest_configure(config: pytest.Config) -> None:
     """Configure pytest with custom settings."""
-    config.addinivalue_line(
-        "markers", "unit: Unit tests (fast, isolated)"
-    )
+    config.addinivalue_line("markers", "unit: Unit tests (fast, isolated)")
     config.addinivalue_line(
         "markers", "integration: Integration tests (slower, may use filesystem)"
     )
-    config.addinivalue_line(
-        "markers", "slow: Slow tests (take more than 1 second)"
-    )
-    config.addinivalue_line(
-        "markers", "security: Security-focused tests"
-    )
-
+    config.addinivalue_line("markers", "slow: Slow tests (take more than 1 second)")
+    config.addinivalue_line("markers", "security: Security-focused tests")
