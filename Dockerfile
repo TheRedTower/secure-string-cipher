@@ -1,3 +1,4 @@
+
 # Multi-stage Dockerfile for secure-string-cipher
 # Optimized for security, minimal size, and ease of use
 # Using Alpine Linux for maximum security and minimal footprint

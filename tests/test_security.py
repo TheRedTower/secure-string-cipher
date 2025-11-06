@@ -12,8 +12,10 @@ from secure_string_cipher.security import (
     SecurityError,
     check_elevated_privileges,
     check_sensitive_directory,
+    create_secure_temp_file,
     detect_symlink,
     sanitize_filename,
+    secure_atomic_write,
     validate_execution_context,
     validate_filename_safety,
     validate_output_path,
@@ -566,7 +568,201 @@ class TestPrivilegeChecking:
                 with pytest.raises(SecurityError) as exc_info:
                     validate_execution_context(exit_on_error=False)
 
-                error_msg = str(exc_info.value)
-                # Should contain both errors
-                assert "elevated privileges" in error_msg.lower()
-                assert "sensitive directory" in error_msg.lower()
+            error_msg = str(exc_info.value)
+            # Should contain both errors
+            assert "elevated privileges" in error_msg.lower()
+            assert "sensitive directory" in error_msg.lower()
+
+
+class TestSecureTempFile:
+    """Test secure temporary file creation."""
+
+    def test_create_secure_temp_file_basic(self, tmp_path):
+        """Test basic secure temp file creation."""
+        with create_secure_temp_file(directory=tmp_path) as (fd, path):
+            # Check that file descriptor is valid
+            assert isinstance(fd, int)
+            assert fd > 0
+
+            # Check that path exists
+            assert os.path.exists(path)
+
+            # Check permissions are 0o600 (owner read/write only)
+            stat_info = os.stat(path)
+            perms = stat_info.st_mode & 0o777
+            assert perms == 0o600
+
+            # Write some data
+            os.write(fd, b"secret data")
+
+        # After context exit, file should be deleted
+        assert not os.path.exists(path)
+
+    def test_create_secure_temp_file_custom_prefix_suffix(self, tmp_path):
+        """Test temp file with custom prefix and suffix."""
+        with create_secure_temp_file(
+            prefix="test_", suffix=".secret", directory=tmp_path
+        ) as (fd, path):
+            filename = os.path.basename(path)
+            assert filename.startswith("test_")
+            assert filename.endswith(".secret")
+
+    def test_create_secure_temp_file_cleanup_on_exception(self, tmp_path):
+        """Test that temp file is cleaned up even if exception occurs."""
+        temp_path = None
+        try:
+            with create_secure_temp_file(directory=tmp_path) as (fd, path):
+                temp_path = path
+                # Simulate an error
+                raise ValueError("Test error")
+        except ValueError:
+            pass
+
+        # File should still be cleaned up
+        assert temp_path is not None
+        assert not os.path.exists(temp_path)
+
+    def test_create_secure_temp_file_invalid_directory(self):
+        """Test error when directory doesn't exist."""
+        with pytest.raises(SecurityError, match="does not exist"):
+            with create_secure_temp_file(directory="/nonexistent/path"):
+                pass
+
+    def test_create_secure_temp_file_unwritable_directory(self, tmp_path):
+        """Test error when directory is not writable."""
+        # Create a directory and make it read-only
+        readonly_dir = tmp_path / "readonly"
+        readonly_dir.mkdir()
+        readonly_dir.chmod(0o444)
+
+        try:
+            with pytest.raises(SecurityError, match="not writable"):
+                with create_secure_temp_file(directory=readonly_dir):
+                    pass
+        finally:
+            # Restore permissions for cleanup
+            readonly_dir.chmod(0o755)
+
+    def test_create_secure_temp_file_write_and_read(self, tmp_path):
+        """Test writing and reading from secure temp file."""
+        test_data = b"sensitive information"
+
+        with create_secure_temp_file(directory=tmp_path) as (fd, path):
+            # Write data
+            os.write(fd, test_data)
+
+            # Close the fd and reopen for reading to verify
+            os.close(fd)
+
+            with open(path, "rb") as f:
+                read_data = f.read()
+                assert read_data == test_data
+
+
+class TestSecureAtomicWrite:
+    """Test secure atomic write operations."""
+
+    def test_secure_atomic_write_basic(self, tmp_path):
+        """Test basic atomic write operation."""
+        dest = tmp_path / "test.txt"
+        content = b"secret content"
+
+        secure_atomic_write(dest, content)
+
+        # Check file exists and has correct content
+        assert dest.exists()
+        assert dest.read_bytes() == content
+
+        # Check permissions are 0o600
+        stat_info = os.stat(dest)
+        perms = stat_info.st_mode & 0o777
+        assert perms == 0o600
+
+    def test_secure_atomic_write_custom_permissions(self, tmp_path):
+        """Test atomic write with custom permissions."""
+        dest = tmp_path / "test.txt"
+        content = b"data"
+
+        secure_atomic_write(dest, content, mode=0o644)
+
+        # Check permissions are 0o644
+        stat_info = os.stat(dest)
+        perms = stat_info.st_mode & 0o777
+        assert perms == 0o644
+
+    def test_secure_atomic_write_overwrite_existing(self, tmp_path):
+        """Test atomic write overwrites existing file."""
+        dest = tmp_path / "test.txt"
+
+        # Write initial content
+        dest.write_bytes(b"old content")
+
+        # Overwrite with new content
+        new_content = b"new content"
+        secure_atomic_write(dest, new_content)
+
+        # Check content was updated
+        assert dest.read_bytes() == new_content
+
+    def test_secure_atomic_write_nonexistent_directory(self, tmp_path):
+        """Test error when parent directory doesn't exist."""
+        dest = tmp_path / "nonexistent" / "test.txt"
+
+        with pytest.raises(SecurityError, match="does not exist"):
+            secure_atomic_write(dest, b"data")
+
+    def test_secure_atomic_write_unwritable_directory(self, tmp_path):
+        """Test error when parent directory is not writable."""
+        # Create a read-only directory
+        readonly_dir = tmp_path / "readonly"
+        readonly_dir.mkdir()
+        readonly_dir.chmod(0o444)
+
+        dest = readonly_dir / "test.txt"
+
+        try:
+            with pytest.raises(SecurityError, match="not writable"):
+                secure_atomic_write(dest, b"data")
+        finally:
+            # Restore permissions for cleanup
+            readonly_dir.chmod(0o755)
+
+    def test_secure_atomic_write_preserves_on_failure(self, tmp_path):
+        """Test that existing file is preserved if write fails."""
+        dest = tmp_path / "test.txt"
+        original_content = b"original"
+
+        # Write initial content
+        dest.write_bytes(original_content)
+
+        # Try to write with an error condition
+        # We'll mock os.write to raise an exception
+        with patch("os.write", side_effect=OSError("Disk full")):
+            with pytest.raises(SecurityError):
+                secure_atomic_write(dest, b"new content")
+
+        # Original file should still exist with original content
+        assert dest.exists()
+        assert dest.read_bytes() == original_content
+
+    def test_secure_atomic_write_large_content(self, tmp_path):
+        """Test atomic write with large content."""
+        dest = tmp_path / "large.bin"
+        # Create 1MB of data
+        large_content = b"X" * (1024 * 1024)
+
+        secure_atomic_write(dest, large_content)
+
+        assert dest.exists()
+        assert dest.read_bytes() == large_content
+        assert len(dest.read_bytes()) == 1024 * 1024
+
+    def test_secure_atomic_write_empty_content(self, tmp_path):
+        """Test atomic write with empty content."""
+        dest = tmp_path / "empty.txt"
+
+        secure_atomic_write(dest, b"")
+
+        assert dest.exists()
+        assert dest.read_bytes() == b""
+        assert dest.stat().st_size == 0

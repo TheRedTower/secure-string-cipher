@@ -5,9 +5,12 @@ This module provides security functions to prevent path traversal attacks,
 Unicode exploits, symlink attacks, and unsafe execution contexts.
 """
 
+import contextlib
 import os
 import re
+import shutil
 import sys
+import tempfile
 import unicodedata
 from pathlib import Path
 
@@ -409,3 +412,195 @@ def validate_execution_context(exit_on_error: bool = True) -> bool:
             raise SecurityError(error_message)
 
     return True
+
+
+def create_secure_temp_file(
+    prefix: str = "secure_cipher_",
+    suffix: str = ".tmp",
+    directory: str | Path | None = None,
+) -> contextlib.AbstractContextManager[tuple[int, str]]:
+    """
+    Create a temporary file with secure permissions (0o600).
+
+    This function creates a temporary file that is only readable and writable
+    by the current user (chmod 0o600). The file is automatically deleted when
+    the context manager exits.
+
+    Args:
+        prefix: Prefix for the temporary filename (default: "secure_cipher_")
+        suffix: Suffix for the temporary filename (default: ".tmp")
+        directory: Directory to create temp file in (default: system temp dir)
+
+    Returns:
+        Context manager yielding (file_descriptor, filepath) tuple
+
+    Raises:
+        SecurityError: If unable to create secure temp file or set permissions
+        OSError: If file operations fail
+
+    Example:
+        >>> with create_secure_temp_file() as (fd, path):
+        ...     os.write(fd, b"secret data")
+        ...     # File is automatically deleted on exit
+
+    Security:
+        - File permissions set to 0o600 (owner read/write only)
+        - File descriptor returned for secure writing
+        - Automatic cleanup on context exit
+        - Validates directory is writable
+    """
+    import contextlib
+
+    if directory:
+        directory = Path(directory)
+        if not directory.exists():
+            raise SecurityError(f"Directory does not exist: {directory}")
+        if not os.access(directory, os.W_OK):
+            raise SecurityError(f"Directory is not writable: {directory}")
+
+    @contextlib.contextmanager
+    def _secure_temp_context():
+        fd = None
+        path = None
+        try:
+            # Create temp file with secure permissions
+            # delete=False because we want manual control over deletion
+            fd, path = tempfile.mkstemp(
+                prefix=prefix,
+                suffix=suffix,
+                dir=directory,
+            )
+
+            # Set secure permissions (owner read/write only)
+            # This must be done immediately after creation
+            os.chmod(path, 0o600)
+
+            # Verify permissions were set correctly
+            stat_info = os.stat(path)
+            actual_perms = stat_info.st_mode & 0o777
+            if actual_perms != 0o600:
+                raise SecurityError(
+                    f"Failed to set secure permissions on {path}. "
+                    f"Expected 0o600, got {oct(actual_perms)}"
+                )
+
+            yield fd, path
+
+        finally:
+            # Clean up: close fd and delete file
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass  # Already closed
+
+            if path and os.path.exists(path):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass  # Best effort cleanup
+
+    return _secure_temp_context()
+
+
+def secure_atomic_write(
+    destination: str | Path,
+    content: bytes,
+    mode: int = 0o600,
+) -> None:
+    """
+    Atomically write content to a file with secure permissions.
+
+    This function writes content to a temporary file first, then atomically
+    renames it to the destination. This prevents partial writes if the
+    operation is interrupted.
+
+    Args:
+        destination: Final destination file path
+        content: Bytes to write to the file
+        mode: File permissions (default: 0o600 - owner read/write only)
+
+    Raises:
+        SecurityError: If security checks fail or permissions cannot be set
+        OSError: If file operations fail
+
+    Example:
+        >>> secure_atomic_write("secrets.txt", b"confidential", mode=0o600)
+
+    Security:
+        - Atomic operation (rename) prevents partial writes
+        - Secure permissions set on temp file before writing
+        - Temp file in same directory as destination (same filesystem)
+        - Validates destination path before writing
+        - Automatic cleanup on failure
+    """
+    destination = Path(destination)
+
+    # Validate destination path
+    if destination.exists():
+        # Check if we can write to existing file
+        if not os.access(destination, os.W_OK):
+            raise SecurityError(f"Destination file is not writable: {destination}")
+
+    # Validate parent directory
+    parent_dir = destination.parent
+    if not parent_dir.exists():
+        raise SecurityError(f"Parent directory does not exist: {parent_dir}")
+    if not os.access(parent_dir, os.W_OK):
+        raise SecurityError(f"Parent directory is not writable: {parent_dir}")
+
+    # Create temp file in same directory as destination
+    # This ensures same filesystem for atomic rename
+    temp_fd = None
+    temp_path = None
+
+    try:
+        # Create secure temp file
+        temp_fd, temp_path = tempfile.mkstemp(
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            dir=parent_dir,
+        )
+
+        # Set secure permissions immediately
+        os.chmod(temp_path, mode)
+
+        # Verify permissions
+        stat_info = os.stat(temp_path)
+        actual_perms = stat_info.st_mode & 0o777
+        if actual_perms != mode:
+            raise SecurityError(
+                f"Failed to set permissions {oct(mode)} on temp file. "
+                f"Got {oct(actual_perms)}"
+            )
+
+        # Write content to temp file
+        os.write(temp_fd, content)
+
+        # Sync to disk to ensure data is written
+        os.fsync(temp_fd)
+
+        # Close the file descriptor before rename
+        os.close(temp_fd)
+        temp_fd = None
+
+        # Atomic rename to destination
+        # On POSIX systems, this is atomic even if destination exists
+        shutil.move(temp_path, destination)
+        temp_path = None
+
+    except Exception as e:
+        # Clean up temp file on error
+        if temp_fd is not None:
+            try:
+                os.close(temp_fd)
+            except OSError:
+                pass
+
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+
+        raise SecurityError(f"Secure atomic write failed: {e}") from e
