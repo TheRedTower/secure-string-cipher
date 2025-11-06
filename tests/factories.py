@@ -5,6 +5,7 @@ Test data factories for generating test fixtures.
 import secrets
 import string
 from pathlib import Path
+from typing import Any
 
 
 class PassphraseFactory:
@@ -129,7 +130,7 @@ class ConfigFactory:
     """Factory for generating test configurations."""
 
     @staticmethod
-    def create_default_config() -> dict[str, any]:
+    def create_default_config() -> dict[str, Any]:
         """Create a default test configuration."""
         return {
             "vault_path": "~/.local/share/secure-string-cipher/vault.json",
@@ -139,7 +140,7 @@ class ConfigFactory:
         }
 
     @staticmethod
-    def create_custom_config(**kwargs: any) -> dict[str, any]:
+    def create_custom_config(**kwargs: Any) -> dict[str, Any]:
         """Create a custom configuration with overrides."""
         config = ConfigFactory.create_default_config()
         config.update(kwargs)
