@@ -1,10 +1,10 @@
-.PHONY: help format lint test test-fast test-watch test-unit test-integration test-security test-quick test-failed test-cov clean install ci docker-build docker-build-fast docker-test docker-clean
+.PHONY: help format lint test test-fast test-watch test-unit test-integration test-security test-quick test-failed test-cov clean install ci docker-build docker-build-fast docker-build-ultra docker-run docker-test docker-clean docker-size
 
 help:  ## Show this help message
 	@echo 'Usage: make [target]'
 	@echo ''
 	@echo 'Available targets:'
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 install:  ## Install package and dev dependencies
 	pip install -e ".[dev]"
@@ -86,11 +86,33 @@ docker-build-fast:  ## Build Docker image (optimized)
 	@echo "⚡ Building Docker image (fast mode)..."
 	DOCKER_BUILDKIT=1 docker build --build-arg BUILDKIT_INLINE_CACHE=1 -t secure-string-cipher:latest .
 
+docker-build-ultra:  ## Build Docker image (maximum speed)
+	@echo "🚀 Building Docker image (ultra mode)..."
+	DOCKER_BUILDKIT=1 docker build \
+		--build-arg BUILDKIT_INLINE_CACHE=1 \
+		--cache-from secure-string-cipher:latest \
+		--build-arg BUILDKIT_PROGRESS=plain \
+		-t secure-string-cipher:latest .
+
+docker-run:  ## Run Docker container interactively
+	@echo "🏃 Running Docker container..."
+	docker run -it --rm \
+		-v $(PWD)/data:/data \
+		-v $(HOME)/.secure-cipher-docker:/home/cipheruser/.secure-cipher \
+		secure-string-cipher:latest
+
 docker-test:  ## Build and test Docker image
 	@echo "🧪 Building and testing Docker image..."
 	@make docker-build
 	docker run --rm secure-string-cipher:latest --help
 	@echo "✅ Docker test passed!"
+
+docker-size:  ## Show Docker image size details
+	@echo "📊 Docker image size analysis:"
+	@docker images secure-string-cipher:latest --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
+	@echo ""
+	@echo "Layer breakdown:"
+	@docker history secure-string-cipher:latest --human --no-trunc | head -15
 
 docker-clean:  ## Remove Docker images and cache
 	@echo "🧹 Cleaning Docker artifacts..."

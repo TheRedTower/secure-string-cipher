@@ -44,6 +44,7 @@ coverage.json
 htmlcov/
 .hypothesis/
 .benchmarks/
+tests/
 
 # Linting
 .ruff_cache/
@@ -61,17 +62,30 @@ htmlcov/
 Thumbs.db
 target/
 
-# Documentation (keep README.md)
+# Documentation
 docs/
 CONTRIBUTING.md
+DEVELOPER.md
+CHANGELOG.md
 
 # CI/CD
 tox.ini
+.pre-commit-config.yaml
+.secrets.baseline
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
 
 # Local files
 *.enc
 *.dec
 .secure-cipher/
+.secure-cipher-docker/
+data/
 
-# Test files
-tests/
+# Development
+Makefile
+demo_*.py
+test_*.py
