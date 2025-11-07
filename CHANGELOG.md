@@ -2,11 +2,10 @@
 
 ## [Unreleased]
 
-- **User Experience Improvements**:
-  - **Continue Loop**: Users can now perform multiple operations without restarting the program
-    - After each operation, prompt `Continue? (y/n):` allows immediate next operation
-    - Press Enter or 'y' to continue, 'n' to exit
-    - Significantly improves workflow for batch encryption/decryption tasks
+- **UI/UX Improvements**:
+  - Added continue loop for multiple operations without restart
+  - Implemented password retry with 5-attempt limit and rate limiting
+  - Added clipboard integration for encrypted/decrypted output
 
 - **Vault Security & UI Polish**: Enhanced vault integrity and menu rendering
   - **Vault Security Features**:

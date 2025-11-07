@@ -78,13 +78,6 @@ You'll see this menu:
 
 Choose an option and follow the prompts.
 
-**New Feature:** After completing an operation, you'll be prompted:
-```
-Continue? (y/n):
-```
-
-Press **Enter** or **y** to perform another operation without restarting the program. This allows you to encrypt/decrypt multiple items in one session!
-
 ## Docker
 
 Use the pre-built image (Python 3.14-alpine based):
