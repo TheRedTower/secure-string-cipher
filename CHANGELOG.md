@@ -34,6 +34,18 @@
     - **Rationale**: Python 3.10/3.11 are in security-only mode (not active development)
     - PyPI classifier shows Python 3.14 as primary, `requires-python = ">=3.10"` for compatibility
     - Ruff configured for `target-version = "py314"` for modern Python features
+  - **Docker Improvements**:
+    - Updated Dockerfile to Python 3.14-alpine base image
+    - Added backup directory creation (`/home/cipheruser/.secure-cipher/backups`)
+    - Added runtime dependencies (libffi, openssl) and build dependencies (cargo, rust)
+    - Added comprehensive OCI labels for better metadata
+    - Added health check for container monitoring
+    - Improved security with proper ownership and cache cleanup
+    - Updated docker-compose.yml to modern Compose Specification (no version field)
+    - Added resource limits and security constraints (cap_drop, cap_add)
+    - Added persistent volume mapping to `$HOME/.secure-cipher-docker`
+    - Updated release workflow to build multi-arch images (amd64, arm64)
+    - Automated Docker image publishing to GHCR on release tags
 
 ## 1.0.11 (2025-11-06)
 

@@ -79,17 +79,17 @@ Choose an option and follow the prompts.
 
 ## Docker
 
-Use the pre-built image:
+Use the pre-built image (Python 3.14-alpine based):
 
 ```bash
 # Pull and run
 docker pull ghcr.io/theredtower/secure-string-cipher:latest
 docker run --rm -it ghcr.io/theredtower/secure-string-cipher:latest
 
-# Or with docker-compose
+# Or with Docker Compose
 git clone https://github.com/TheRedTower/secure-string-cipher.git
 cd secure-string-cipher
-docker-compose run --rm cipher
+docker compose run --rm cipher
 ```
 
 To encrypt files in your current directory:
@@ -100,7 +100,7 @@ docker run --rm -it \
   ghcr.io/theredtower/secure-string-cipher:latest
 ```
 
-With persistent passphrase vault:
+With persistent passphrase vault (including backups):
 
 ```bash
 docker run --rm -it \
@@ -109,7 +109,7 @@ docker run --rm -it \
   ghcr.io/theredtower/secure-string-cipher:latest
 ```
 
-**Image details:** 78MB Alpine-based image, runs as non-root user, no critical vulnerabilities.
+**Image details:** ~78MB Alpine-based image, Python 3.14, runs as non-root user (UID 1000), includes HMAC integrity verification and automatic backups.
 
 ## Security
 

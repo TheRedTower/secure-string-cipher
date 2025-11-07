@@ -1,4 +1,5 @@
-version: '3.8'
+# Docker Compose configuration for secure-string-cipher
+# Modern Compose Specification (no version field required)
 
 services:
   cipher:
@@ -10,24 +11,60 @@ services:
     # build:
     #   context: .
     #   dockerfile: Dockerfile
+    #   pull: true
     
     container_name: secure-cipher
     stdin_open: true
     tty: true
+    
+    # Volume mounts
     volumes:
       # Mount current directory for file operations
       - ./data:/data
-      # Persist the encrypted vault
+      # Persist the encrypted vault and backups
       - cipher-vault:/home/cipheruser/.secure-cipher
+    
+    # Environment variables
     environment:
       - CIPHER_VAULT_PATH=/home/cipheruser/.secure-cipher/passphrase_vault.enc
+      - PYTHONUNBUFFERED=1
+    
+    # Security settings
     user: "1000:1000"  # Run as non-root user
     security_opt:
       - no-new-privileges:true
+      - seccomp:unconfined  # Required for some cryptography operations
+    cap_drop:
+      - ALL  # Drop all capabilities by default
+    cap_add:
+      - CHOWN  # Allow changing file ownership
+      - DAC_OVERRIDE  # Allow file permission overrides
     read_only: false  # Allow writing to /data and vault
+    
+    # Temporary filesystem for sensitive operations
     tmpfs:
-      - /tmp:rw,noexec,nosuid,size=100m
+      - /tmp:rw,noexec,nosuid,nodev,size=100m
+    
+    # Resource limits (adjust as needed)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Network mode (isolated by default)
+    network_mode: bridge
 
 volumes:
   cipher-vault:
     driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${HOME}/.secure-cipher-docker
