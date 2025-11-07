@@ -1,12 +1,9 @@
 
 # Multi-stage Dockerfile for secure-string-cipher
 # Optimized for security, minimal size, and ease of use
-# Using Alpine Linux for maximum security and minimal footprint
 
-# Build stage
 FROM python:3.14-alpine AS builder
 
-# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -14,7 +11,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /build
 
-# Install build dependencies in a single layer
 RUN apk add --no-cache \
     gcc \
     musl-dev \
@@ -23,60 +19,47 @@ RUN apk add --no-cache \
     cargo \
     rust
 
-# Copy only requirements first for better layer caching
 COPY pyproject.toml README.md LICENSE ./
 COPY src/ ./src/
 
-# Upgrade pip to latest secure version and build the package
 RUN pip install --no-cache-dir --upgrade "pip>=25.3" && \
     pip install --no-cache-dir build && \
     python -m build && \
     pip wheel --no-cache-dir --no-deps --wheel-dir /build/wheels .
 
-# Runtime stage
 FROM python:3.14-alpine
 
-# Security: Run as non-root user with specific UID/GID
 RUN adduser -D -u 1000 -s /bin/sh cipheruser && \
     mkdir -p /data /home/cipheruser/.secure-cipher /home/cipheruser/.secure-cipher/backups && \
     chown -R cipheruser:cipheruser /data /home/cipheruser/.secure-cipher && \
     chmod 700 /home/cipheruser/.secure-cipher /home/cipheruser/.secure-cipher/backups
 
-# Install runtime dependencies only
 RUN apk add --no-cache \
     libffi \
     openssl
 
-# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/home/cipheruser/.local/bin:$PATH"
 
-# Copy wheels from builder
 COPY --from=builder --chown=cipheruser:cipheruser /build/wheels /tmp/wheels
 COPY --from=builder --chown=cipheruser:cipheruser /build/dist/*.whl /tmp/
 
-# Upgrade pip and install the package
 RUN pip install --no-cache-dir --upgrade "pip>=25.3" && \
     pip install --no-cache-dir /tmp/*.whl && \
     rm -rf /tmp/wheels /tmp/*.whl /root/.cache
 
-# Switch to non-root user
 USER cipheruser
 WORKDIR /data
 
-# Set the vault location to a persistent volume
 ENV CIPHER_VAULT_PATH="/home/cipheruser/.secure-cipher/passphrase_vault.enc"
 
-# Health check (optional, for when running as daemon)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=1 \
     CMD python -c "import secure_string_cipher; print('healthy')" || exit 1
 
-# Default entrypoint
 ENTRYPOINT ["cipher-start"]
 CMD []
 
-# Metadata (OpenContainer Initiative labels)
 LABEL maintainer="TheRedTower <security@avondenecloud.uk>" \
       description="Secure AES-256-GCM encryption utility with passphrase management" \
       version="1.0.12" \

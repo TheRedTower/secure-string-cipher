@@ -96,7 +96,6 @@ class StreamProcessor:
             CryptoError: If path is unsafe or permissions are incorrect
         """
         if self.mode == "wb":
-            # Check if file exists
             if os.path.exists(self.path):
                 ans = input(
                     f"\nWarning: {self.path} exists. Overwrite? [y/N]: "
@@ -104,7 +103,6 @@ class StreamProcessor:
                 if ans not in ("y", "yes"):
                     raise CryptoError("Operation cancelled")
 
-            # Check directory permissions
             try:
                 directory = os.path.dirname(self.path) or "."
                 test_file = os.path.join(directory, ".write_test")
@@ -139,7 +137,7 @@ class StreamProcessor:
                 except OSError:
                     pass  # Skip progress if we can't get file size
         else:
-            self.file = self.path  # Use provided file object
+            self.file = self.path
 
         return self
 
@@ -252,7 +250,7 @@ def encrypt_stream(r: StreamProcessor, w: StreamProcessor, passphrase: str) -> N
 
             for chunk in iter(lambda: r.read(CHUNK_SIZE), b""):
                 w.write(encryptor.update(chunk))
-                add_timing_jitter()  # Add jitter between chunks
+                add_timing_jitter()
 
             w.write(encryptor.finalize() + encryptor.tag)
     except Exception as e:

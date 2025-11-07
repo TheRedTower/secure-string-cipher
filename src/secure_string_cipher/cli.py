@@ -59,7 +59,6 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
     separator = "┣" + "━" * (WIDTH - 2) + "┫\n"
     footer = "┗" + "━" * (WIDTH - 2) + "┛\n"
 
-    # Title with proper centering for Unicode/emoji
     title = "⚡ AVAILABLE OPERATIONS ⚡"
     title_visual_width = wcswidth(title)
     total_padding = WIDTH - 4 - title_visual_width
@@ -94,7 +93,6 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
     ]
 
     menu = "".join(menu_parts)
-    # --- End of menu construction ---
 
     out_stream.write(menu)
     out_stream.flush()
@@ -115,7 +113,6 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
             return None
 
         if not choice:
-            # default
             return 1
 
         if choice in {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}:
@@ -148,7 +145,6 @@ def _get_input(mode: int, in_stream: TextIO, out_stream: TextIO) -> str:
             sys.exit(1)
         return payload
 
-    # file modes
     out_stream.write(colorize("\n📂 Enter file path", "yellow") + "\n")
     out_stream.write("➜ ")
     out_stream.flush()
@@ -164,7 +160,6 @@ def _get_password(
     in_stream: TextIO | None = None,
     out_stream: TextIO | None = None,
 ) -> str:
-    # Provide defaults if None
     if in_stream is None:
         in_stream = sys.stdin
     if out_stream is None:
@@ -179,7 +174,6 @@ def _get_password(
     out_stream.flush()
     pw = in_stream.readline()
     if pw == "":
-        # EOF -> treat as empty
         out_stream.write("Password must be at least 12 characters\n")
         out_stream.flush()
         sys.exit(1)
@@ -206,7 +200,6 @@ def _get_password(
 
 
 def _handle_clipboard(_text: str) -> None:
-    # No-op for tests
     return
 
 
@@ -433,7 +426,6 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
             return
 
         if choice == "1":
-            # Update passphrase
             out_stream.write(f"\nEnter new passphrase for '{label}': ")
             out_stream.flush()
             new_passphrase = in_stream.readline().rstrip("\n")
@@ -451,7 +443,6 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
             out_stream.flush()
 
         elif choice == "2":
-            # Delete passphrase
             out_stream.write(f"\nAre you sure you want to delete '{label}'? (yes/no): ")
             out_stream.flush()
             confirm = in_stream.readline().rstrip("\n").lower()
@@ -504,9 +495,7 @@ def main(
             sys.exit(0)
         return 0
 
-    # Handle passphrase and vault operations (5-9)
     if mode == 5:
-        # Generate passphrase
         _handle_generate_passphrase(in_stream, out_stream)
         if exit_on_completion:
             sys.exit(0)
@@ -536,17 +525,14 @@ def main(
             sys.exit(0)
         return 0
     elif mode == 0:
-        # Exit
         out_stream.write("Exiting\n")
         out_stream.flush()
         if exit_on_completion:
             sys.exit(0)
         return 0
 
-    # Original operations (1-4) continue below
     payload = _get_input(mode, in_stream, out_stream)
 
-    # determine operation
     is_encrypt = mode in (1, 3)
     password = _get_password(
         confirm=is_encrypt, in_stream=in_stream, out_stream=out_stream
@@ -570,7 +556,6 @@ def main(
             out_stream.write(f"Encrypted file -> {out_path}\n")
             out_stream.flush()
         elif mode == 4:
-            # Decrypt file
             # TODO: When we implement original filename storage in encrypted files,
             # use sanitize_filename() and validate_filename_safety() to secure the output name
             out_path = payload + ".dec"
@@ -590,7 +575,6 @@ def main(
             sys.exit(1)
         return 1
 
-    # Success path
     if exit_on_completion:
         sys.exit(0)
     return 0

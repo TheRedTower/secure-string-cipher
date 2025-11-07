@@ -10,8 +10,6 @@ Provides multiple strategies for generating cryptographically secure passphrases
 import secrets
 import string
 
-# Curated word list for passphrase generation (EFF-style, easy to type and remember)
-# These are common, memorable words that are easy to type
 WORD_LIST = [
     "abstract",
     "account",
@@ -1821,7 +1819,6 @@ def calculate_entropy_bits(passphrase_type: str, **params) -> float:
 
     if passphrase_type == "word":
         word_count = params.get("word_count", 6)
-        # entropy = log2(word_list_size) * word_count
         return math.log2(len(WORD_LIST)) * word_count
 
     elif passphrase_type == "alphanumeric":

@@ -52,43 +52,32 @@ def sanitize_filename(filename: str, max_length: int = 255) -> str:
     # This prevents homoglyph attacks and normalizes lookalike characters
     filename = unicodedata.normalize("NFKD", filename)
 
-    # Remove all control characters (including null bytes)
     # Control characters are in category 'C'
     filename = "".join(c for c in filename if unicodedata.category(c)[0] != "C")
 
     # Normalize path separators (both Unix and Windows)
-    # This allows os.path.basename to work correctly
     filename = filename.replace("\\", "/")
 
-    # Extract basename only - removes ALL path components
-    # This handles ../../../etc/passwd -> passwd
     filename = os.path.basename(filename)
 
-    # Remove path traversal sequences that might remain
     filename = filename.replace("..", "")
 
-    # Remove leading dots to prevent hidden file creation
     filename = filename.lstrip(".")
 
     # Replace unsafe characters with underscores
-    # Allow only: alphanumeric, dash, underscore, dot
     filename = re.sub(r"[^a-zA-Z0-9._-]", "_", filename)
 
     # Collapse multiple consecutive underscores to single underscore
     filename = re.sub(r"_+", "_", filename)
 
-    # Remove leading/trailing underscores
     filename = filename.strip("_")
 
-    # Limit filename length
     if len(filename) > max_length:
         name, ext = os.path.splitext(filename)
-        # Reserve space for extension
         available = max_length - len(ext) - 1
         name = name[:available]
         filename = name + ext
 
-    # Ensure filename is not empty
     if not filename:
         filename = "decrypted_file"
 
@@ -142,12 +131,10 @@ def validate_safe_path(
         >>> validate_safe_path("/tmp/../etc/passwd", "/tmp")
         False (raises SecurityError)
     """
-    # Convert to Path objects
     file_path = Path(file_path).resolve()
 
     allowed_dir = Path.cwd() if allowed_dir is None else Path(allowed_dir).resolve()
 
-    # Check if resolved path is within allowed directory
     try:
         # Will raise ValueError if file_path is not relative to allowed_dir
         file_path.relative_to(allowed_dir)
@@ -187,7 +174,6 @@ def detect_symlink(file_path: str | Path, follow_links: bool = False) -> bool:
     """
     file_path = Path(file_path)
 
-    # Check if the path itself is a symlink
     if file_path.is_symlink():
         if not follow_links:
             raise SecurityError(
@@ -205,7 +191,6 @@ def detect_symlink(file_path: str | Path, follow_links: bool = False) -> bool:
                 f"which is outside the current directory"
             ) from None
 
-    # Check if any parent directory is a symlink
     for parent in file_path.parents:
         if parent.is_symlink():
             if not follow_links:
@@ -213,7 +198,6 @@ def detect_symlink(file_path: str | Path, follow_links: bool = False) -> bool:
                     f"Symlink in path detected: '{parent}' is a symbolic link"
                 )
 
-            # Check if symlink target is within cwd
             try:
                 target = parent.resolve()
                 target.relative_to(Path.cwd())
@@ -259,7 +243,6 @@ def validate_output_path(
     sanitized_name = sanitize_filename(output_path.name)
     output_path = output_path.parent / sanitized_name
 
-    # Check for symlinks
     detect_symlink(output_path, follow_links=allow_symlinks)
 
     # Validate path doesn't escape allowed directory
@@ -333,16 +316,13 @@ def check_sensitive_directory() -> str | None:
         Path.home() / ".gnupg",
     ]
 
-    # Check if cwd is a sensitive path or a subdirectory of one
     for sensitive in sensitive_paths:
         try:
-            # Convert to Path
             sensitive_path = (
                 Path(sensitive) if isinstance(sensitive, str) else Path(str(sensitive))
             )
 
             # Try to check if cwd is relative to sensitive path
-            # This works even if paths don't exist
             cwd.resolve().relative_to(sensitive_path.resolve())
             return (
                 f"⚠️  Running from sensitive directory: {cwd}\n"
@@ -383,7 +363,6 @@ def validate_execution_context(exit_on_error: bool = True) -> bool:
     """
     errors = []
 
-    # Check for elevated privileges
     if check_elevated_privileges():
         errors.append(
             "🚫 SECURITY ERROR: Running with elevated privileges (root/sudo)\n"
@@ -397,7 +376,6 @@ def validate_execution_context(exit_on_error: bool = True) -> bool:
             "   Solution: Run this program as a normal user without sudo"
         )
 
-    # Check for sensitive directory
     sensitive_warning = check_sensitive_directory()
     if sensitive_warning:
         errors.append(sensitive_warning)
@@ -463,7 +441,6 @@ def create_secure_temp_file(
         fd = None
         path = None
         try:
-            # Create temp file with secure permissions
             # delete=False because we want manual control over deletion
             fd, path = tempfile.mkstemp(
                 prefix=prefix,
@@ -471,11 +448,8 @@ def create_secure_temp_file(
                 dir=directory,
             )
 
-            # Set secure permissions (owner read/write only)
-            # This must be done immediately after creation
             os.chmod(path, 0o600)
 
-            # Verify permissions were set correctly
             stat_info = os.stat(path)
             actual_perms = stat_info.st_mode & 0o777
             if actual_perms != 0o600:
@@ -538,7 +512,6 @@ def secure_atomic_write(
 
     # Validate destination path
     if destination.exists():
-        # Check if we can write to existing file
         if not os.access(destination, os.W_OK):
             raise SecurityError(f"Destination file is not writable: {destination}")
 
@@ -549,23 +522,19 @@ def secure_atomic_write(
     if not os.access(parent_dir, os.W_OK):
         raise SecurityError(f"Parent directory is not writable: {parent_dir}")
 
-    # Create temp file in same directory as destination
     # This ensures same filesystem for atomic rename
     temp_fd = None
     temp_path = None
 
     try:
-        # Create secure temp file
         temp_fd, temp_path = tempfile.mkstemp(
             prefix=f".{destination.name}.",
             suffix=".tmp",
             dir=parent_dir,
         )
 
-        # Set secure permissions immediately
         os.chmod(temp_path, mode)
 
-        # Verify permissions
         stat_info = os.stat(temp_path)
         actual_perms = stat_info.st_mode & 0o777
         if actual_perms != mode:
@@ -574,13 +543,10 @@ def secure_atomic_write(
                 f"Got {oct(actual_perms)}"
             )
 
-        # Write content to temp file
         os.write(temp_fd, content)
 
-        # Sync to disk to ensure data is written
         os.fsync(temp_fd)
 
-        # Close the file descriptor before rename
         os.close(temp_fd)
         temp_fd = None
 
@@ -590,7 +556,6 @@ def secure_atomic_write(
         temp_path = None
 
     except Exception as e:
-        # Clean up temp file on error
         if temp_fd is not None:
             try:
                 os.close(temp_fd)

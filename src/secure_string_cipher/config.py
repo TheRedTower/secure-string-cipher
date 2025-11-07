@@ -2,15 +2,13 @@
 Configuration settings for secure-string-cipher
 """
 
-# Cryptographic parameters
-CHUNK_SIZE = 64 * 1024  # 64 KiB stream size
+CHUNK_SIZE = 64 * 1024
 SALT_SIZE = 16
 NONCE_SIZE = 12
 TAG_SIZE = 16
 KDF_ITERATIONS = 390_000
 
-# Security limits
-MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+MAX_FILE_SIZE = 100 * 1024 * 1024
 MIN_PASSWORD_LENGTH = 12
 PASSWORD_PATTERNS = {
     "uppercase": lambda s: any(c.isupper() for c in s),
@@ -29,7 +27,6 @@ COMMON_PASSWORDS = {
     "dragon",
 }
 
-# Terminal colors
 COLORS = {
     "reset": "\033[0m",
     "cyan": "\033[96m",
@@ -38,7 +35,6 @@ COLORS = {
     "green": "\033[92m",
 }
 
-# Command line interface
-DEFAULT_MODE = 1  # Encrypt text
+DEFAULT_MODE = 1
 CLIPBOARD_ENABLED = True
-CLI_TIMEOUT = 300  # 5 minutes inactivity timeout
+CLI_TIMEOUT = 300

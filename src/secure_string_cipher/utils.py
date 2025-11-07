@@ -50,7 +50,6 @@ class ProgressBar:
         if not sys.stdout.isatty():
             return
 
-        # Update at most 10 times/second
         now = time.time()
         if now - self.last_print < 0.1 and current < self.total:
             return
@@ -60,7 +59,6 @@ class ProgressBar:
         bar = "█" * filled + "░" * (self.width - filled)
         percent = current / self.total * 100
 
-        # Use carriage return to update in place
         print(f"\r{bar} {percent:0.1f}%", end="", flush=True)
         if current >= self.total:
             print()  # New line when done
@@ -120,7 +118,6 @@ def secure_overwrite(path: str) -> None:
     try:
         size = os.path.getsize(path)
         with open(path, "wb") as f:
-            # Overwrite with zeros
             f.write(b"\0" * size)
             f.flush()
             os.fsync(f.fileno())
@@ -148,4 +145,3 @@ def handle_timeout(seconds: int) -> TimeoutManager:
     return TimeoutManager(seconds)
 
 
-# Single colorize implementation above; remove duplicate/stale function and stray return

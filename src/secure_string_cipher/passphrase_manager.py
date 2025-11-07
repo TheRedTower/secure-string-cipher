@@ -61,14 +61,12 @@ class PassphraseVault:
         if not self.vault_path.exists():
             return
 
-        # Create timestamped backup
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_path = self.backup_dir / f"vault_backup_{timestamp}.enc"
 
         shutil.copy2(self.vault_path, backup_path)
         os.chmod(backup_path, 0o600)
 
-        # Keep only last 5 backups
         backups = sorted(self.backup_dir.glob("vault_backup_*.enc"))
         if len(backups) > 5:
             for old_backup in backups[:-5]:
@@ -96,7 +94,6 @@ class PassphraseVault:
             if not vault_contents:
                 return {}
 
-            # Split encrypted data and HMAC
             if "\n---HMAC---\n" in vault_contents:
                 encrypted_vault, stored_hmac = vault_contents.split("\n---HMAC---\n")
 
@@ -121,7 +118,6 @@ class PassphraseVault:
                 # Legacy vault without HMAC (from older version)
                 encrypted_vault = vault_contents
 
-            # Decrypt the vault contents
             decrypted_json = decrypt_text(encrypted_vault, master_password)
             return json.loads(decrypted_json)
         except json.JSONDecodeError:
@@ -142,19 +138,15 @@ class PassphraseVault:
             vault_data: Dictionary mapping labels to passphrases
             master_password: Master password to encrypt the vault
         """
-        # Create backup before modifying
         self._create_backup()
 
-        # Convert to JSON
         json_data = json.dumps(vault_data, indent=2)
 
-        # Encrypt the entire vault
         encrypted_vault = encrypt_text(json_data, master_password)
 
         # Compute HMAC for integrity verification
         vault_hmac = self._compute_hmac(encrypted_vault, master_password)
 
-        # Combine encrypted data and HMAC
         vault_contents = f"{encrypted_vault}\n---HMAC---\n{vault_hmac}"
 
         # Use atomic write to prevent corruption during write
@@ -178,7 +170,6 @@ class PassphraseVault:
 
         label = label.strip()
 
-        # Load existing vault
         try:
             vault_data = self._load_vault(master_password)
         except ValueError:
@@ -192,10 +183,8 @@ class PassphraseVault:
                 f"Label '{label}' already exists. Use a different label or delete the existing one."
             )
 
-        # Add new passphrase
         vault_data[label] = passphrase
 
-        # Save vault
         self._save_vault(vault_data, master_password)
 
     def retrieve_passphrase(self, label: str, master_password: str) -> str:

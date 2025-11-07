@@ -24,7 +24,7 @@ def add_timing_jitter() -> None:
     Add random timing jitter to prevent timing analysis.
     Adds between 0-10ms of delay.
     """
-    jitter = secrets.randbelow(10000) / 1000000  # Convert to seconds
+    jitter = secrets.randbelow(10000) / 1000000
     time.sleep(jitter)
 
 

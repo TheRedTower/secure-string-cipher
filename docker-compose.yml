@@ -1,13 +1,9 @@
 # Docker Compose configuration for secure-string-cipher
-# Modern Compose Specification (no version field required)
 
 services:
   cipher:
-    # Use pre-built image from GitHub Container Registry
-    # Comment out the next line and uncomment 'build' section to build locally
     image: ghcr.io/theredtower/secure-string-cipher:latest
     
-    # Uncomment to build from source instead of using pre-built image
     # build:
     #   context: .
     #   dockerfile: Dockerfile
@@ -17,35 +13,28 @@ services:
     stdin_open: true
     tty: true
     
-    # Volume mounts
     volumes:
-      # Mount current directory for file operations
       - ./data:/data
-      # Persist the encrypted vault and backups
       - cipher-vault:/home/cipheruser/.secure-cipher
     
-    # Environment variables
     environment:
       - CIPHER_VAULT_PATH=/home/cipheruser/.secure-cipher/passphrase_vault.enc
       - PYTHONUNBUFFERED=1
     
-    # Security settings
-    user: "1000:1000"  # Run as non-root user
+    user: "1000:1000"
     security_opt:
       - no-new-privileges:true
-      - seccomp:unconfined  # Required for some cryptography operations
+      - seccomp:unconfined
     cap_drop:
-      - ALL  # Drop all capabilities by default
+      - ALL
     cap_add:
-      - CHOWN  # Allow changing file ownership
-      - DAC_OVERRIDE  # Allow file permission overrides
-    read_only: false  # Allow writing to /data and vault
+      - CHOWN
+      - DAC_OVERRIDE
+    read_only: false
     
-    # Temporary filesystem for sensitive operations
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=100m
     
-    # Resource limits (adjust as needed)
     deploy:
       resources:
         limits:
@@ -55,10 +44,7 @@ services:
           cpus: '0.25'
           memory: 128M
     
-    # Restart policy
     restart: unless-stopped
-    
-    # Network mode (isolated by default)
     network_mode: bridge
 
 volumes:

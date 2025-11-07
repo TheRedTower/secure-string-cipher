@@ -22,16 +22,13 @@ def secure_wipe(data: bytes | bytearray | memoryview | array.array) -> None:
 
     length = len(data)
 
-    # First overwrite with random data
     for _ in range(3):
         for i in range(length):
             data[i] = secrets.randbelow(256)
 
-    # Then overwrite with zeros
     for i in range(length):
         data[i] = 0
 
-    # Force memory deallocation if possible
     if isinstance(data, memoryview):
         data.release()
 
@@ -42,7 +39,6 @@ class SecureBytes:
 
     Usage:
         with SecureBytes(b"sensitive data") as secure:
-            # Use secure.data here
             process_secure_data(secure.data)
         # Data is automatically wiped after the with block
     """
@@ -83,7 +79,6 @@ class SecureString:
 
     Usage:
         with SecureString("sensitive data") as secure:
-            # Use secure.string here
             process_secure_string(secure.string)
         # String is automatically wiped after the with block
     """
@@ -92,7 +87,7 @@ class SecureString:
         """Initialize with sensitive string."""
         self._chars = bytearray(
             string.encode("utf-16le")
-        )  # Use UTF-16LE to keep characters in memory
+        )
 
     def __enter__(self):
         """Context manager entry."""
