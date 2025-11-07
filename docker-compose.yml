@@ -1,14 +1,6 @@
-# Docker Compose configuration for secure-string-cipher
-
 services:
   cipher:
     image: ghcr.io/theredtower/secure-string-cipher:latest
-    
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile
-    #   pull: true
-    
     container_name: secure-cipher
     stdin_open: true
     tty: true

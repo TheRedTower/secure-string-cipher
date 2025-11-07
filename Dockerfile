@@ -1,7 +1,3 @@
-
-# Multi-stage Dockerfile for secure-string-cipher
-# Optimized for security, minimal size, and fast builds
-
 FROM python:3.14-alpine AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -11,7 +7,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /build
 
-# Install build dependencies in a separate layer for better caching
 RUN apk add --no-cache \
     gcc \
     musl-dev \
@@ -20,24 +15,19 @@ RUN apk add --no-cache \
     cargo \
     rust
 
-# Copy only dependency specifications first (better cache utilization)
 COPY pyproject.toml README.md LICENSE ./
 
-# Pre-install dependencies to cache this expensive layer
-# This layer only rebuilds when pyproject.toml changes
-RUN pip install --no-cache-dir --upgrade "pip>=25.3" && \
-    pip install --no-cache-dir build && \
-    pip install --no-cache-dir \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade "pip>=25.3" && \
+    pip install build && \
+    pip install \
         cryptography \
         wcwidth \
         pyperclip
 
-# Copy source code (changes frequently, so kept separate)
 COPY src/ ./src/
 
-# Build the wheel (quick since dependencies already installed)
-RUN python -m build && \
-    pip wheel --no-cache-dir --no-deps --wheel-dir /build/wheels .
+RUN python -m build --wheel --outdir /build/wheels
 
 FROM python:3.14-alpine
 
@@ -55,11 +45,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/home/cipheruser/.local/bin:$PATH"
 
 COPY --from=builder --chown=cipheruser:cipheruser /build/wheels /tmp/wheels
-COPY --from=builder --chown=cipheruser:cipheruser /build/dist/*.whl /tmp/
 
-RUN pip install --no-cache-dir --upgrade "pip>=25.3" && \
-    pip install --no-cache-dir /tmp/*.whl && \
-    rm -rf /tmp/wheels /tmp/*.whl /root/.cache
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install /tmp/wheels/*.whl && \
+    rm -rf /tmp/wheels
 
 USER cipheruser
 WORKDIR /data
