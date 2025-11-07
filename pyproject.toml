@@ -103,6 +103,7 @@ python_functions = ["test_*"]
 addopts = [
     "-v",
     "-ra",
+    "-n", "auto",
     "--strict-markers",
     "--strict-config",
     "--tb=short",
