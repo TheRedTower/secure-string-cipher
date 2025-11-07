@@ -2,22 +2,29 @@
 
 [![CI](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/Python-3.14-blue.svg)](https://www.python.org/downloads/)
+[![Compatibility](https://img.shields.io/badge/Backward_Compatible-3.10+-green.svg)](https://www.python.org/downloads/)
 
 A simple, secure AES-256-GCM encryption tool with an interactive menu interface.
 
-**Requirements:** Python 3.10+
+**Developed for:** Python 3.14  
+**Backward compatible to:** Python 3.10+
 
 ## Features
 
 - Encrypt and decrypt text and files with AES-256-GCM
 - Generate strong random passphrases with entropy calculation
 - Store passphrases in an encrypted vault (optional)
+  - HMAC-SHA256 integrity verification to detect tampering
+  - Automatic backup creation (keeps last 5 backups)
+  - Atomic writes to prevent corruption
 - Stream large files in chunks for low memory usage
 - Text output in Base64 for easy copy/paste
 - Clipboard integration available
 
 ## Installation
+
+> **Note**: This project is developed for **Python 3.14** (latest stable) and is backward compatible to Python 3.10+. We follow Python's official support policy and may drop support for older versions as they reach end-of-life.
 
 ```bash
 # Recommended: install with pipx

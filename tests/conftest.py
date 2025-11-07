@@ -12,7 +12,7 @@ import pytest
 
 
 @pytest.fixture(scope="session")
-def test_env() -> Generator[None, None, None]:
+def test_env() -> Generator[None]:
     """Set up test environment variables."""
     old_env = {}
 
@@ -34,14 +34,14 @@ def test_env() -> Generator[None, None, None]:
 
 
 @pytest.fixture
-def temp_dir() -> Generator[Path, None, None]:
+def temp_dir() -> Generator[Path]:
     """Create a temporary directory for tests."""
     with tempfile.TemporaryDirectory() as tmpdir:
         yield Path(tmpdir)
 
 
 @pytest.fixture
-def temp_file() -> Generator[Path, None, None]:
+def temp_file() -> Generator[Path]:
     """Create a temporary file for tests."""
     with tempfile.NamedTemporaryFile(delete=False) as tf:
         path = Path(tf.name)
@@ -53,7 +53,7 @@ def temp_file() -> Generator[Path, None, None]:
 
 
 @pytest.fixture
-def large_test_file() -> Generator[str, None, None]:
+def large_test_file() -> Generator[str]:
     """Create a large temporary test file."""
     with tempfile.NamedTemporaryFile(delete=False) as tf:
         # Write 1MB of random-like but reproducible data

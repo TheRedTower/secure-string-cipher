@@ -40,9 +40,11 @@ This project follows a Code of Conduct adapted from the Contributor Covenant. By
 
 ## Development Setup
 
+**Python Version**: We develop on **Python 3.14** (latest stable) with backward compatibility to Python 3.10+. Please use Python 3.14 for development to ensure you're using modern Python features.
+
 1. **Create your environment**
    ```bash
-   python -m venv venv
+   python3.14 -m venv venv
    source venv/bin/activate  # Windows: venv\Scripts\activate
    pip install -e ".[dev]"
    ```
@@ -50,8 +52,8 @@ This project follows a Code of Conduct adapted from the Contributor Covenant. By
 2. **Run tests**
    ```bash
    pytest
-   # Or with coverage
-   pytest --cov=secure_string_cipher
+   # Or with coverage and parallel execution
+   pytest --cov=secure_string_cipher -n auto
    ```
 
 3. **Check code quality**

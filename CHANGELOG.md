@@ -23,6 +23,17 @@
   - **Code Quality**:
     - Fixed trailing whitespace in passphrase_manager.py
     - All 189 tests passing, vault integrity verified
+  - **Development Strategy Update**:
+    - **Primary development target**: Python 3.14 (latest stable)
+    - **Backward compatibility**: Maintained to Python 3.10+
+    - **CI/CD Optimization**: 
+      - Split quality checks (2-3 min) from test matrix (3-5 min) for faster feedback
+      - Parallel test execution with `pytest-xdist` (~32% faster)
+      - Early failure detection (`--maxfail=3`)
+      - Tests run on Python 3.10-3.14 to ensure backward compatibility
+    - **Rationale**: Python 3.10/3.11 are in security-only mode (not active development)
+    - PyPI classifier shows Python 3.14 as primary, `requires-python = ">=3.10"` for compatibility
+    - Ruff configured for `target-version = "py314"` for modern Python features
 
 ## 1.0.11 (2025-11-06)
 

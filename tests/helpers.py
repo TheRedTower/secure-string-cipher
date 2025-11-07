@@ -150,7 +150,7 @@ class TestTimer:
         self.end_time: float = 0
         self.elapsed: float = 0
 
-    def __enter__(self) -> "TestTimer":
+    def __enter__(self) -> TestTimer:
         import time
 
         self.start_time = time.perf_counter()

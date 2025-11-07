@@ -25,10 +25,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Security :: Cryptography",
     "Topic :: Utilities"
@@ -66,7 +62,7 @@ cipher-start = "secure_string_cipher.cli:main"
 [tool.ruff]
 # Ruff replaces Black, isort, flake8, and more
 line-length = 88
-target-version = "py310"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = [
