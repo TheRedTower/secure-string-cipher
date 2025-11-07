@@ -51,19 +51,19 @@ You'll see this menu:
 
 ```
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃                  ⚡ AVAILABLE OPERATIONS ⚡                   ┃
+┃                       AVAILABLE OPERATIONS                     ┃
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
 ┃                                                                ┃
-┃  📝  TEXT & FILE ENCRYPTION                                    ┃
+┃  TEXT & FILE ENCRYPTION                                        ┃
 ┃                                                                ┃
-┃    [1] Encrypt Text     →  Encrypt a message (base64 output)   ┃
-┃    [2] Decrypt Text     →  Decrypt an encrypted message        ┃
-┃    [3] Encrypt File     →  Encrypt a file (creates .enc)       ┃
-┃    [4] Decrypt File     →  Decrypt an encrypted file           ┃
+┃    [1] Encrypt Text      →  Encrypt a message (base64 output)  ┃
+┃    [2] Decrypt Text      →  Decrypt an encrypted message       ┃
+┃    [3] Encrypt File      →  Encrypt a file (creates .enc)      ┃
+┃    [4] Decrypt File      →  Decrypt an encrypted file          ┃
 ┃                                                                ┃
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
-┃  🔑  PASSPHRASE VAULT (Optional)                               ┃
-┃                                                                ┃ 
+┃  PASSPHRASE VAULT (Optional)                                   ┃
+┃                                                                ┃
 ┃    [5] Generate Passphrase  →  Create secure random password   ┃
 ┃    [6] Store in Vault       →  Save passphrase securely        ┃
 ┃    [7] Retrieve from Vault  →  Get stored passphrase           ┃
@@ -71,8 +71,9 @@ You'll see this menu:
 ┃    [9] Manage Vault         →  Update or delete entries        ┃
 ┃                                                                ┃
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
-┃    [0] Exit               →  Quit application                  ┃
+┃    [0] Exit                →  Quit application                 ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
 ```
 
 Choose an option and follow the prompts.
