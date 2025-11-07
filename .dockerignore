@@ -39,8 +39,15 @@ env/
 .tox/
 .coverage
 .coverage.*
+coverage.xml
+coverage.json
 htmlcov/
 .hypothesis/
+.benchmarks/
+
+# Linting
+.ruff_cache/
+.mypy_cache/
 
 # IDE
 .vscode/
