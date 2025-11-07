@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased]
+
+- **Vault Security & UI Polish**: Enhanced vault integrity and menu rendering
+  - **Vault Security Features**:
+    - Added HMAC-SHA256 integrity verification to detect vault file tampering
+    - Automatic backup creation before vault modifications (keeps last 5 backups)
+    - Atomic writes using `secure_atomic_write()` to prevent file corruption
+    - Enhanced error messages distinguish between wrong password and file tampering
+    - Added `list_backups()` and `restore_from_backup()` methods for recovery
+    - Backward compatible with legacy vaults (no HMAC → with HMAC migration)
+    - Backups stored in `~/.secure-cipher/backups/` with same permissions (chmod 600)
+  - **Menu Rendering Improvements**:
+    - Added `wcwidth>=0.2.0` dependency for proper Unicode width calculation
+    - Fixed menu title alignment (emoji characters now properly centered)
+    - Future-proof support for any Unicode/emoji characters
+    - Handles CJK characters and combining characters correctly
+  - **Documentation Updates**:
+    - Updated SECURITY.md with vault integrity and backup features
+    - Updated README.md with HMAC verification and backup information
+    - Fixed README menu spacing to match actual CLI output
+  - **Code Quality**:
+    - Fixed trailing whitespace in passphrase_manager.py
+    - All 189 tests passing, vault integrity verified
+
 ## 1.0.11 (2025-11-06)
 
 - **User Experience & Documentation**: UI improvements and comprehensive documentation overhaul

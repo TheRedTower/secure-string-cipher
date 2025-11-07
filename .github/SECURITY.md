@@ -62,6 +62,8 @@ This project implements several security measures:
    - Atomic file writes (no partial writes on failure)
    - Overwrite confirmation prompts
    - Secure file permissions (chmod 600 for vault files)
+   - HMAC-SHA256 integrity verification (detects tampering)
+   - Automatic backups before vault modifications (last 5 kept in `~/.secure-cipher/backups/`)
 
 4. **Runtime Protection**
    - Input sanitization and validation

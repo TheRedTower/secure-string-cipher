@@ -55,7 +55,7 @@ class PassphraseVault:
 
     def _create_backup(self) -> None:
         """Create a timestamped backup of the vault file.
-        
+
         Keeps last 5 backups and removes older ones.
         """
         if not self.vault_path.exists():
@@ -64,7 +64,7 @@ class PassphraseVault:
         # Create timestamped backup
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_path = self.backup_dir / f"vault_backup_{timestamp}.enc"
-        
+
         shutil.copy2(self.vault_path, backup_path)
         os.chmod(backup_path, 0o600)
 
@@ -82,7 +82,7 @@ class PassphraseVault:
 
         Returns:
             Dictionary mapping labels to encrypted passphrases
-            
+
         Raises:
             ValueError: If vault is corrupted or tampered with
         """
@@ -99,7 +99,7 @@ class PassphraseVault:
             # Split encrypted data and HMAC
             if "\n---HMAC---\n" in vault_contents:
                 encrypted_vault, stored_hmac = vault_contents.split("\n---HMAC---\n")
-                
+
                 # Verify HMAC integrity
                 computed_hmac = self._compute_hmac(encrypted_vault, master_password)
                 if not hmac.compare_digest(computed_hmac, stored_hmac):
@@ -153,12 +153,12 @@ class PassphraseVault:
 
         # Compute HMAC for integrity verification
         vault_hmac = self._compute_hmac(encrypted_vault, master_password)
-        
+
         # Combine encrypted data and HMAC
         vault_contents = f"{encrypted_vault}\n---HMAC---\n{vault_hmac}"
 
         # Use atomic write to prevent corruption during write
-        secure_atomic_write(self.vault_path, vault_contents.encode('utf-8'), mode=0o600)
+        secure_atomic_write(self.vault_path, vault_contents.encode("utf-8"), mode=0o600)
 
     def store_passphrase(
         self, label: str, passphrase: str, master_password: str
@@ -291,10 +291,7 @@ class PassphraseVault:
         Returns:
             List of backup file paths sorted by date (newest first)
         """
-        backups = sorted(
-            self.backup_dir.glob("vault_backup_*.enc"),
-            reverse=True
-        )
+        backups = sorted(self.backup_dir.glob("vault_backup_*.enc"), reverse=True)
         return [str(b) for b in backups]
 
     def restore_from_backup(self, backup_index: int = 0) -> None:
@@ -306,20 +303,17 @@ class PassphraseVault:
         Raises:
             ValueError: If no backups available or index out of range
         """
-        backups = sorted(
-            self.backup_dir.glob("vault_backup_*.enc"),
-            reverse=True
-        )
-        
+        backups = sorted(self.backup_dir.glob("vault_backup_*.enc"), reverse=True)
+
         if not backups:
             raise ValueError("No backups available")
-        
+
         if backup_index >= len(backups):
             raise ValueError(
                 f"Backup index {backup_index} out of range. "
                 f"Only {len(backups)} backup(s) available."
             )
-        
+
         backup_file = backups[backup_index]
         shutil.copy2(backup_file, self.vault_path)
         os.chmod(self.vault_path, 0o600)

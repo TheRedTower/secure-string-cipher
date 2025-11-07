@@ -8,6 +8,8 @@ getpass.getpass so tests that patch stdin/stdout can drive the flows.
 import sys
 from typing import TextIO
 
+from wcwidth import wcswidth
+
 from .core import decrypt_file, decrypt_text, encrypt_file, encrypt_text
 from .passphrase_generator import generate_passphrase
 from .passphrase_manager import PassphraseVault
@@ -21,7 +23,7 @@ def _print_banner(out_stream: TextIO) -> None:
         "╔═══════════════════════════════════════════════════════════════════════╗\n"
         "║                                                                       ║\n"
         "║               🔐  SECURE STRING CIPHER UTILITY  🔐                    ║\n"
-        "║                    AES-256-GCM Encryption                             ║\n"
+        "║                      AES-256-GCM Encryption                           ║\n"
         "║                  ─────────────────────────────                        ║\n"
         "║                   Your Data. Encrypted. Secure.                       ║\n"
         "║                                                                       ║\n"
@@ -44,27 +46,30 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
 
     Uses provided in_stream/out_stream for testability.
     """
-    # --- Programmatically build the menu for perfect alignment ---
+    # --- Programmatically build the menu with wcwidth for proper Unicode handling ---
     WIDTH = 70
 
     def line(content=""):
-        # This is a simplified way to handle width; a more robust solution
-        # for complex CJK/emoji text would use a library like `wcwidth`.
-        # For this specific menu, manual adjustment is sufficient.
-        padding = WIDTH - 4
-        if "📝" in content or "🔑" in content:
-            padding -= 1  # Adjust for emoji width
-        return f"┃ {content:<{padding}} ┃\n"
+        """Create a properly aligned line accounting for actual terminal width."""
+        visual_width = wcswidth(content) if content else 0
+        padding = WIDTH - 4 - visual_width
+        return f"┃ {content}{' ' * padding} ┃\n"
 
     header = "┏" + "━" * (WIDTH - 2) + "┓\n"
     separator = "┣" + "━" * (WIDTH - 2) + "┫\n"
     footer = "┗" + "━" * (WIDTH - 2) + "┛\n"
 
+    # Title with proper centering for Unicode/emoji
     title = "⚡ AVAILABLE OPERATIONS ⚡"
+    title_visual_width = wcswidth(title)
+    total_padding = WIDTH - 4 - title_visual_width
+    left_pad = total_padding // 2
+    right_pad = total_padding - left_pad
+    title_line = f"┃ {' ' * left_pad}{title}{' ' * right_pad} ┃\n"
 
     menu_parts = [
         header,
-        f"┃ {title:^{WIDTH - 4}} ┃\n",
+        title_line,
         separator,
         line(),
         line("📝  TEXT & FILE ENCRYPTION"),

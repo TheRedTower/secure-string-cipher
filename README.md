@@ -44,7 +44,7 @@ You'll see this menu:
 
 ```
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃                    ⚡ AVAILABLE OPERATIONS ⚡                     ┃
+┃                  ⚡ AVAILABLE OPERATIONS ⚡                   ┃
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
 ┃                                                                  ┃
 ┃  📝  TEXT & FILE ENCRYPTION                                      ┃
@@ -109,6 +109,8 @@ docker run --rm -it \
 - **Encryption:** AES-256-GCM with authenticated encryption
 - **Key derivation:** PBKDF2-HMAC-SHA256 (390,000 iterations)
 - **Passphrase vault:** Encrypted with AES-256-GCM using your master password
+- **Vault integrity:** HMAC-SHA256 verification detects file tampering
+- **Automatic backups:** Last 5 vault backups saved in `~/.secure-cipher/backups/`
 - **File permissions:** Vault files are user-only (chmod 600)
 - **Password requirements:** Minimum 12 characters with complexity checks
 
