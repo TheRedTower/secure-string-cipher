@@ -1,6 +1,6 @@
 
 # Multi-stage Dockerfile for secure-string-cipher
-# Optimized for security, minimal size, and ease of use
+# Optimized for security, minimal size, and fast builds
 
 FROM python:3.14-alpine AS builder
 
@@ -11,6 +11,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /build
 
+# Install build dependencies in a separate layer for better caching
 RUN apk add --no-cache \
     gcc \
     musl-dev \
@@ -19,12 +20,23 @@ RUN apk add --no-cache \
     cargo \
     rust
 
+# Copy only dependency specifications first (better cache utilization)
 COPY pyproject.toml README.md LICENSE ./
-COPY src/ ./src/
 
+# Pre-install dependencies to cache this expensive layer
+# This layer only rebuilds when pyproject.toml changes
 RUN pip install --no-cache-dir --upgrade "pip>=25.3" && \
     pip install --no-cache-dir build && \
-    python -m build && \
+    pip install --no-cache-dir \
+        cryptography \
+        wcwidth \
+        pyperclip
+
+# Copy source code (changes frequently, so kept separate)
+COPY src/ ./src/
+
+# Build the wheel (quick since dependencies already installed)
+RUN python -m build && \
     pip wheel --no-cache-dir --no-deps --wheel-dir /build/wheels .
 
 FROM python:3.14-alpine

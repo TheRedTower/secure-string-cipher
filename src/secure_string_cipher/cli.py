@@ -165,17 +165,17 @@ def _get_password(
     max_retries: int = MAX_PASSWORD_RETRIES,
 ) -> str:
     """Get and validate password with retry logic.
-    
+
     Args:
         confirm: Whether to ask for password confirmation
         operation: Description of operation (unused, kept for compatibility)
         in_stream: Input stream
         out_stream: Output stream
         max_retries: Maximum number of retry attempts (default: 5)
-        
+
     Returns:
         Valid password string
-        
+
     Raises:
         SystemExit: If max retries exceeded or user cancels
     """
@@ -185,10 +185,10 @@ def _get_password(
         out_stream = sys.stdout
 
     attempts = 0
-    
+
     while attempts < max_retries:
         attempts += 1
-        
+
         # Show requirements
         out_stream.write("\n🔑 Password Entry\n")
         out_stream.write(
@@ -196,15 +196,15 @@ def _get_password(
         )
         out_stream.write("Enter passphrase: ")
         out_stream.flush()
-        
+
         pw = in_stream.readline()
         if pw == "":
             out_stream.write("❌ Password entry cancelled\n")
             out_stream.flush()
             sys.exit(1)
-            
+
         pw = pw.rstrip("\n")
-        
+
         # Validate password strength
         valid, msg = check_password_strength(pw)
         if not valid:
@@ -224,13 +224,13 @@ def _get_password(
                 )
                 out_stream.flush()
                 sys.exit(1)
-        
+
         # If confirmation required, validate match
         if confirm:
             out_stream.write("Confirm passphrase: ")
             out_stream.flush()
             confirm_pw = in_stream.readline()
-            
+
             if confirm_pw == "":
                 remaining = max_retries - attempts
                 if remaining > 0:
@@ -248,9 +248,9 @@ def _get_password(
                     )
                     out_stream.flush()
                     sys.exit(1)
-            
+
             confirm_pw = confirm_pw.rstrip("\n")
-            
+
             if confirm_pw != pw:
                 remaining = max_retries - attempts
                 if remaining > 0:
@@ -268,10 +268,10 @@ def _get_password(
                     )
                     out_stream.flush()
                     sys.exit(1)
-        
+
         # Password valid and confirmed (if required)
         return pw
-    
+
     # This shouldn't be reached, but just in case
     out_stream.write(
         f"🚫 Maximum password attempts ({max_retries}) exceeded. Exiting for security.\n"
@@ -282,17 +282,17 @@ def _get_password(
 
 def _handle_clipboard(text: str, out_stream: TextIO | None = None) -> None:
     """Copy text to clipboard if available.
-    
+
     Args:
         text: Text to copy to clipboard
         out_stream: Output stream for messages
     """
     if out_stream is None:
         out_stream = sys.stdout
-        
+
     try:
         import pyperclip
-        
+
         pyperclip.copy(text)
         out_stream.write("📋 Copied to clipboard!\n")
         out_stream.flush()

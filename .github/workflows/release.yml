@@ -61,6 +61,9 @@ jobs:
       
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
+      with:
+        # Enable BuildKit features for better caching
+        buildkitd-flags: --allow-insecure-entitlement network.host
       
     - name: Log in to GitHub Container Registry
       uses: docker/login-action@v3
@@ -88,7 +91,11 @@ jobs:
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        # Multi-layer caching for maximum speed
+        cache-from: |
+          type=gha,scope=buildkit
+          type=registry,ref=ghcr.io/${{ github.repository }}:buildcache
+        cache-to: type=gha,mode=max,scope=buildkit
         build-args: |
           BUILDKIT_INLINE_CACHE=1
+          BUILDKIT_PROGRESS=plain
