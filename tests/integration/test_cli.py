@@ -245,7 +245,7 @@ class TestCLI:
         assert "attempts remaining" in output  # Should show retry message
         assert "Continue? (y/n):" in output  # Should reach continue prompt
 
-    @patch('pyperclip.copy')
+    @patch("pyperclip.copy")
     def test_clipboard_integration_success(self, mock_copy):
         """Test clipboard integration works when pyperclip available."""
         mock_copy.return_value = None  # Successful copy
@@ -268,7 +268,7 @@ class TestCLI:
         assert "📋 Copied to clipboard!" in output
         mock_copy.assert_called_once()
 
-    @patch('pyperclip.copy')
+    @patch("pyperclip.copy")
     def test_clipboard_integration_import_error(self, mock_copy):
         """Test clipboard handles ImportError gracefully."""
         # Simulate ImportError when trying to copy
@@ -291,7 +291,7 @@ class TestCLI:
         output = out_stream.getvalue()
         assert "⚠️  Clipboard unavailable" in output
 
-    @patch('pyperclip.copy')
+    @patch("pyperclip.copy")
     def test_clipboard_integration_general_error(self, mock_copy):
         """Test clipboard handles general exceptions gracefully."""
         mock_copy.side_effect = Exception("Clipboard error")
