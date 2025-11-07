@@ -143,5 +143,3 @@ class TimeoutManager:
 def handle_timeout(seconds: int) -> TimeoutManager:
     """Set a timeout for user input in seconds."""
     return TimeoutManager(seconds)
-
-

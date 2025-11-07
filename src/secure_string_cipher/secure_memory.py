@@ -85,9 +85,7 @@ class SecureString:
 
     def __init__(self, string: str):
         """Initialize with sensitive string."""
-        self._chars = bytearray(
-            string.encode("utf-16le")
-        )
+        self._chars = bytearray(string.encode("utf-16le"))
 
     def __enter__(self):
         """Context manager entry."""
