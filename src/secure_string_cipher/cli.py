@@ -234,7 +234,9 @@ def _get_password(
             if confirm_pw == "":
                 remaining = max_retries - attempts
                 if remaining > 0:
-                    out_stream.write("❌ Passwords do not match (confirmation cancelled)\n")
+                    out_stream.write(
+                        "❌ Passwords do not match (confirmation cancelled)\n"
+                    )
                     out_stream.write(
                         f"⚠️  Attempt {attempts}/{max_retries}. {remaining} attempts remaining.\n"
                     )
@@ -297,14 +299,10 @@ def _handle_clipboard(text: str, out_stream: TextIO | None = None) -> None:
         out_stream.write("📋 Copied to clipboard!\n")
         out_stream.flush()
     except ImportError:
-        out_stream.write(
-            "⚠️  Clipboard unavailable (pyperclip not installed)\n"
-        )
+        out_stream.write("⚠️  Clipboard unavailable (pyperclip not installed)\n")
         out_stream.flush()
     except Exception as e:
-        out_stream.write(
-            f"⚠️  Could not copy to clipboard: {e}\n"
-        )
+        out_stream.write(f"⚠️  Could not copy to clipboard: {e}\n")
         out_stream.flush()
 
 
