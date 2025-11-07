@@ -60,13 +60,20 @@ test-cov:  ## Run tests with coverage report
 	@echo "🧪 Running tests with coverage..."
 	pytest tests/ --cov=secure_string_cipher --cov-report=term-missing --cov-report=html
 
-clean:  ## Clean up temporary files
+clean:  ## Clean up temporary files and caches
 	@echo "🧹 Cleaning up..."
+	@echo "Removing Python cache files..."
 	rm -rf .pytest_cache .mypy_cache .ruff_cache __pycache__
+	find . -type d -name __pycache__ -not -path "./.venv/*" -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name "*.pyc" -not -path "./.venv/*" -delete
+	@echo "Removing coverage reports..."
 	rm -rf htmlcov .coverage coverage.xml coverage.json
+	@echo "Removing build artifacts..."
 	rm -rf dist build *.egg-info
-	find . -type d -name __pycache__ -exec rm -rf {} +
-	find . -type f -name "*.pyc" -delete
+	@echo "Removing benchmark data..."
+	rm -rf .benchmarks
+	@echo "Removing test artifacts..."
+	rm -f *.enc *.dec .write_test
 	@echo "✨ Clean!"
 
 ci:  ## Run all CI checks locally (format, lint, test)

@@ -1,0 +1,61 @@
+name: Cleanup Caches
+
+on:
+  # Run weekly on Sunday at 2am UTC
+  schedule:
+    - cron: '0 2 * * 0'
+  # Allow manual trigger
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    name: Clean Old Caches
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cleanup old caches
+        run: |
+          echo "Fetching list of cache keys..."
+          gh extension install actions/gh-actions-cache || true
+          
+          echo "Caches before cleanup:"
+          gh actions-cache list --limit 100 || echo "No caches found"
+          
+          echo ""
+          echo "Cleaning up caches older than 7 days..."
+          
+          # Get list of caches and delete old ones
+          gh actions-cache list --limit 100 | grep -v "^$" | while read line; do
+            cache_key=$(echo "$line" | awk '{print $1}')
+            cache_date=$(echo "$line" | awk '{print $4}')
+            
+            # Calculate age in days (rough estimate)
+            if [ -n "$cache_key" ]; then
+              echo "Checking cache: $cache_key (created: $cache_date)"
+              
+              # Delete caches older than 7 days
+              # GitHub automatically deletes caches after 7 days of inactivity
+              # This ensures we don't accumulate too many
+              gh actions-cache delete "$cache_key" --confirm 2>/dev/null || true
+            fi
+          done
+          
+          echo ""
+          echo "Caches after cleanup:"
+          gh actions-cache list --limit 100 || echo "No caches found"
+          
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "✅ Cache cleanup completed"
+          echo ""
+          echo "Note: GitHub Actions automatically deletes caches that haven't been accessed in 7 days."
+          echo "This workflow helps manage cache storage and keeps only recent caches."

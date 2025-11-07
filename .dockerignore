@@ -75,6 +75,3 @@ tox.ini
 
 # Test files
 tests/
-string_cipher.py
-String-to-hash.py
-string-to-hash/
