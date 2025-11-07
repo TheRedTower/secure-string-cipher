@@ -487,97 +487,90 @@ def main(
         out_stream = sys.stdout
 
     _print_banner(out_stream)
-    mode = _get_mode(in_stream, out_stream)
-    if mode is None:
-        out_stream.write("Exiting\n")
-        out_stream.flush()
-        if exit_on_completion:
-            sys.exit(0)
-        return 0
 
-    if mode == 5:
-        _handle_generate_passphrase(in_stream, out_stream)
-        if exit_on_completion:
-            sys.exit(0)
-        return 0
-    elif mode == 6:
-        # Store passphrase in vault
-        _handle_store_passphrase(in_stream, out_stream)
-        if exit_on_completion:
-            sys.exit(0)
-        return 0
-    elif mode == 7:
-        # Retrieve passphrase from vault
-        _handle_retrieve_passphrase(in_stream, out_stream)
-        if exit_on_completion:
-            sys.exit(0)
-        return 0
-    elif mode == 8:
-        # List vault entries
-        _handle_list_vault(in_stream, out_stream)
-        if exit_on_completion:
-            sys.exit(0)
-        return 0
-    elif mode == 9:
-        # Manage vault (update/delete)
-        _handle_manage_vault(in_stream, out_stream)
-        if exit_on_completion:
-            sys.exit(0)
-        return 0
-    elif mode == 0:
-        out_stream.write("Exiting\n")
-        out_stream.flush()
-        if exit_on_completion:
-            sys.exit(0)
-        return 0
-
-    payload = _get_input(mode, in_stream, out_stream)
-
-    is_encrypt = mode in (1, 3)
-    password = _get_password(
-        confirm=is_encrypt, in_stream=in_stream, out_stream=out_stream
-    )
-
-    try:
-        if mode == 1:
-            out = encrypt_text(payload, password)
-            out_stream.write("Encrypted\n")
-            out_stream.write(out + "\n")
-            out_stream.flush()
-            _handle_clipboard(out)
-        elif mode == 2:
-            out = decrypt_text(payload, password)
-            out_stream.write("Decrypted\n")
-            out_stream.write(out + "\n")
-            out_stream.flush()
-        elif mode == 3:
-            out_path = payload + ".enc"
-            encrypt_file(payload, out_path, password)
-            out_stream.write(f"Encrypted file -> {out_path}\n")
-            out_stream.flush()
-        elif mode == 4:
-            # TODO: When we implement original filename storage in encrypted files,
-            # use sanitize_filename() and validate_filename_safety() to secure the output name
-            out_path = payload + ".dec"
-            decrypt_file(payload, out_path, password)
-            out_stream.write(f"Decrypted file -> {out_path}\n")
-            out_stream.flush()
-        else:
+    while True:
+        mode = _get_mode(in_stream, out_stream)
+        if mode is None or mode == 0:
             out_stream.write("Exiting\n")
             out_stream.flush()
             if exit_on_completion:
                 sys.exit(0)
             return 0
-    except Exception as e:
-        out_stream.write(f"Error: {e}\n")
-        out_stream.flush()
-        if exit_on_completion:
-            sys.exit(1)
-        return 1
 
-    if exit_on_completion:
-        sys.exit(0)
-    return 0
+        try:
+            if mode == 5:
+                _handle_generate_passphrase(in_stream, out_stream)
+            elif mode == 6:
+                _handle_store_passphrase(in_stream, out_stream)
+            elif mode == 7:
+                _handle_retrieve_passphrase(in_stream, out_stream)
+            elif mode == 8:
+                _handle_list_vault(in_stream, out_stream)
+            elif mode == 9:
+                _handle_manage_vault(in_stream, out_stream)
+            else:
+                payload = _get_input(mode, in_stream, out_stream)
+
+                is_encrypt = mode in (1, 3)
+                password = _get_password(
+                    confirm=is_encrypt, in_stream=in_stream, out_stream=out_stream
+                )
+
+                if mode == 1:
+                    out = encrypt_text(payload, password)
+                    out_stream.write("Encrypted\n")
+                    out_stream.write(out + "\n")
+                    out_stream.flush()
+                    _handle_clipboard(out)
+                elif mode == 2:
+                    out = decrypt_text(payload, password)
+                    out_stream.write("Decrypted\n")
+                    out_stream.write(out + "\n")
+                    out_stream.flush()
+                elif mode == 3:
+                    out_path = payload + ".enc"
+                    encrypt_file(payload, out_path, password)
+                    out_stream.write(f"Encrypted file -> {out_path}\n")
+                    out_stream.flush()
+                elif mode == 4:
+                    # TODO: When we implement original filename storage in encrypted files,
+                    # use sanitize_filename() and validate_filename_safety() to secure the output name
+                    out_path = payload + ".dec"
+                    decrypt_file(payload, out_path, password)
+                    out_stream.write(f"Decrypted file -> {out_path}\n")
+                    out_stream.flush()
+
+        except Exception as e:
+            out_stream.write(f"Error: {e}\n")
+            out_stream.flush()
+
+        out_stream.write("\n")
+        out_stream.flush()
+
+        while True:
+            out_stream.write("Continue? (y/n): ")
+            out_stream.flush()
+            try:
+                choice = in_stream.readline().strip().lower()
+                if choice in ("n", "no"):
+                    out_stream.write("Exiting\n")
+                    out_stream.flush()
+                    if exit_on_completion:
+                        sys.exit(0)
+                    return 0
+                elif choice in ("y", "yes", ""):
+                    out_stream.write("\n")
+                    out_stream.flush()
+                    break
+                else:
+                    out_stream.write("Please enter 'y' or 'n'\n")
+                    out_stream.flush()
+            except (KeyboardInterrupt, EOFError):
+                out_stream.write("\nExiting\n")
+                out_stream.flush()
+                if exit_on_completion:
+                    sys.exit(0)
+                return 0
 
 
 if __name__ == "__main__":
