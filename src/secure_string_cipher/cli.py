@@ -16,6 +16,9 @@ from .passphrase_manager import PassphraseVault
 from .timing_safe import check_password_strength
 from .utils import colorize
 
+# Security: Maximum password retry attempts before exiting
+MAX_PASSWORD_RETRIES = 5
+
 
 def _print_banner(out_stream: TextIO) -> None:
     banner = (
@@ -159,48 +162,150 @@ def _get_password(
     operation: str = "",
     in_stream: TextIO | None = None,
     out_stream: TextIO | None = None,
+    max_retries: int = MAX_PASSWORD_RETRIES,
 ) -> str:
+    """Get and validate password with retry logic.
+    
+    Args:
+        confirm: Whether to ask for password confirmation
+        operation: Description of operation (unused, kept for compatibility)
+        in_stream: Input stream
+        out_stream: Output stream
+        max_retries: Maximum number of retry attempts (default: 5)
+        
+    Returns:
+        Valid password string
+        
+    Raises:
+        SystemExit: If max retries exceeded or user cancels
+    """
     if in_stream is None:
         in_stream = sys.stdin
     if out_stream is None:
         out_stream = sys.stdout
 
-    # Show requirements (tests assert that 'Password' appears in output)
-    out_stream.write("\n🔑 Password Entry\n")
+    attempts = 0
+    
+    while attempts < max_retries:
+        attempts += 1
+        
+        # Show requirements
+        out_stream.write("\n🔑 Password Entry\n")
+        out_stream.write(
+            "Password must be at least 12 chars, include upper/lower/digits/symbols\n"
+        )
+        out_stream.write("Enter passphrase: ")
+        out_stream.flush()
+        
+        pw = in_stream.readline()
+        if pw == "":
+            out_stream.write("❌ Password entry cancelled\n")
+            out_stream.flush()
+            sys.exit(1)
+            
+        pw = pw.rstrip("\n")
+        
+        # Validate password strength
+        valid, msg = check_password_strength(pw)
+        if not valid:
+            remaining = max_retries - attempts
+            if remaining > 0:
+                out_stream.write(f"❌ {msg}\n")
+                out_stream.write(
+                    f"⚠️  Attempt {attempts}/{max_retries}. {remaining} attempts remaining.\n"
+                )
+                out_stream.write("Please try again.\n\n")
+                out_stream.flush()
+                continue
+            else:
+                out_stream.write(f"❌ {msg}\n")
+                out_stream.write(
+                    f"🚫 Maximum password attempts ({max_retries}) exceeded. Exiting for security.\n"
+                )
+                out_stream.flush()
+                sys.exit(1)
+        
+        # If confirmation required, validate match
+        if confirm:
+            out_stream.write("Confirm passphrase: ")
+            out_stream.flush()
+            confirm_pw = in_stream.readline()
+            
+            if confirm_pw == "":
+                remaining = max_retries - attempts
+                if remaining > 0:
+                    out_stream.write("❌ Passwords do not match (confirmation cancelled)\n")
+                    out_stream.write(
+                        f"⚠️  Attempt {attempts}/{max_retries}. {remaining} attempts remaining.\n"
+                    )
+                    out_stream.write("Please try again.\n\n")
+                    out_stream.flush()
+                    continue
+                else:
+                    out_stream.write("❌ Passwords do not match\n")
+                    out_stream.write(
+                        f"🚫 Maximum password attempts ({max_retries}) exceeded. Exiting for security.\n"
+                    )
+                    out_stream.flush()
+                    sys.exit(1)
+            
+            confirm_pw = confirm_pw.rstrip("\n")
+            
+            if confirm_pw != pw:
+                remaining = max_retries - attempts
+                if remaining > 0:
+                    out_stream.write("❌ Passwords do not match\n")
+                    out_stream.write(
+                        f"⚠️  Attempt {attempts}/{max_retries}. {remaining} attempts remaining.\n"
+                    )
+                    out_stream.write("Please try again.\n\n")
+                    out_stream.flush()
+                    continue
+                else:
+                    out_stream.write("❌ Passwords do not match\n")
+                    out_stream.write(
+                        f"🚫 Maximum password attempts ({max_retries}) exceeded. Exiting for security.\n"
+                    )
+                    out_stream.flush()
+                    sys.exit(1)
+        
+        # Password valid and confirmed (if required)
+        return pw
+    
+    # This shouldn't be reached, but just in case
     out_stream.write(
-        "Password must be at least 12 chars, include upper/lower/digits/symbols\n"
+        f"🚫 Maximum password attempts ({max_retries}) exceeded. Exiting for security.\n"
     )
-    out_stream.write("Enter passphrase: ")
     out_stream.flush()
-    pw = in_stream.readline()
-    if pw == "":
-        out_stream.write("Password must be at least 12 characters\n")
-        out_stream.flush()
-        sys.exit(1)
-    pw = pw.rstrip("\n")
-    valid, msg = check_password_strength(pw)
-    if not valid:
-        out_stream.write(msg + "\n")
-        out_stream.flush()
-        sys.exit(1)
-    if confirm:
-        out_stream.write("Confirm passphrase: ")
-        out_stream.flush()
-        confirm_pw = in_stream.readline()
-        if confirm_pw == "":
-            out_stream.write("Passwords do not match\n")
-            out_stream.flush()
-            sys.exit(1)
-        confirm_pw = confirm_pw.rstrip("\n")
-        if confirm_pw != pw:
-            out_stream.write("Passwords do not match\n")
-            out_stream.flush()
-            sys.exit(1)
-    return pw
+    sys.exit(1)
 
 
-def _handle_clipboard(_text: str) -> None:
-    return
+def _handle_clipboard(text: str, out_stream: TextIO | None = None) -> None:
+    """Copy text to clipboard if available.
+    
+    Args:
+        text: Text to copy to clipboard
+        out_stream: Output stream for messages
+    """
+    if out_stream is None:
+        out_stream = sys.stdout
+        
+    try:
+        import pyperclip
+        
+        pyperclip.copy(text)
+        out_stream.write("📋 Copied to clipboard!\n")
+        out_stream.flush()
+    except ImportError:
+        out_stream.write(
+            "⚠️  Clipboard unavailable (pyperclip not installed)\n"
+        )
+        out_stream.flush()
+    except Exception as e:
+        out_stream.write(
+            f"⚠️  Could not copy to clipboard: {e}\n"
+        )
+        out_stream.flush()
 
 
 def _handle_generate_passphrase(in_stream: TextIO, out_stream: TextIO) -> None:
@@ -521,7 +626,7 @@ def main(
                     out_stream.write("Encrypted\n")
                     out_stream.write(out + "\n")
                     out_stream.flush()
-                    _handle_clipboard(out)
+                    _handle_clipboard(out, out_stream)
                 elif mode == 2:
                     out = decrypt_text(payload, password)
                     out_stream.write("Decrypted\n")

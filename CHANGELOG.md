@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- **User Experience Improvements**:
+  - **Continue Loop**: Users can now perform multiple operations without restarting the program
+    - After each operation, prompt `Continue? (y/n):` allows immediate next operation
+    - Press Enter or 'y' to continue, 'n' to exit
+    - Significantly improves workflow for batch encryption/decryption tasks
+
 - **Vault Security & UI Polish**: Enhanced vault integrity and menu rendering
   - **Vault Security Features**:
     - Added HMAC-SHA256 integrity verification to detect vault file tampering
