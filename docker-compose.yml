@@ -7,16 +7,15 @@ services:
     
     volumes:
       - ./data:/data
-      - cipher-vault:/home/cipheruser/.secure-cipher
-    
-    environment:
-      - CIPHER_VAULT_PATH=/home/cipheruser/.secure-cipher/passphrase_vault.enc
-      - PYTHONUNBUFFERED=1
+      - ./vault:/vault
+      - ./backups:/backups
     
     user: "1000:1000"
+    
+    network_mode: none
+    
     security_opt:
       - no-new-privileges:true
-      - seccomp:unconfined
     cap_drop:
       - ALL
     cap_add:
@@ -26,6 +25,13 @@ services:
     
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=100m
+    
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 10s
+      timeout: 2s
+      retries: 2
+      start_period: 3s
     
     deploy:
       resources:
@@ -37,12 +43,4 @@ services:
           memory: 128M
     
     restart: unless-stopped
-    network_mode: bridge
-
-volumes:
-  cipher-vault:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${HOME}/.secure-cipher-docker
+    

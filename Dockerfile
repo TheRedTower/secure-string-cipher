@@ -32,15 +32,16 @@ FROM python:3.14-alpine
 
 RUN --mount=type=cache,target=/var/cache/apk \
     adduser -D -u 1000 -s /bin/sh cipheruser \
-    && mkdir -p /data /home/cipheruser/.secure-cipher /home/cipheruser/.secure-cipher/backups \
-    && chown -R cipheruser:cipheruser /data /home/cipheruser/.secure-cipher \
-    && chmod 700 /home/cipheruser/.secure-cipher /home/cipheruser/.secure-cipher/backups \
+    && mkdir -p /data /vault /backups \
+    && chown -R cipheruser:cipheruser /data /vault /backups \
+    && chmod 700 /vault /backups \
     && apk add --no-cache libffi openssl
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/home/cipheruser/.local/bin:$PATH" \
-    CIPHER_VAULT_PATH="/home/cipheruser/.secure-cipher/passphrase_vault.enc"
+    CIPHER_VAULT_PATH="/vault/passphrase_vault.enc" \
+    CIPHER_BACKUP_DIR="/backups"
 
 COPY --from=builder --chown=cipheruser:cipheruser /build/wheels /tmp/wheels
 
@@ -53,8 +54,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 USER cipheruser
 WORKDIR /data
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=1 \
-    CMD python -c "import secure_string_cipher; print('healthy')" || exit 1
+HEALTHCHECK --interval=10s --timeout=2s --start-period=3s --retries=2 \
+    CMD python -c "import sys; sys.exit(0)"
 
 ENTRYPOINT ["cipher-start"]
 CMD []

@@ -37,7 +37,11 @@ class PassphraseVault:
             self.backup_dir.mkdir(exist_ok=True, mode=0o700)
         else:
             self.vault_path = Path(vault_path)
-            self.backup_dir = self.vault_path.parent / "backups"
+            backup_dir_env = os.environ.get("CIPHER_BACKUP_DIR")
+            if backup_dir_env:
+                self.backup_dir = Path(backup_dir_env)
+            else:
+                self.backup_dir = self.vault_path.parent / "backups"
             self.backup_dir.mkdir(exist_ok=True, mode=0o700)
 
     def _compute_hmac(self, data: str, master_password: str) -> str:
