@@ -90,7 +90,8 @@ docker run --rm -it ghcr.io/theredtower/secure-string-cipher:latest
 # Or with Docker Compose
 git clone https://github.com/TheRedTower/secure-string-cipher.git
 cd secure-string-cipher
-docker compose run --rm cipher
+docker compose up -d
+docker compose exec cipher cipher-start
 ```
 
 To encrypt files in your current directory:
@@ -101,16 +102,17 @@ docker run --rm -it \
   ghcr.io/theredtower/secure-string-cipher:latest
 ```
 
-With persistent passphrase vault (including backups):
+With persistent vault and backups:
 
 ```bash
 docker run --rm -it \
-  -v "$PWD:/data" \
-  -v cipher-vault:/home/cipheruser/.secure-cipher \
+  -v "$PWD/data:/data" \
+  -v "$PWD/vault:/vault" \
+  -v "$PWD/backups:/backups" \
   ghcr.io/theredtower/secure-string-cipher:latest
 ```
 
-**Image details:** ~78MB Alpine-based image, Python 3.14, runs as non-root user (UID 1000), includes HMAC integrity verification and automatic backups.
+**Image details:** ~65MB Alpine-based image, Python 3.14, runs as non-root user (UID 1000), network-isolated, includes HMAC integrity verification and automatic backups (last 5 kept).
 
 ## Security
 
