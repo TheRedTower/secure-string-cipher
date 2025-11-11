@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+- **Inline Passphrase Generation** (v1.0.15):
+  - **UX Enhancement**: Type `/gen`, `/generate`, or `/g` at any password prompt to instantly generate a strong passphrase
+  - **Seamless Workflow**: No need to exit encryption flow to generate passwords
+  - **Auto-generation**: Creates alphanumeric passphrases with symbols (155+ bits entropy)
+  - **Optional Vault Storage**: Immediately save generated passphrases to encrypted vault
+  - **Smart Confirmation**: Auto-generated passwords skip confirmation prompt (user already saw it)
+  - **Security**: Only generates passphrases meeting all password strength requirements
+  - **Testing**: Added 6 comprehensive integration tests covering all inline generation scenarios
+  - **Documentation**: Updated README with quick start guide and example workflow
+
 - **UI/UX Improvements**:
   - Added continue loop for multiple operations without restart
   - Implemented password retry with 5-attempt limit and rate limiting

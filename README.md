@@ -13,6 +13,7 @@ A simple, secure AES-256-GCM encryption tool with an interactive menu interface.
 ## Features
 
 - Encrypt and decrypt text and files with AES-256-GCM
+- **Inline passphrase generation** – Type `/gen` at any password prompt to instantly generate a strong passphrase
 - Generate strong random passphrases with entropy calculation
 - Store passphrases in an encrypted vault (optional)
   - HMAC-SHA256 integrity verification to detect tampering
@@ -77,6 +78,34 @@ You'll see this menu:
 ```
 
 Choose an option and follow the prompts.
+
+### Quick Passphrase Generation
+
+When prompted for a password during encryption, you can type `/gen` (or `/generate` or `/g`) to instantly generate a strong passphrase:
+
+```
+Enter passphrase: /gen
+
+🔑 Auto-Generating Secure Passphrase...
+
+✅ Generated Passphrase:
+8w@!-@_#M)wF,Qn(ms.Uv+3z
+
+Entropy: 155.0 bits
+
+💾 Store this passphrase in vault? (y/n) [n]: y
+Enter a label for this passphrase: backup-2025
+Enter master password to encrypt vault: ••••••••••••
+✅ Passphrase 'backup-2025' stored in vault!
+
+✅ Using this passphrase for current operation...
+```
+
+This feature:
+- Generates alphanumeric passphrases with symbols (155+ bits entropy)
+- Optionally stores the passphrase in your encrypted vault
+- Skips confirmation since you already saw the generated password
+- Works seamlessly without leaving the encryption flow
 
 ## Docker
 

@@ -157,6 +157,67 @@ def _get_input(mode: int, in_stream: TextIO, out_stream: TextIO) -> str:
     return path.rstrip("\n")
 
 
+def _handle_generate_passphrase_inline(in_stream: TextIO, out_stream: TextIO) -> str | None:
+    """Generate a passphrase inline during password entry with optional vault storage.
+    
+    Args:
+        in_stream: Input stream
+        out_stream: Output stream
+        
+    Returns:
+        Generated passphrase if successful, None if cancelled
+    """
+    out_stream.write(colorize("\n🔑 Auto-Generating Secure Passphrase...", "cyan") + "\n")
+    
+    # Always use alphanumeric strategy as it meets all password strength requirements
+    strategy = "alphanumeric"
+
+    try:
+        passphrase, entropy = generate_passphrase(strategy)
+        out_stream.write(colorize("\n✅ Generated Passphrase:", "green") + "\n")
+        out_stream.write(f"{passphrase}\n\n")
+        out_stream.write(f"Entropy: {entropy:.1f} bits\n")
+        out_stream.flush()
+        
+        # Offer to store in vault
+        out_stream.write("\n💾 Store this passphrase in vault? (y/n) [n]: ")
+        out_stream.flush()
+        store_choice = in_stream.readline().rstrip("\n").lower()
+        
+        if store_choice in ("y", "yes"):
+            vault = PassphraseVault()
+            
+            out_stream.write("Enter a label for this passphrase (e.g., 'project-x'): ")
+            out_stream.flush()
+            label = in_stream.readline().rstrip("\n")
+            
+            if label:
+                out_stream.write("Enter master password to encrypt vault: ")
+                out_stream.flush()
+                master_pw = in_stream.readline().rstrip("\n")
+                
+                if master_pw:
+                    try:
+                        vault.store_passphrase(label, passphrase, master_pw)
+                        out_stream.write(
+                            colorize(f"✅ Passphrase '{label}' stored in vault!\n", "green")
+                        )
+                        out_stream.write(f"Vault location: {vault.get_vault_path()}\n")
+                        out_stream.flush()
+                    except Exception as e:
+                        out_stream.write(f"⚠️  Could not store in vault: {e}\n")
+                        out_stream.flush()
+        
+        out_stream.write(colorize("\n✅ Using this passphrase for current operation...\n", "green"))
+        out_stream.flush()
+        return passphrase
+        
+    except Exception as e:
+        out_stream.write(f"⚠️  Error generating passphrase: {e}\n")
+        out_stream.flush()
+        return None
+
+
 def _get_password(
     confirm: bool = True,
     operation: str = "",
@@ -189,11 +250,12 @@ def _get_password(
     while attempts < max_retries:
         attempts += 1
 
-        # Show requirements
+        # Show requirements with helper command hint
         out_stream.write("\n🔑 Password Entry\n")
         out_stream.write(
             "Password must be at least 12 chars, include upper/lower/digits/symbols\n"
         )
+        out_stream.write(colorize("💡 Tip: Type '/gen' to auto-generate a secure passphrase\n", "cyan"))
         out_stream.write("Enter passphrase: ")
         out_stream.flush()
 
@@ -204,6 +266,19 @@ def _get_password(
             sys.exit(1)
 
         pw = pw.rstrip("\n")
+
+        # Check for special commands to generate passphrase
+        if pw.lower() in ("/gen", "/generate", "/g"):
+            generated_pw = _handle_generate_passphrase_inline(in_stream, out_stream)
+            if generated_pw:
+                pw = generated_pw
+                # Skip confirmation for generated passwords since user already saw it
+                confirm = False
+            else:
+                # Generation was cancelled, retry
+                out_stream.write("⚠️  Passphrase generation cancelled. Please try again.\n\n")
+                out_stream.flush()
+                continue
 
         # Validate password strength
         valid, msg = check_password_strength(pw)
