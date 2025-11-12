@@ -2,8 +2,6 @@
 
 import io
 
-import pytest
-
 from secure_string_cipher.cli import main
 
 
@@ -59,8 +57,7 @@ class TestInlinePassphraseGeneration:
     def test_gen_command_with_vault_storage(self, tmp_path):
         """Test /gen with vault storage."""
         import os
-        vault_path = tmp_path / "test_vault.enc"
-        
+
         input_data = "\n".join([
             "1",                    # Encrypt text
             "Test message",
