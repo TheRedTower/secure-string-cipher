@@ -59,6 +59,7 @@ build/
 *.enc
 *.dec
 .write_test
+.github/copilot-instructions.md
 
 # macOS
 .DS_Store
