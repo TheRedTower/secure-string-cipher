@@ -62,10 +62,8 @@ class TestInlinePassphraseGeneration:
         assert "Generated Passphrase:" in output
         assert result == 0
 
-    def test_gen_command_with_vault_storage(self, tmp_path):
+    def test_gen_command_with_vault_storage(self, tmp_path, monkeypatch):
         """Test /gen with vault storage."""
-        import os
-
         input_data = "\n".join(
             [
                 "1",  # Encrypt text
@@ -81,27 +79,21 @@ class TestInlinePassphraseGeneration:
         in_stream = io.StringIO(input_data)
         out_stream = io.StringIO()
 
-        # Set HOME to temp directory to use default vault location
-        original_home = os.environ.get("HOME")
-        try:
-            os.environ["HOME"] = str(tmp_path)
-            result = main(
-                in_stream=in_stream, out_stream=out_stream, exit_on_completion=False
-            )
-            output = out_stream.getvalue()
+        # Use monkeypatch for proper cleanup and worker isolation
+        monkeypatch.setenv("HOME", str(tmp_path))
 
-            assert "Auto-Generating Secure Passphrase" in output
-            assert "Store this passphrase in vault?" in output
-            assert "Passphrase 'test-label' stored in vault!" in output
-            assert "Vault location:" in output
-            assert "Using this passphrase for current operation" in output
-            assert "Encrypted" in output
-            assert result == 0
-        finally:
-            if original_home:
-                os.environ["HOME"] = original_home
-            else:
-                del os.environ["HOME"]
+        result = main(
+            in_stream=in_stream, out_stream=out_stream, exit_on_completion=False
+        )
+        output = out_stream.getvalue()
+
+        assert "Auto-Generating Secure Passphrase" in output
+        assert "Store this passphrase in vault?" in output
+        assert "Passphrase 'test-label' stored in vault!" in output
+        assert "Vault location:" in output
+        assert "Using this passphrase for current operation" in output
+        assert "Encrypted" in output
+        assert result == 0
 
     def test_gen_command_aliases(self):
         """Test that /generate and /g also work."""
