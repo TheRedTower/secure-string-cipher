@@ -64,7 +64,7 @@ cipher-start = "secure_string_cipher.cli:main"
 [tool.ruff]
 # Ruff replaces Black, isort, flake8, and more
 line-length = 88
-target-version = "py314"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
