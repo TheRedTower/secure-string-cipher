@@ -157,7 +157,9 @@ def _get_input(mode: int, in_stream: TextIO, out_stream: TextIO) -> str:
     return path.rstrip("\n")
 
 
-def _handle_generate_passphrase_inline(in_stream: TextIO, out_stream: TextIO) -> str | None:
+def _handle_generate_passphrase_inline(
+    in_stream: TextIO, out_stream: TextIO
+) -> str | None:
     """Generate a passphrase inline during password entry with optional vault storage.
 
     Args:
@@ -167,7 +169,9 @@ def _handle_generate_passphrase_inline(in_stream: TextIO, out_stream: TextIO) ->
     Returns:
         Generated passphrase if successful, None if cancelled
     """
-    out_stream.write(colorize("\n🔑 Auto-Generating Secure Passphrase...", "cyan") + "\n")
+    out_stream.write(
+        colorize("\n🔑 Auto-Generating Secure Passphrase...", "cyan") + "\n"
+    )
 
     # Always use alphanumeric strategy as it meets all password strength requirements
     strategy = "alphanumeric"
@@ -200,7 +204,9 @@ def _handle_generate_passphrase_inline(in_stream: TextIO, out_stream: TextIO) ->
                     try:
                         vault.store_passphrase(label, passphrase, master_pw)
                         out_stream.write(
-                            colorize(f"✅ Passphrase '{label}' stored in vault!\n", "green")
+                            colorize(
+                                f"✅ Passphrase '{label}' stored in vault!\n", "green"
+                            )
                         )
                         out_stream.write(f"Vault location: {vault.get_vault_path()}\n")
                         out_stream.flush()
@@ -208,7 +214,9 @@ def _handle_generate_passphrase_inline(in_stream: TextIO, out_stream: TextIO) ->
                         out_stream.write(f"⚠️  Could not store in vault: {e}\n")
                         out_stream.flush()
 
-        out_stream.write(colorize("\n✅ Using this passphrase for current operation...\n", "green"))
+        out_stream.write(
+            colorize("\n✅ Using this passphrase for current operation...\n", "green")
+        )
         out_stream.flush()
         return passphrase
 
@@ -255,7 +263,11 @@ def _get_password(
         out_stream.write(
             "Password must be at least 12 chars, include upper/lower/digits/symbols\n"
         )
-        out_stream.write(colorize("💡 Tip: Type '/gen' to auto-generate a secure passphrase\n", "cyan"))
+        out_stream.write(
+            colorize(
+                "💡 Tip: Type '/gen' to auto-generate a secure passphrase\n", "cyan"
+            )
+        )
         out_stream.write("Enter passphrase: ")
         out_stream.flush()
 
@@ -276,7 +288,9 @@ def _get_password(
                 confirm = False
             else:
                 # Generation was cancelled, retry
-                out_stream.write("⚠️  Passphrase generation cancelled. Please try again.\n\n")
+                out_stream.write(
+                    "⚠️  Passphrase generation cancelled. Please try again.\n\n"
+                )
                 out_stream.flush()
                 continue
 
