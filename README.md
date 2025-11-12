@@ -2,13 +2,11 @@
 
 [![CI](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python](https://img.shields.io/badge/Python-3.14-blue.svg)](https://www.python.org/downloads/)
-[![Compatibility](https://img.shields.io/badge/Backward_Compatible-3.10+-green.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
 A simple, secure AES-256-GCM encryption tool with an interactive menu interface.
 
-**Developed for:** Python 3.14  
-**Backward compatible to:** Python 3.10+
+**Python Requirements:** 3.12+ (developed on 3.14)
 
 ## Features
 
@@ -25,7 +23,7 @@ A simple, secure AES-256-GCM encryption tool with an interactive menu interface.
 
 ## Installation
 
-> **Note**: This project is developed for **Python 3.14** (latest stable) and is backward compatible to Python 3.10+. We follow Python's official support policy and may drop support for older versions as they reach end-of-life.
+> **Note**: Requires **Python 3.12 or newer**. Python 3.10 and 3.11 are no longer supported as of version 1.0.16.
 
 ```bash
 # Recommended: install with pipx

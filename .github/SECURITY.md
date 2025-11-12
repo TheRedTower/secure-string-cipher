@@ -2,12 +2,25 @@
 
 ## Supported Versions
 
-We provide security patches for these versions:
+We actively support the following versions with security updates:
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 1.0.x   | ✅ Yes             |
-| < 1.0   | ❌ No              |
+| Version | Supported          | Python Requirements |
+| ------- | ------------------ | ------------------- |
+| 1.0.16+ | :white_check_mark: | 3.12+              |
+| 1.0.15  | :x:                | 3.10-3.14          |
+| < 1.0.15| :x:                | 3.10+              |
+
+**Note**: As of version 1.0.16, we require Python 3.12 or newer. This allows us to leverage modern Python features and maintain a cleaner codebase.
+
+## Python Version Support Policy
+
+We follow Python's official support timeline and drop support for versions that have reached end-of-life or are in security-only mode:
+
+- **Python 3.10**: EOL October 2026 (no longer supported by this project)
+- **Python 3.11**: EOL October 2027 (no longer supported by this project)  
+- **Python 3.12**: EOL October 2028 ✅
+- **Python 3.13**: EOL October 2029 ✅
+- **Python 3.14**: EOL October 2030 ✅
 
 ## Reporting a Vulnerability
 

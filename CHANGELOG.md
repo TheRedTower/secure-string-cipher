@@ -1,8 +1,29 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.16] - 2025-11-12
 
-- **Inline Passphrase Generation** (v1.0.15):
+### Breaking Changes
+- **Python 3.12+ Required**: Dropped support for Python 3.10 and 3.11
+  - Minimum version is now Python 3.12
+  - CI/CD only tests 3.12, 3.13, and 3.14
+  - Follows Python's official support timeline (3.10 EOL Oct 2026, 3.11 EOL Oct 2027)
+  - Allows use of modern Python features and improved type hints
+
+### Added
+- **Inline Passphrase Generation**:
+  - Type `/gen`, `/generate`, or `/g` at any password prompt to instantly generate a strong passphrase
+  - Seamless workflow with no need to exit encryption flow
+  - Auto-generates alphanumeric passphrases with symbols (155+ bits entropy)
+  - Optional vault storage offered immediately after generation
+  - Smart confirmation: auto-generated passwords skip confirmation prompt
+  - Comprehensive integration tests covering all scenarios
+
+### Changed  
+- Updated Python version classifiers in package metadata
+- Streamlined CI/CD to test only supported Python versions
+- Removed Python 3.10-specific test workarounds
+
+## [Unreleased]
   - **UX Enhancement**: Type `/gen`, `/generate`, or `/g` at any password prompt to instantly generate a strong passphrase
   - **Seamless Workflow**: No need to exit encryption flow to generate passwords
   - **Auto-generation**: Creates alphanumeric passphrases with symbols (155+ bits entropy)
