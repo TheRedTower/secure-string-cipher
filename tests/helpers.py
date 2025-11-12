@@ -58,9 +58,9 @@ def assert_file_secure(file_path: Path, expected_mode: int = 0o600) -> None:
     """
     stat_info = file_path.stat()
     actual_mode = stat_info.st_mode & 0o777
-    assert (
-        actual_mode == expected_mode
-    ), f"File {file_path} has mode {oct(actual_mode)}, expected {oct(expected_mode)}"
+    assert actual_mode == expected_mode, (
+        f"File {file_path} has mode {oct(actual_mode)}, expected {oct(expected_mode)}"
+    )
 
 
 def assert_directory_secure(dir_path: Path, expected_mode: int = 0o700) -> None:
