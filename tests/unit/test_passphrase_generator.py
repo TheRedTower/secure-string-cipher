@@ -13,6 +13,7 @@ from secure_string_cipher.passphrase_generator import (
     generate_passphrase,
     generate_word_passphrase,
 )
+from secure_string_cipher.timing_safe import check_password_strength
 
 
 class TestWordPassphrase:
@@ -60,11 +61,22 @@ class TestAlphanumericPassphrase:
         has_symbol = any(c in "!@#$%^&*()-_=+[]{}|;:,.<>?" for c in passphrase)
         assert has_symbol
 
+    def test_alphanumeric_meets_complexity_requirements(self):
+        """Ensure generated passphrases always meet strength requirements."""
+        passphrase = generate_alphanumeric_passphrase(length=24, include_symbols=True)
+        assert any(c.islower() for c in passphrase)
+        assert any(c.isupper() for c in passphrase)
+        assert any(c.isdigit() for c in passphrase)
+        assert any(not c.isalnum() for c in passphrase)
+
     def test_alphanumeric_without_symbols(self):
         """Test alphanumeric passphrase without symbols."""
         passphrase = generate_alphanumeric_passphrase(length=50, include_symbols=False)
         # Should only have letters and digits
         assert all(c in string.ascii_letters + string.digits for c in passphrase)
+        assert any(c.islower() for c in passphrase)
+        assert any(c.isupper() for c in passphrase)
+        assert any(c.isdigit() for c in passphrase)
 
     def test_alphanumeric_minimum_length(self):
         """Test that minimum length is enforced."""
@@ -155,6 +167,8 @@ class TestGeneratePassphrase:
         passphrase, entropy = generate_passphrase("alphanumeric", length=24)
         assert len(passphrase) == 24
         assert entropy > 140
+        is_valid, _ = check_password_strength(passphrase)
+        assert is_valid
 
     def test_mixed_strategy(self):
         """Test passphrase generation with mixed strategy."""

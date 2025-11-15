@@ -3278,11 +3278,30 @@ def generate_alphanumeric_passphrase(
     if length < 16:
         raise ValueError("Length must be at least 16 for security")
 
-    chars = string.ascii_letters + string.digits
-    if include_symbols:
-        chars += "!@#$%^&*()-_=+[]{}|;:,.<>?"
+    lower_chars = string.ascii_lowercase
+    upper_chars = string.ascii_uppercase
+    digit_chars = string.digits
+    symbol_chars = "!@#$%^&*()-_=+[]{}|;:,.<>?"
 
-    return "".join(secrets.choice(chars) for _ in range(length))
+    required_sets = [lower_chars, upper_chars, digit_chars]
+    if include_symbols:
+        required_sets.append(symbol_chars)
+
+    if length < len(required_sets):
+        raise ValueError("Length must be at least as many as required character sets")
+
+    chars = lower_chars + upper_chars + digit_chars
+    if include_symbols:
+        chars += symbol_chars
+
+    # Ensure at least one character from each required set is present
+    passphrase_chars = [secrets.choice(charset) for charset in required_sets]
+
+    remaining = length - len(passphrase_chars)
+    passphrase_chars.extend(secrets.choice(chars) for _ in range(remaining))
+
+    secrets.SystemRandom().shuffle(passphrase_chars)
+    return "".join(passphrase_chars)
 
 
 def generate_mixed_passphrase(word_count: int = 4, number_count: int = 4) -> str:

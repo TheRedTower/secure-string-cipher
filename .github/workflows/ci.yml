@@ -17,30 +17,44 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python 3.14
       uses: actions/setup-python@v5
       with:
         python-version: "3.14"
         cache: 'pip'
         allow-prereleases: true
-        
+
     - name: Install dependencies
       run: pip install -e ".[dev]"
-        
+
     - name: Check code quality (Ruff)
       run: ruff check src tests
-        
+
     - name: Check formatting (Ruff)
       run: ruff format --check src tests
-        
+
     - name: Type check (mypy)
       run: mypy src tests
-    
+
+    - name: Verify passphrase generation strength
+      run: |
+        python - <<'PY'
+        from secure_string_cipher.passphrase_generator import generate_passphrase
+        from secure_string_cipher.timing_safe import check_password_strength
+
+        for _ in range(200):
+            passphrase, _ = generate_passphrase("alphanumeric", length=24)
+            is_valid, message = check_password_strength(passphrase)
+            if not is_valid:
+                raise SystemExit(f"Generated passphrase failed strength check: {message}")
+        print("Inline passphrase generation consistently meets strength requirements.")
+        PY
+
     - name: Security scan - Secrets
       run: detect-secrets scan --baseline .secrets.baseline
       continue-on-error: true
-    
+
     - name: Security scan - Vulnerabilities
       run: pip-audit --desc
       continue-on-error: true
@@ -57,7 +71,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
@@ -65,10 +79,10 @@ jobs:
         cache: 'pip'
         cache-dependency-path: 'pyproject.toml'
         allow-prereleases: true
-        
+
     - name: Install dependencies
       run: pip install -e ".[dev]"
-        
+
     - name: Run tests (with coverage on 3.14)
       run: |
         if [ "${{ matrix.python-version }}" = "3.14" ]; then
@@ -76,7 +90,7 @@ jobs:
         else
           pytest tests/ --maxfail=3 -n auto
         fi
-        
+
     - name: Upload coverage
       uses: codecov/codecov-action@v4
       if: matrix.python-version == '3.14'
