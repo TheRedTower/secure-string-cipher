@@ -1,6 +1,7 @@
 """Tests for inline passphrase generation feature."""
 
 import io
+from unittest.mock import patch
 
 from secure_string_cipher.cli import main
 
@@ -20,13 +21,15 @@ class TestInlinePassphraseGeneration:
             ]
         )
 
-        in_stream = io.StringIO(input_data)
-        out_stream = io.StringIO()
+        with (
+            patch("sys.stdin", new_callable=io.StringIO) as mock_in,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_out,
+        ):
+            mock_in.write(input_data + "\n")
+            mock_in.seek(0)
 
-        result = main(
-            in_stream=in_stream, out_stream=out_stream, exit_on_completion=False
-        )
-        output = out_stream.getvalue()
+            result = main(exit_on_completion=False)
+            output = mock_out.getvalue()
 
         # Verify the inline generation flow
         assert "💡 Tip: Type '/gen'" in output
@@ -50,13 +53,16 @@ class TestInlinePassphraseGeneration:
             ]
         )
 
-        in_stream = io.StringIO(input_data)
-        out_stream = io.StringIO()
+        with (
+            patch("sys.stdin", new_callable=io.StringIO) as mock_in,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_out,
+        ):
+            mock_in.write(input_data + "\n")
+            mock_in.seek(0)
 
-        result = main(
-            in_stream=in_stream, out_stream=out_stream, exit_on_completion=False
-        )
-        output = out_stream.getvalue()
+            result = main(exit_on_completion=False)
+
+            output = mock_out.getvalue()
 
         assert "Auto-Generating Secure Passphrase" in output
         assert "Generated Passphrase:" in output
@@ -76,16 +82,19 @@ class TestInlinePassphraseGeneration:
             ]
         )
 
-        in_stream = io.StringIO(input_data)
-        out_stream = io.StringIO()
+        with (
+            patch("sys.stdin", new_callable=io.StringIO) as mock_in,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_out,
+        ):
+            mock_in.write(input_data + "\n")
+            mock_in.seek(0)
 
-        # Use monkeypatch for proper cleanup and worker isolation
-        monkeypatch.setenv("HOME", str(tmp_path))
+            # Use monkeypatch for proper cleanup and worker isolation
+            monkeypatch.setenv("HOME", str(tmp_path))
 
-        result = main(
-            in_stream=in_stream, out_stream=out_stream, exit_on_completion=False
-        )
-        output = out_stream.getvalue()
+            result = main(exit_on_completion=False)
+
+            output = mock_out.getvalue()
 
         assert "Auto-Generating Secure Passphrase" in output
         assert "Store this passphrase in vault?" in output
@@ -108,13 +117,16 @@ class TestInlinePassphraseGeneration:
                 ]
             )
 
-            in_stream = io.StringIO(input_data)
-            out_stream = io.StringIO()
+            with (
+                patch("sys.stdin", new_callable=io.StringIO) as mock_in,
+                patch("sys.stdout", new_callable=io.StringIO) as mock_out,
+            ):
+                mock_in.write(input_data + "\n")
+                mock_in.seek(0)
 
-            result = main(
-                in_stream=in_stream, out_stream=out_stream, exit_on_completion=False
-            )
-            output = out_stream.getvalue()
+                result = main(exit_on_completion=False)
+
+                output = mock_out.getvalue()
 
             assert "Auto-Generating Secure Passphrase" in output, (
                 f"Failed for alias: {alias}"
@@ -134,13 +146,16 @@ class TestInlinePassphraseGeneration:
             ]
         )
 
-        in_stream = io.StringIO(input_data)
-        out_stream = io.StringIO()
+        with (
+            patch("sys.stdin", new_callable=io.StringIO) as mock_in,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_out,
+        ):
+            mock_in.write(input_data + "\n")
+            mock_in.seek(0)
 
-        result = main(
-            in_stream=in_stream, out_stream=out_stream, exit_on_completion=False
-        )
-        output = out_stream.getvalue()
+            result = main(exit_on_completion=False)
+
+            output = mock_out.getvalue()
 
         # Should NOT ask for confirmation since password was generated
         assert output.count("Confirm passphrase:") == 0
@@ -159,13 +174,16 @@ class TestInlinePassphraseGeneration:
             ]
         )
 
-        in_stream = io.StringIO(input_data)
-        out_stream = io.StringIO()
+        with (
+            patch("sys.stdin", new_callable=io.StringIO) as mock_in,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_out,
+        ):
+            mock_in.write(input_data + "\n")
+            mock_in.seek(0)
 
-        result = main(
-            in_stream=in_stream, out_stream=out_stream, exit_on_completion=False
-        )
-        output = out_stream.getvalue()
+            result = main(exit_on_completion=False)
+
+            output = mock_out.getvalue()
 
         # Should ask for confirmation for manual entry
         assert "Confirm passphrase:" in output
