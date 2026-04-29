@@ -118,6 +118,7 @@ class SecureBytes:
     def __init__(self, data: bytes):
         """Initialize with sensitive data."""
         self._buffer = bytearray(data)
+        self._wiped = False
 
     def __enter__(self) -> SecureBytes:
         """Context manager entry."""
@@ -139,7 +140,10 @@ class SecureBytes:
         return memoryview(self._buffer)
 
     def wipe(self) -> None:
-        """Explicitly wipe the data."""
+        """Explicitly wipe the data. Safe to call multiple times."""
+        if self._wiped:
+            return
+        self._wiped = True
         if hasattr(self, "_buffer"):
             secure_wipe(self._buffer)
             del self._buffer
@@ -158,6 +162,7 @@ class SecureString:
     def __init__(self, string: str):
         """Initialize with sensitive string."""
         self._chars = bytearray(string.encode("utf-16le"))
+        self._wiped = False
 
     def __enter__(self) -> SecureString:
         """Context manager entry."""
@@ -179,7 +184,10 @@ class SecureString:
         return self._chars.decode("utf-16le")
 
     def wipe(self) -> None:
-        """Explicitly wipe the string."""
+        """Explicitly wipe the string. Safe to call multiple times."""
+        if self._wiped:
+            return
+        self._wiped = True
         if hasattr(self, "_chars"):
             secure_wipe(self._chars)
             # remove the attribute so accesses raise AttributeError as tests expect

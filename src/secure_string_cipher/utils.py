@@ -124,22 +124,3 @@ def secure_overwrite(path: str) -> None:
     finally:
         with contextlib.suppress(OSError):
             os.unlink(path)
-
-
-class TimeoutManager:
-    def __init__(self, seconds: int):
-        self.seconds = seconds
-
-    def __call__(self):
-        return self
-
-    def __enter__(self):
-        pass
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        return exc_type is None
-
-
-def handle_timeout(seconds: int) -> TimeoutManager:
-    """Set a timeout for user input in seconds."""
-    return TimeoutManager(seconds)

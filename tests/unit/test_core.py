@@ -188,17 +188,14 @@ class TestTextEncryption:
 class TestStreamProcessor:
     """Test StreamProcessor functionality."""
 
-    def test_overwrite_protection(self, temp_file, monkeypatch):
-        """Test that StreamProcessor protects against file overwrite."""
+    def test_overwrite_protection(self, temp_file):
+        """Test that StreamProcessor rejects existing output files."""
         # Create a file
         with open(temp_file, "w") as f:
             f.write("original content")
 
-        # Mock the input function to return 'n'
-        monkeypatch.setattr("builtins.input", lambda _: "n")
-
         # Try to open in write mode - should raise error
-        with pytest.raises(CryptoError, match="Operation cancelled"):
+        with pytest.raises(CryptoError, match="Output file already exists"):
             with StreamProcessor(temp_file, "wb") as _:
                 pass  # Should not reach here
 
@@ -280,11 +277,8 @@ class TestFileEncryption:
     """Test file encryption with metadata and key commitment."""
 
     @pytest.fixture
-    def temp_files(self, monkeypatch):
+    def temp_files(self):
         """Create temporary files for testing and clean up after."""
-        # Auto-approve overwrite prompts during tests
-        monkeypatch.setattr("builtins.input", lambda _: "y")
-
         files = []
         for _ in range(3):
             fd, path = tempfile.mkstemp()
@@ -297,7 +291,9 @@ class TestFileEncryption:
 
     def test_encrypt_with_filename(self, temp_files):
         """Test encryption stores original filename."""
-        input_path, output_path, dec_path = temp_files
+        input_path, _, _ = temp_files
+        output_path = input_path + ".enc"
+        dec_path = input_path + ".dec"
         test_data = b"Hello, encryption!"
 
         with open(input_path, "wb") as f:
@@ -328,7 +324,9 @@ class TestFileEncryption:
 
     def test_encrypt_without_filename(self, temp_files):
         """Test encryption without storing filename."""
-        input_path, output_path, dec_path = temp_files
+        input_path, _, _ = temp_files
+        output_path = input_path + ".enc"
+        dec_path = input_path + ".dec"
         test_data = b"No filename stored"
 
         with open(input_path, "wb") as f:
@@ -411,11 +409,8 @@ class TestErrorHandling:
     """Test error handling in encryption/decryption."""
 
     @pytest.fixture
-    def temp_file(self, monkeypatch):
+    def temp_file(self):
         """Create a temporary file for testing."""
-        # Auto-approve overwrite prompts during tests
-        monkeypatch.setattr("builtins.input", lambda _: "y")
-
         fd, path = tempfile.mkstemp()
         os.close(fd)
         yield path

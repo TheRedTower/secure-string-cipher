@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.0.33] - 2026-04-29
+
+### Security
+
+- **Fixed vault HMAC timing oracle**: Removed `decrypt_text()` call after HMAC verification failure in `PassphraseVault._load_vault()`. Eliminates a timing side-channel where Argon2id key derivation (~50-100ms) could distinguish HMAC failures from decryption failures.
+- **Fixed StreamProcessor interactive hang**: Replaced `input()` prompt in `StreamProcessor._check_path()` with unconditional `CryptoError`. Prevents non-interactive scripts from hanging indefinitely when output files exist.
+- **Fixed secure memory double-wipe race**: Added `_wiped` flag to `SecureBytes` and `SecureString`. `wipe()` is now idempotent, preventing crashes from concurrent `__exit__` and `__del__` calls.
+- **Wired up rate limiter**: Integrated `RateLimiter` into vault unlock (`vault_unlock`), text decryption (`decrypt_text`), and file decryption (`decrypt_file`) paths in the CLI. Previously the rate limiter module existed but was never invoked.
+- **Added vault import validation**: `cmd_vault_import()` now validates SSCVAULT header, hex salt, data/HMAC separators, and minimum line count before replacing an existing vault. Also enforces `0o600` permissions on imported vault files.
+- **Fixed misleading docstring**: Removed "constant-time operations" claim from `check_password_strength()` docstring.
+
+### Removed
+
+- Removed dead code: `InMemoryStreamProcessor` (core.py), `TimeoutManager` and `handle_timeout()` (utils.py), and corresponding exports/tests.
+
+### Fixed
+
+- `ValueError` from corrupted vault files is now caught in `_get_password_from_vault()`, preventing unhandled exceptions.
+
+---
+
 ## [1.0.32] - 2025-12-14
 
 ### Security & CLI Hardening

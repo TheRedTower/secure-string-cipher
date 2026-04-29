@@ -10,7 +10,6 @@ This module provides AES-256-GCM encryption with:
 from __future__ import annotations
 
 import base64
-import io
 import json
 import os
 import secrets
@@ -87,27 +86,6 @@ __all__ = [
 ]
 
 
-class InMemoryStreamProcessor:
-    """Stream processor for in-memory data like strings."""
-
-    def __init__(self, stream: io.BytesIO, mode: str):
-        """Initialize with a BytesIO stream."""
-        self.stream = stream
-        self.mode = mode
-
-    def read(self, size: int = -1) -> bytes:
-        return self.stream.read(size)
-
-    def write(self, data: bytes) -> int:
-        return self.stream.write(data)
-
-    def tell(self) -> int:
-        return self.stream.tell()
-
-    def seek(self, pos: int, whence: int = 0) -> int:
-        return self.stream.seek(pos, whence)
-
-
 class StreamProcessor:
     """Context manager for secure file operations with progress tracking."""
 
@@ -146,11 +124,10 @@ class StreamProcessor:
         """
         if self.mode == "wb":
             if os.path.exists(self.path):
-                ans = input(
-                    f"\nWarning: {self.path} exists. Overwrite? [y/N]: "
-                ).lower()
-                if ans not in ("y", "yes"):
-                    raise CryptoError("Operation cancelled")
+                raise CryptoError(
+                    f"Output file already exists: {self.path}. "
+                    "Delete it first or choose a different path."
+                )
 
             try:
                 directory = os.path.dirname(self.path) or "."

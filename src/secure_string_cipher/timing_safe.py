@@ -30,7 +30,7 @@ def add_timing_jitter() -> None:
 
 def check_password_strength(password: str) -> tuple[bool, str]:
     """
-    Check password strength with constant-time operations.
+    Check password strength against complexity requirements.
 
     Args:
         password: Password to check

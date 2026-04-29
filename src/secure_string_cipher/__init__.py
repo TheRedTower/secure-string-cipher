@@ -36,7 +36,7 @@ from .timing_safe import (
     check_password_strength,
     constant_time_compare,
 )
-from .utils import ProgressBar, colorize, handle_timeout, secure_overwrite
+from .utils import ProgressBar, colorize, secure_overwrite
 
 try:
     __version__ = version("secure-string-cipher")
@@ -87,7 +87,6 @@ __all__ = [
     "audit_rate_limit",
     # CLI utilities
     "colorize",
-    "handle_timeout",
     "secure_overwrite",
     "ProgressBar",
     "main",

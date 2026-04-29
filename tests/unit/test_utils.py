@@ -11,10 +11,8 @@ import pytest
 from secure_string_cipher.utils import (
     CryptoError,
     ProgressBar,
-    TimeoutManager,
     colorize,
     detect_dark_background,
-    handle_timeout,
     secure_overwrite,
 )
 
@@ -242,57 +240,3 @@ class TestSecureOverwrite:
             secure_overwrite(str(test_file))
             # fsync should have been called
             mock_fsync.assert_called()
-
-
-# =============================================================================
-# TimeoutManager Tests
-# =============================================================================
-
-
-class TestTimeoutManager:
-    """Tests for TimeoutManager class."""
-
-    def test_timeout_manager_init(self):
-        """TimeoutManager should store seconds."""
-        tm = TimeoutManager(30)
-        assert tm.seconds == 30
-
-    def test_timeout_manager_callable(self):
-        """TimeoutManager should be callable and return self."""
-        tm = TimeoutManager(30)
-        result = tm()
-        assert result is tm
-
-    def test_timeout_manager_context_manager(self):
-        """TimeoutManager should work as context manager."""
-        tm = TimeoutManager(30)
-
-        with tm:
-            pass  # Should not raise
-
-    def test_timeout_manager_exit_no_exception(self):
-        """TimeoutManager __exit__ should return True for no exception."""
-        tm = TimeoutManager(30)
-        result = tm.__exit__(None, None, None)
-        assert result is True
-
-    def test_timeout_manager_exit_with_exception(self):
-        """TimeoutManager __exit__ should return False for exception."""
-        tm = TimeoutManager(30)
-        result = tm.__exit__(ValueError, ValueError("test"), None)
-        assert result is False
-
-
-class TestHandleTimeout:
-    """Tests for handle_timeout function."""
-
-    def test_handle_timeout_returns_manager(self):
-        """handle_timeout should return TimeoutManager."""
-        result = handle_timeout(30)
-        assert isinstance(result, TimeoutManager)
-        assert result.seconds == 30
-
-    def test_handle_timeout_as_context_manager(self):
-        """handle_timeout should work as context manager."""
-        with handle_timeout(30):
-            pass  # Should not raise

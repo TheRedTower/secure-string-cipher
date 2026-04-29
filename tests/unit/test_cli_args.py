@@ -693,6 +693,55 @@ class TestVaultImportReset:
             cmd_vault_import(args)
         assert exc_info.value.code == EXIT_FILE_ERROR
 
+    def test_vault_import_invalid_format(self, tmp_path):
+        """vault import should exit with FILE_ERROR for invalid vault format."""
+        bad_file = tmp_path / "bad_backup.txt"
+        bad_file.write_text("not a vault file")
+
+        args = argparse.Namespace(file=str(bad_file))
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_vault_import(args)
+        assert exc_info.value.code == EXIT_FILE_ERROR
+
+    def test_vault_import_invalid_salt(self, tmp_path):
+        """vault import should exit with FILE_ERROR for non-hex salt."""
+        bad_file = tmp_path / "bad_backup.txt"
+        bad_file.write_text("SSCVAULT\nnothex\n---DATA---\nfoo\n---HMAC---\nbar")
+
+        args = argparse.Namespace(file=str(bad_file))
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_vault_import(args)
+        assert exc_info.value.code == EXIT_FILE_ERROR
+
+    def test_vault_import_missing_hmac_separator(self, tmp_path):
+        """vault import should exit with FILE_ERROR for missing HMAC separator."""
+        bad_file = tmp_path / "bad_backup.txt"
+        bad_file.write_text("SSCVAULT\nabcd1234\n---DATA---\nfoo")
+
+        args = argparse.Namespace(file=str(bad_file))
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_vault_import(args)
+        assert exc_info.value.code == EXIT_FILE_ERROR
+
+    @patch("secure_string_cipher.cli_args.PassphraseVault")
+    def test_vault_import_valid_format(self, mock_vault_class, tmp_path):
+        """vault import should succeed with valid vault format."""
+        mock_vault_instance = MagicMock()
+        mock_vault_instance.vault_path.exists.return_value = False
+        mock_vault_class.return_value = mock_vault_instance
+
+        valid_file = tmp_path / "valid_backup.txt"
+        valid_file.write_text(
+            "SSCVAULT\nabcd1234\n---DATA---\nencrypted_payload\n---HMAC---\nhmac_value"
+        )
+
+        args = argparse.Namespace(file=str(valid_file))
+        result = cmd_vault_import(args)
+        assert result == EXIT_SUCCESS
+
     @patch("builtins.input", return_value="NOT_RESET")
     @patch("secure_string_cipher.cli_args.PassphraseVault")
     def test_vault_reset_requires_confirmation(self, mock_vault_class, mock_input):

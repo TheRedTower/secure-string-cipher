@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import os
 import sys
 from pathlib import Path
 from typing import NoReturn
@@ -29,9 +30,13 @@ from .core import (
 )
 from .passphrase_generator import generate_passphrase
 from .passphrase_manager import PassphraseVault
+from .rate_limiter import RateLimiter
 from .security import sanitize_filename
 from .timing_safe import check_password_strength
 from .utils import colorize
+
+# Global rate limiter for CLI authentication attempts
+_cli_limiter = RateLimiter()
 
 # =============================================================================
 # Exit Codes
@@ -164,7 +169,7 @@ def _get_vault() -> PassphraseVault:
 
 
 def _get_password_from_vault(label: str) -> str:
-    """Retrieve password from vault.
+    """Retrieve password from vault with rate limiting.
 
     Args:
         label: The label to retrieve
@@ -173,13 +178,26 @@ def _get_password_from_vault(label: str) -> str:
         The stored password
     """
     vault = _get_vault()
+    vault_id = str(vault.vault_path)
+
+    # Check rate limit before prompting for password
+    allowed, wait = _cli_limiter.check_rate_limit("vault_unlock", vault_id)
+    if not allowed:
+        _exit_error(
+            EXIT_AUTH_ERROR,
+            f"Too many failed attempts. Please wait {wait:.0f} seconds.",
+        )
+
     master = _prompt_master_password()
 
     try:
-        return vault.retrieve_passphrase(label, master)
+        result = vault.retrieve_passphrase(label, master)
+        _cli_limiter.record_attempt("vault_unlock", vault_id, success=True)
+        return result
     except KeyError:
         _exit_error(EXIT_VAULT_ERROR, f"Label '{label}' not found in vault.")
-    except CryptoError:
+    except (CryptoError, ValueError):
+        _cli_limiter.record_attempt("vault_unlock", vault_id, success=False)
         _exit_error(EXIT_AUTH_ERROR, "Wrong master password.")
 
 
@@ -377,12 +395,21 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
 
     # Decrypt text
     if args.text:
+        # Rate limit text decryption attempts
+        allowed, wait = _cli_limiter.check_rate_limit("decrypt_text", "")
+        if not allowed:
+            _exit_error(
+                EXIT_AUTH_ERROR,
+                f"Too many failed attempts. Please wait {wait:.0f} seconds.",
+            )
         try:
             plaintext = decrypt_text(args.text, password)
+            _cli_limiter.record_attempt("decrypt_text", "", success=True)
             print(plaintext)
             _print_info("✓ Decrypted successfully")
             return EXIT_SUCCESS
         except CryptoError:
+            _cli_limiter.record_attempt("decrypt_text", "", success=False)
             _exit_error(
                 EXIT_AUTH_ERROR, "Decryption failed. Wrong password or corrupted data."
             )
@@ -395,6 +422,15 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
         if output_path and output_path.exists():
             output_path.unlink()
 
+        # Rate limit file decryption attempts
+        file_id = str(filepath)
+        allowed, wait = _cli_limiter.check_rate_limit("decrypt_file", file_id)
+        if not allowed:
+            _exit_error(
+                EXIT_AUTH_ERROR,
+                f"Too many failed attempts. Please wait {wait:.0f} seconds.",
+            )
+
         try:
             actual_output, _ = decrypt_file(
                 str(filepath),
@@ -402,9 +438,11 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
                 password,
                 restore_filename=restore_filename,
             )
+            _cli_limiter.record_attempt("decrypt_file", file_id, success=True)
             _print_info(f"✓ Decrypted to {actual_output}")
             return EXIT_SUCCESS
         except CryptoError:
+            _cli_limiter.record_attempt("decrypt_file", file_id, success=False)
             _exit_error(
                 EXIT_AUTH_ERROR, "Decryption failed. Wrong password or corrupted data."
             )
@@ -506,6 +544,29 @@ def cmd_vault_export(args: argparse.Namespace) -> int:
         _exit_error(EXIT_AUTH_ERROR, "Wrong master password.")
 
 
+def _validate_vault_format(content: str) -> bool:
+    """Validate imported vault file format.
+
+    Checks for SSCVAULT header, HMAC salt, data separator,
+    encrypted payload, and HMAC separator.
+    """
+    lines = content.strip().split("\n")
+    if len(lines) < 6:
+        return False
+    if not lines[0].startswith("SSCVAULT"):
+        return False
+    if lines[2] != "---DATA---":
+        return False
+    if "---HMAC---" not in lines:
+        return False
+    # Validate salt is hex
+    try:
+        bytes.fromhex(lines[1])
+    except ValueError:
+        return False
+    return True
+
+
 def cmd_vault_import(args: argparse.Namespace) -> int:
     """Import vault from backup."""
     import_path = Path(args.file)
@@ -515,6 +576,18 @@ def cmd_vault_import(args: argparse.Namespace) -> int:
 
     vault = PassphraseVault()
 
+    # Validate vault format before replacing
+    try:
+        content = import_path.read_text()
+    except OSError as e:
+        _exit_error(EXIT_FILE_ERROR, f"Cannot read import file: {e}")
+
+    if not _validate_vault_format(content):
+        _exit_error(
+            EXIT_FILE_ERROR,
+            "Invalid vault format. File does not appear to be a valid vault backup.",
+        )
+
     # Confirm if vault exists
     if vault.vault_path.exists():
         print("Existing vault will be replaced. Continue? (y/n): ", end="", flush=True)
@@ -523,9 +596,9 @@ def cmd_vault_import(args: argparse.Namespace) -> int:
             _exit_error(EXIT_INPUT_ERROR, "Import cancelled.")
 
     try:
-        content = import_path.read_text()
         vault.vault_path.parent.mkdir(parents=True, exist_ok=True)
         vault.vault_path.write_text(content)
+        os.chmod(vault.vault_path, 0o600)
         _print_info("✓ Vault imported successfully")
         return EXIT_SUCCESS
     except OSError as e:

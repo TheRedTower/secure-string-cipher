@@ -149,21 +149,17 @@ class PassphraseVault:
             encrypted_vault = "\n".join(lines[data_start:hmac_separator_idx])
             stored_hmac = "\n".join(lines[hmac_separator_idx + 1 :])
 
-            # Verify HMAC with Argon2id-derived key
+            # Verify HMAC with Argon2id-derived key.
+            # NOTE: We intentionally do NOT attempt decryption here to avoid
+            # a timing side-channel (Argon2id key derivation is ~50-100ms,
+            # easily distinguishable from a fast HMAC failure).
             computed_hmac = self._compute_hmac(
                 encrypted_vault, master_password, hmac_salt
             )
             if not hmac.compare_digest(computed_hmac, stored_hmac):
-                try:
-                    decrypt_text(encrypted_vault, master_password)
-                    raise ValueError(
-                        "Vault integrity check failed! File may have been tampered with. "
-                        "Check backups in ~/.secure-cipher/backups/"
-                    )
-                except Exception:
-                    raise ValueError(
-                        "Wrong master password or corrupted vault file"
-                    ) from None
+                raise ValueError(
+                    "Wrong master password or corrupted vault file"
+                ) from None
 
             decrypted_json = decrypt_text(encrypted_vault, master_password)
             return json.loads(decrypted_json)
