@@ -801,3 +801,67 @@ class TestMainFunction:
                 with pytest.raises(SystemExit) as exc_info:
                     main()
                 assert exc_info.value.code == EXIT_INPUT_ERROR
+
+
+# =============================================================================
+# Shred Command Tests
+# =============================================================================
+
+
+class TestShredCommand:
+    """Tests for the shred command."""
+
+    @patch("secure_string_cipher.cli_args.secure_overwrite")
+    @patch("secure_string_cipher.cli_args._print_info")
+    def test_shred_single_file(self, mock_print_info, mock_secure_overwrite):
+        """shred should overwrite and delete a single file."""
+        from secure_string_cipher.cli_args import cmd_shred
+
+        with patch("builtins.input", return_value="yes"):
+            with patch("pathlib.Path.exists", return_value=True):
+                args = argparse.Namespace(paths=["test.txt"], force=False)
+                result = cmd_shred(args)
+
+        assert result == EXIT_SUCCESS
+        mock_secure_overwrite.assert_called_once_with("test.txt")
+
+    @patch("secure_string_cipher.cli_args.secure_overwrite")
+    @patch("secure_string_cipher.cli_args._print_info")
+    def test_shred_force_skip_confirmation(
+        self, mock_print_info, mock_secure_overwrite
+    ):
+        """shred with --force should skip confirmation."""
+        from secure_string_cipher.cli_args import cmd_shred
+
+        with patch("pathlib.Path.exists", return_value=True):
+            args = argparse.Namespace(paths=["a.txt", "b.txt"], force=True)
+            result = cmd_shred(args)
+
+        assert result == EXIT_SUCCESS
+        assert mock_secure_overwrite.call_count == 2
+
+    def test_shred_file_not_found(self):
+        """shred should exit with FILE_ERROR if file doesn't exist."""
+        from secure_string_cipher.cli_args import cmd_shred
+
+        args = argparse.Namespace(paths=["nonexistent.txt"], force=True)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_shred(args)
+        assert exc_info.value.code == EXIT_FILE_ERROR
+
+    @patch("secure_string_cipher.cli_args.secure_overwrite")
+    @patch("secure_string_cipher.cli_args._print_info")
+    def test_shred_skip_on_no_confirmation(
+        self, mock_print_info, mock_secure_overwrite
+    ):
+        """shred should skip file if user doesn't confirm."""
+        from secure_string_cipher.cli_args import cmd_shred
+
+        with patch("builtins.input", return_value="no"):
+            with patch("pathlib.Path.exists", return_value=True):
+                args = argparse.Namespace(paths=["test.txt"], force=False)
+                result = cmd_shred(args)
+
+        assert result == EXIT_SUCCESS
+        mock_secure_overwrite.assert_not_called()

@@ -33,7 +33,7 @@ from .passphrase_manager import PassphraseVault
 from .rate_limiter import RateLimiter
 from .security import sanitize_filename
 from .timing_safe import check_password_strength
-from .utils import colorize
+from .utils import colorize, secure_overwrite
 
 # Global rate limiter for CLI authentication attempts
 _cli_limiter = RateLimiter()
@@ -637,6 +637,38 @@ def cmd_vault(args: argparse.Namespace) -> int:
 
 
 # =============================================================================
+# Command: shred
+# =============================================================================
+
+
+def cmd_shred(args: argparse.Namespace) -> int:
+    """Securely delete files."""
+    paths = [Path(p) for p in args.paths]
+    force = args.force
+
+    for path in paths:
+        if not path.exists():
+            _exit_error(EXIT_FILE_ERROR, f"File not found: {path}")
+
+        if not force:
+            print(
+                f"Securely delete: {path}? Type 'yes' to confirm: ", end="", flush=True
+            )
+            response = input().strip()
+            if response != "yes":
+                _print_info(f"Skipped: {path}")
+                continue
+
+        try:
+            secure_overwrite(str(path))
+            _print_info(f"✓ Shredded: {path}")
+        except OSError as e:
+            _exit_error(EXIT_FILE_ERROR, f"Failed to shred {path}: {e}")
+
+    return EXIT_SUCCESS
+
+
+# =============================================================================
 # Argument Parser
 # =============================================================================
 
@@ -856,6 +888,32 @@ Examples:
     vault_reset_parser.set_defaults(func=cmd_vault_reset)
 
     vault_parser.set_defaults(func=cmd_vault)
+
+    # --- shred ---
+    shred_parser = subparsers.add_parser(
+        "shred",
+        help="Securely delete files",
+        description="Securely overwrite and delete files using multiple passes.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  ssc shred secret.txt
+  ssc shred file1.txt file2.txt --force
+""",
+    )
+    shred_parser.add_argument(
+        "paths",
+        metavar="PATH",
+        nargs="+",
+        help="Files to shred",
+    )
+    shred_parser.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="Skip confirmation prompt",
+    )
+    shred_parser.set_defaults(func=cmd_shred)
 
     return parser
 
