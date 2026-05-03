@@ -9,7 +9,7 @@ import time
 
 from .config import COLORS
 
-__all__ = ["CryptoError", "ProgressBar", "colorize"]
+__all__ = ["CryptoError", "ProgressBar", "colorize", "secure_overwrite"]
 
 
 class CryptoError(Exception):

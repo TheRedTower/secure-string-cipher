@@ -7,7 +7,7 @@ help:  ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 install:  ## Install package and dev dependencies
-	pip install -e ".[dev]"
+	uv sync --extra dev --locked
 
 format:  ## Auto-format code with Ruff
 	@echo "✨ Formatting code with Ruff..."
@@ -34,7 +34,7 @@ test-fast:  ## Run tests in parallel (3-4x faster)
 
 test-watch:  ## Run tests in watch mode (auto-rerun on changes)
 	@echo "👀 Watching for changes..."
-	pytest-watch
+	uv run --locked pytest-watch
 
 test-unit:  ## Run only unit tests
 	@echo "🧪 Running unit tests..."
@@ -75,10 +75,10 @@ clean:  ## Clean up temporary files and caches
 	rm -f *.enc *.dec .write_test
 	@echo "✨ Clean!"
 
-ci:  ## Run all CI checks locally (format, lint, test)
+ci:  ## Run all CI checks locally (lint, format, test)
 	@echo "🚀 Running full CI pipeline locally..."
-	@make format
 	@make lint
+	@make format
 	@make test
 	@echo "✅ All CI checks passed! Ready to push."
 

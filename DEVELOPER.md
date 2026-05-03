@@ -61,11 +61,11 @@ make ci
 
 ### pytest (Testing)
 
-- Runs automated tests (618 tests)
+- Runs automated tests (619 tests)
 - Unit tests in `tests/unit/`, integration tests in `tests/integration/`
 - Security tests in `tests/security/`, fuzz tests in `tests/fuzz/`
 - Performance benchmarks in `tests/performance/`
-- Markers: `@pytest.mark.unit`, `@pytest.mark.integration`, `@pytest.mark.security`, `@pytest.mark.slow`
+- Markers: `@pytest.mark.unit`, `@pytest.mark.integration`, `@pytest.mark.security`, `@pytest.mark.slow`, `@pytest.mark.fuzz`, `@pytest.mark.benchmark`, `@pytest.mark.e2e`, `@pytest.mark.smoke`
 - Run with `pytest tests/` or `make test`
 
 ## CI/CD
@@ -78,6 +78,7 @@ GitHub Actions uses uv-locked installs and runs a two-stage pipeline:
    - mypy type checking (uv run --locked)
    - Secret scan (uv run --locked detect-secrets --baseline .secrets.baseline)
    - Vulnerability scan (uv run --locked pip-audit --desc)
+   - Inline passphrase strength verification (uv run --locked python -c "...")
 
 2. **Test matrix** (Python 3.12, 3.13, 3.14 in parallel):
    - uv sync --extra dev --locked
@@ -135,10 +136,10 @@ make test         # Full suite (~80s)
 
 ### Testing Password Input
 
-The CLI uses automatic mode detection for password input:
+The CLI uses automatic mode detection for password input via `_read_password()`:
 
-- **Interactive terminal** (`sys.stdin.isatty()` = True): Hidden input via `getpass`
-- **Piped/redirected stdin** (tests, scripts): Visible input via `readline`
+- **Interactive terminal** (`sys.stdin.isatty()` = True): Hidden input via `getpass.getpass()`
+- **Piped/redirected stdin** (tests, scripts): Visible input via `sys.stdin.readline()`
 
 Tests use `StringIO` which triggers visible mode, so they work without modification:
 

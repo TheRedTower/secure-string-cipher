@@ -62,12 +62,12 @@ CMD ["start"]
 
 LABEL maintainer="TheRedTower <security@avondenecloud.uk>" \
       description="Secure AES-256-GCM encryption utility with passphrase management" \
-    version="1.0.32" \
+    version="1.0.33" \
       org.opencontainers.image.title="secure-string-cipher" \
       org.opencontainers.image.description="Secure AES-256-GCM encryption utility with HMAC integrity and automatic backups" \
       org.opencontainers.image.url="https://github.com/TheRedTower/secure-string-cipher" \
       org.opencontainers.image.source="https://github.com/TheRedTower/secure-string-cipher" \
-    org.opencontainers.image.version="1.0.32" \
+    org.opencontainers.image.version="1.0.33" \
       org.opencontainers.image.vendor="TheRedTower" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.authors="TheRedTower <security@avondenecloud.uk>" \

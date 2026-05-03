@@ -99,7 +99,7 @@ encrypt_file(
 **Security/IO notes:**
 
 - `_ensure_no_symlink` rejects symlinked inputs/outputs unless in the allowlist (e.g., `/var`).
-- `StreamProcessor` refuses to overwrite an existing file without an explicit prompt/confirmation.
+- `StreamProcessor` raises `CryptoError` if the output file already exists (no interactive prompt).
 
 **Example:**
 
@@ -149,7 +149,7 @@ output_path, metadata = decrypt_file(
 **Security/IO notes:**
 
 - `_ensure_no_symlink` rejects symlinked inputs/outputs unless in the allowlist (e.g., `/var`).
-- `StreamProcessor` refuses to overwrite an existing file without an explicit prompt/confirmation.
+- `StreamProcessor` raises `CryptoError` if the output file already exists (no interactive prompt).
 
 **Example:**
 
@@ -466,7 +466,7 @@ secure_bytes = SecureBytes(value: bytes)
 **Methods:**
 
 - `get()`: Retrieve the value
-- `clear()`: Explicitly zero and clear the value
+- `clear()`: Explicitly zero and clear the value. Idempotent — safe to call multiple times or concurrently (e.g., from both `__exit__` and `__del__`).
 
 **Example:**
 
@@ -542,13 +542,14 @@ from secure_string_cipher import rate_limited, RateLimitError
 @rate_limited("vault_unlock", get_identifier=lambda vault_path, **_: vault_path)
 def unlock_vault(vault_path: str, password: str) -> None:
     ...
-    lockout_seconds: float = 300.0
+
 try:
     unlock_vault("/home/user/.secure-cipher/passphrase_vault.enc", "secret")
 except RateLimitError as exc:
     print(f"Too many attempts. Wait {exc.wait_seconds:.1f}s")
-)
 ```
+
+> **Note:** The rate limiter is active by default in the CLI on vault unlock (`ssc vault`), text decryption (`ssc decrypt -t`), and file decryption (`ssc decrypt -f`) operations. Repeated failures trigger exponential backoff.
 
 **Methods:**
 
@@ -763,7 +764,7 @@ Key parameters defined in `secure_string_cipher.config`:
 
 | Constant | Value | Description |
 |----------|-------|-------------|
-| `CHUNK_SIZE` | 65536 | File streaming chunk size (64KB) |
+| `CHUNK_SIZE` | 262144 | File streaming chunk size (256 KiB) |
 | `ARGON2_MEMORY` | 65536 | Argon2id memory cost (64MB) |
 | `ARGON2_ITERATIONS` | 3 | Argon2id time cost |
 | `ARGON2_PARALLELISM` | 4 | Argon2id parallelism |

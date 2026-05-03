@@ -873,7 +873,7 @@ This release introduces a major enhancement: encrypted files can now store and r
 - Streamlined CI/CD to test only supported Python versions
 - Removed Python 3.10-specific test workarounds
 
-## 1.0.11 (2025-11-06)
+## [1.0.11] - 2025-11-06
 
 - **User Experience & Documentation**: UI improvements and comprehensive documentation overhaul
   - **Menu System Enhancements**:
@@ -906,7 +906,7 @@ This release introduces a major enhancement: encrypted files can now store and r
     - Test suite expanded: 150 → 189 tests (+39 menu security tests)
     - Coverage: 69.67% (threshold adjusted from 79% due to expanded UI code)
 
-## 1.0.10 (2025-11-06)
+## [1.0.10] - 2025-11-06
 
 - **Development Environment**: Critical infrastructure improvements and bug fixes
   - **Security Enhancements**:
@@ -942,7 +942,7 @@ This release introduces a major enhancement: encrypted files can now store and r
     - Added DEV_ENVIRONMENT_ANALYSIS.md with comprehensive tooling review
     - Updated pre-commit configuration with security hooks
 
-## 1.0.9 (2025-11-06)
+## [1.0.9] - 2025-11-06
 
 - **Security Enhancement**: Added secure temporary file and atomic write operations
   - New security functions:
@@ -959,7 +959,7 @@ This release introduces a major enhancement: encrypted files can now store and r
   - Tests cover: secure permissions, cleanup on exception, error handling, large files, empty files
 - **Test Suite**: 137 total tests passing (123 original + 14 new security tests)
 
-## 1.0.8 (2025-11-06)
+## [1.0.8] - 2025-11-06
 
 - **Security Enhancement**: Added privilege and execution context validation
   - New security functions:
@@ -975,7 +975,7 @@ This release introduces a major enhancement: encrypted files can now store and r
   - Cross-platform support (Unix/Linux/macOS with os.geteuid, Windows with ctypes)
 - **Test Suite**: 123 total tests passing (72 original + 51 security tests)
 
-## 1.0.7 (2025-11-06)
+## [1.0.7] - 2025-11-06
 
 - **Security Enhancement**: Added path validation and symlink attack detection
   - New security functions:
@@ -990,7 +990,7 @@ This release introduces a major enhancement: encrypted files can now store and r
   - Tests cover: safe paths, subdirectories, path traversal, absolute paths, symlinks, parent symlinks
 - **Test Suite**: 111 total tests passing (72 original + 39 security tests)
 
-## 1.0.6 (2025-11-06)
+## [1.0.6] - 2025-11-06
 
 - **Security Enhancement**: Added filename sanitization module to prevent path traversal attacks
   - New `security.py` module with `sanitize_filename()` and `validate_filename_safety()` functions
@@ -1005,7 +1005,7 @@ This release introduces a major enhancement: encrypted files can now store and r
   - Prepared for future original filename storage feature (v1.0.7+)
 - **Test Suite**: 93 total tests passing (72 original + 21 security tests)
 
-## 1.0.4 (2025-11-05)
+## [1.0.4] - 2025-11-05
 
 - **Passphrase Generation**: Added secure passphrase generator with multiple strategies
   - Word-based passphrases (e.g., `mountain-tiger-ocean-basket-rocket-palace`)
@@ -1032,7 +1032,7 @@ This release introduces a major enhancement: encrypted files can now store and r
 - **Python Support**: Confirmed compatibility with Python 3.10-3.14
 - **Documentation**: Updated README with comprehensive Docker usage examples and security metrics
 
-## 1.0.3 (2025-11-05)
+## [1.0.3] - 2025-11-05
 
 - **Python requirement update**: Minimum Python version increased to 3.10
 - **CI optimization**: Reduced test matrix to Python 3.10 and 3.11 only
@@ -1040,17 +1040,17 @@ This release introduces a major enhancement: encrypted files can now store and r
 - **Code quality**: Fixed Black and isort compatibility issues
 - **Codecov**: Made coverage upload failures non-blocking
 
-## 1.0.2 (2025-11-05)
+## [1.0.2] - 2025-11-05
 
 - **Improved CLI menu**: Added descriptive menu showing all available operations with clear descriptions
 - Better user experience with explicit operation choices
 
-## 1.0.1 (2025-11-05)
+## [1.0.1] - 2025-11-05
 
 - **Command rename**: CLI command changed from `secure-string-cipher` to `cipher-start` for easier invocation
 - Updated README with correct command usage
 
-## 1.0.0 (2025-11-05)
+## [1.0.0] - 2025-11-05
 
 - CLI testability: `main()` accepts optional `in_stream` and `out_stream` file-like parameters so tests can pass StringIO objects and reliably capture I/O.
 - CLI exit control: add `exit_on_completion` (default True). When False, `main()` returns 0/1 instead of calling `sys.exit()`. Tests use this to avoid catching `SystemExit`.

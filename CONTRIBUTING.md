@@ -70,7 +70,7 @@ See [DEVELOPER.md](DEVELOPER.md) for detailed workflow, troubleshooting, and rel
 ## Testing
 
 * Write tests for new features
-* CI coverage gate: 69% (current: ~77%)
+* CI coverage gate: 69% (current: ~79%)
 * Include positive and negative test cases
 * Test edge cases and error conditions
 * Use parameterized tests when appropriate
@@ -97,24 +97,37 @@ tests/
 ├── factories.py         # Test data factories
 ├── helpers.py           # Test utilities
 ├── unit/                # Unit tests (fast, isolated)
+│   ├── test_cli_args.py
+│   ├── test_cli_menu.py
 │   ├── test_core.py
 │   ├── test_core_extended.py
-│   ├── test_security.py
-│   ├── test_timing_safe.py
+│   ├── test_kdf.py
 │   ├── test_passphrase_generator.py
 │   ├── test_passphrase_manager_extended.py
+│   ├── test_property_based.py
 │   ├── test_secure_memory.py
-│   ├── test_cli_menu.py
+│   ├── test_security.py
+│   ├── test_timing_safe.py
 │   └── test_utils.py
 ├── integration/         # Integration tests (CLI workflows)
 │   ├── test_cli.py
-│   ├── test_cli_workflows.py
 │   ├── test_cli_extended.py
-│   ├── test_passphrase_manager.py
-│   └── test_inline_passphrase_gen.py
+│   ├── test_cli_workflows.py
+│   ├── test_inline_passphrase_gen.py
+│   └── test_passphrase_manager.py
 ├── security/            # Security-focused tests
+│   ├── test_audit_log.py
+│   ├── test_key_commitment.py
+│   ├── test_rate_limiter.py
+│   ├── test_secure_memory.py
+│   ├── test_security.py
+│   ├── test_security_integration.py
+│   └── test_timing_safe.py
 ├── fuzz/                # Hypothesis fuzzing tests
+│   ├── test_fuzz_encryption.py
+│   └── test_fuzz_inputs.py
 └── performance/         # Benchmark tests
+    └── test_benchmarks.py
 ```
 
 ## Documentation
@@ -141,11 +154,14 @@ secure-string-cipher/
 ├── src/
 │   └── secure_string_cipher/
 │       ├── __init__.py           # Public API exports
+│       ├── audit_log.py          # Security event logging
 │       ├── cli.py                # Interactive menu interface
+│       ├── cli_args.py           # Non-interactive argparse CLI (`ssc`)
 │       ├── config.py             # Constants (iterations, chunk size, etc.)
 │       ├── core.py               # AES-256-GCM + Argon2id + key commitment
 │       ├── passphrase_generator.py  # Random passphrase generation
 │       ├── passphrase_manager.py # Encrypted vault with HMAC integrity
+│       ├── rate_limiter.py       # Brute-force rate limiting
 │       ├── secure_memory.py      # SecureBytes/SecureString with libsodium
 │       ├── security.py           # Path validation, filename sanitization
 │       ├── timing_safe.py        # Constant-time comparison, password strength

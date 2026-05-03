@@ -1,7 +1,7 @@
 # secure-string-cipher
 
 [![CI](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-77%25-green.svg)](https://github.com/TheRedTower/secure-string-cipher)
+[![Coverage](https://img.shields.io/badge/coverage-79%25-green.svg)](https://github.com/TheRedTower/secure-string-cipher)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
@@ -66,7 +66,16 @@ ssc encrypt -t "Secret message"
 # Encrypt a file
 ssc encrypt -f document.pdf
 
-# Decrypt using vault password
+# Decrypt a file (restores original filename by default)
+ssc decrypt -f document.pdf.enc
+
+# Decrypt with an explicit output path
+ssc decrypt -f document.pdf.enc --output document.pdf
+
+# Decrypt without restoring the stored filename
+ssc decrypt -f document.pdf.enc --no-restore-filename
+
+# Decrypt using a vault password
 ssc decrypt -f document.pdf.enc --vault my-server
 
 # Store a password in vault
@@ -79,7 +88,7 @@ ssc store backup-key --generate
 ssc vault list
 ssc vault delete old-key
 ssc vault export backup.json
-ssc vault import backup.json
+ssc vault import backup.json  # validates header and integrity before replacing
 ```
 
 **Exit codes:** 0=success, 1=input error, 2=auth error, 3=vault error, 4=file error
@@ -246,25 +255,19 @@ from secure_string_cipher import PassphraseVault
 vault = PassphraseVault()
 
 # Store a passphrase
-vault.store_passphrase(
-  "my-server", "MySecurePass123!", master_password="VaultMaster456!"  # pragma: allowlist secret
-)  # pragma: allowlist secret
+vault.store_passphrase("my-server", "MySecurePass123!", master_password="VaultMaster456!")
 
 # Retrieve it
-password = vault.retrieve_passphrase(
-  "my-server", master_password="VaultMaster456!"  # pragma: allowlist secret
-)  # pragma: allowlist secret
+password = vault.retrieve_passphrase("my-server", master_password="VaultMaster456!")
 
 # List all labels (requires master password)
-labels = vault.list_labels(master_password="VaultMaster456!")  # pragma: allowlist secret
+labels = vault.list_labels(master_password="VaultMaster456!")
 
 # Update an entry
-vault.update_passphrase(
-  "my-server", "NewPass789!", master_password="VaultMaster456!"  # pragma: allowlist secret
-)  # pragma: allowlist secret
+vault.update_passphrase("my-server", "NewPass789!", master_password="VaultMaster456!")
 
 # Delete an entry
-vault.delete_passphrase("my-server", master_password="VaultMaster456!")  # pragma: allowlist secret
+vault.delete_passphrase("my-server", master_password="VaultMaster456!")
 ```
 
 ### Security Utilities
@@ -300,6 +303,8 @@ if has_secure_memory():
 | **Vault Integrity** | HMAC-SHA256 | Detects tampering before decryption |
 | **Memory Security** | libsodium | `sodium_memzero()` via PyNaCl |
 | **Timing Safety** | Constant-time | All password/hash comparisons |
+| **Rate Limiting** | Exponential backoff | Active on vault unlock, text decrypt, and file decrypt |
+| **Vault Import** | SSCVAULT validation | Header, hex salt, and HMAC separators verified; `0o600` enforced |
 
 **Additional protections:** Path traversal prevention, symlink attack detection, atomic writes, user-only file permissions (600), 12-character minimum password with complexity requirements.
 
