@@ -763,7 +763,7 @@ secure_overwrite("plaintext_backup.txt", passes=3)
 Key parameters defined in `secure_string_cipher.config`:
 
 | Constant | Value | Description |
-|----------|-------|-------------|
+| -------- | ----- | ----------- |
 | `CHUNK_SIZE` | 262144 | File streaming chunk size (256 KiB) |
 | `ARGON2_MEMORY` | 65536 | Argon2id memory cost (64MB) |
 | `ARGON2_ITERATIONS` | 3 | Argon2id time cost |

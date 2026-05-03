@@ -296,7 +296,7 @@ if has_secure_memory():
 ## Security
 
 | Component | Implementation | Details |
-|-----------|---------------|---------|
+| --------- | -------------- | ------- |
 | **Encryption** | AES-256-GCM | Authenticated encryption, 128-bit tags |
 | **Key Derivation** | Argon2id | 64MB memory, 3 iterations, parallelism 4 |
 | **Key Commitment** | HMAC-SHA256 | Prevents partitioning oracle attacks |

@@ -229,7 +229,7 @@ Significant expansion of test coverage from 73.84% to 79.39%, with 85 new tests 
 #### Coverage by Module
 
 | Module | Before | After | Change |
-|--------|--------|-------|--------|
+| ------ | ------ | ----- | ------ |
 | `utils.py` | 39.19% | **100.00%** | +60.81% |
 | `cli.py` | 48.70% | 60.39% | +11.69% |
 | `passphrase_manager.py` | 79.89% | 78.26% | -1.63%* |
