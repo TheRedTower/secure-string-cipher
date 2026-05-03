@@ -122,6 +122,10 @@ class StreamProcessor:
         Raises:
             CryptoError: If path is unsafe or permissions are incorrect
         """
+        # Skip checks for file-like objects (stdin/stdout)
+        if not isinstance(self.path, (str, bytes, os.PathLike)):
+            return
+
         if self.mode == "wb":
             if os.path.exists(self.path):
                 raise CryptoError(

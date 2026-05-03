@@ -326,14 +326,67 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
 
     # Encrypt file
     if args.file:
-        filepath = Path(args.file)
+        filepath = args.file
+
+        # Handle stdin/stdout streaming
+        if filepath == "-":
+            # Read from stdin, encrypt, write to stdout
+            try:
+                data = sys.stdin.buffer.read()
+                ciphertext = encrypt_text(
+                    data.decode("utf-8", errors="replace"), password
+                )
+                sys.stdout.buffer.write((ciphertext + "\n").encode("utf-8"))
+                _print_info("✓ Encrypted stdin to stdout")
+                return EXIT_SUCCESS
+            except CryptoError as e:
+                _exit_error(EXIT_AUTH_ERROR, f"Encryption failed: {e}")
+            except Exception as e:
+                _exit_error(EXIT_FILE_ERROR, f"Error: {e}")
+
+        filepath_obj = Path(filepath)
+        output_path = filepath_obj.with_suffix(filepath_obj.suffix + ".enc")
+
+        # Check overwrite
+        if output_path.exists() and not args.force:
+            _exit_error(
+                EXIT_FILE_ERROR,
+                f"{output_path} already exists.\nRun again with --force to overwrite.",
+            )
+
+    # Get password (after validation)
+    if args.vault:
+        password = _get_password_from_vault(args.vault)
+    else:
+        password = _prompt_password("Enter password: ", confirm=True)
+
+    # Encrypt text
+    if args.text:
+        try:
+            ciphertext = encrypt_text(args.text, password)
+            print(ciphertext)
+            _print_info("✓ Encrypted successfully")
+            return EXIT_SUCCESS
+        except CryptoError as e:
+            _exit_error(EXIT_AUTH_ERROR, f"Encryption failed: {e}")
+
+    # Encrypt file
+    if args.file:
+        filepath = args.file
+
+        # Already handled stdin case above
+        if filepath == "-":
+            return EXIT_SUCCESS
+
+        filepath_obj = Path(filepath)
+        output_path = filepath_obj.with_suffix(filepath_obj.suffix + ".enc")
 
         # Remove file for overwrite (core.py would prompt otherwise)
-        if output_path and output_path.exists():
+        if output_path.exists() and args.force:
             output_path.unlink()
 
         try:
-            encrypt_file(str(filepath), str(output_path), password)
+            encrypt_file(str(filepath_obj), str(output_path), password)
             _print_info(f"✓ Encrypted to {output_path}")
             return EXIT_SUCCESS
         except CryptoError as e:
@@ -416,33 +469,95 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
 
     # Decrypt file
     if args.file:
-        filepath = Path(args.file)
+        filepath = args.file
 
-        # Remove file for overwrite (core.py would prompt otherwise)
-        if output_path and output_path.exists():
-            output_path.unlink()
+        # Handle stdin/stdout streaming
+        if filepath == "-":
+            # Read from stdin, decrypt, write to stdout
+            try:
+                data = sys.stdin.buffer.read().decode("utf-8").strip()
+                plaintext = decrypt_text(data, password)
+                sys.stdout.buffer.write(plaintext.encode("utf-8"))
+                _print_info("✓ Decrypted stdin to stdout")
+                return EXIT_SUCCESS
+            except CryptoError as e:
+                _exit_error(EXIT_AUTH_ERROR, f"Decryption failed: {e}")
+            except Exception as e:
+                _exit_error(EXIT_FILE_ERROR, f"Error: {e}")
 
-        # Rate limit file decryption attempts
-        file_id = str(filepath)
-        allowed, wait = _cli_limiter.check_rate_limit("decrypt_file", file_id)
+        filepath_obj = Path(filepath)
+
+        if not filepath_obj.exists():
+            _exit_error(EXIT_FILE_ERROR, f"File not found: {args.file}")
+
+        # Determine intended output path (surface filesystem errors as file-exit)
+        try:
+            _ensure_no_symlink(filepath_obj, "input")
+            if output_arg:
+                output_path = Path(output_arg)
+            else:
+                output_path = _determine_output_path(filepath_obj, restore_filename)
+        except (OSError, PermissionError, CryptoError) as e:
+            _exit_error(EXIT_FILE_ERROR, f"File error: {e}")
+
+        # Check overwrite
+        if output_path.exists() and not args.force:
+            _exit_error(
+                EXIT_FILE_ERROR,
+                f"{output_path} already exists.\nRun again with --force to overwrite.",
+            )
+
+    # Get password (after validation)
+    if args.vault:
+        password = _get_password_from_vault(args.vault)
+    else:
+        password = _prompt_password("Enter password: ", confirm=False)
+
+    # Decrypt text
+    if args.text:
+        # Rate limit text decryption attempts
+        allowed, wait = _cli_limiter.check_rate_limit("decrypt_text", "")
         if not allowed:
             _exit_error(
                 EXIT_AUTH_ERROR,
                 f"Too many failed attempts. Please wait {wait:.0f} seconds.",
             )
+        try:
+            plaintext = decrypt_text(args.text, password)
+            _cli_limiter.record_attempt("decrypt_text", "", success=True)
+            print(plaintext)
+            _print_info("✓ Decrypted successfully")
+            return EXIT_SUCCESS
+        except CryptoError:
+            _cli_limiter.record_attempt("decrypt_text", "", success=False)
+            _exit_error(
+                EXIT_AUTH_ERROR, "Decryption failed. Wrong password or corrupted data."
+            )
+
+    # Decrypt file
+    if args.file:
+        filepath = args.file
+
+        # Already handled stdin case above
+        if filepath == "-":
+            return EXIT_SUCCESS
+
+        filepath_obj = Path(filepath)
 
         try:
             actual_output, _ = decrypt_file(
-                str(filepath),
+                str(filepath_obj),
                 str(output_path) if output_path else None,
                 password,
                 restore_filename=restore_filename,
             )
-            _cli_limiter.record_attempt("decrypt_file", file_id, success=True)
+            _cli_limiter.record_attempt("decrypt_file", str(filepath_obj), success=True)
             _print_info(f"✓ Decrypted to {actual_output}")
             return EXIT_SUCCESS
         except CryptoError:
-            _cli_limiter.record_attempt("decrypt_file", file_id, success=False)
+            _cli_limiter.record_attempt(
+                "decrypt_file", str(filepath_obj), success=False
+            )
             _exit_error(
                 EXIT_AUTH_ERROR, "Decryption failed. Wrong password or corrupted data."
             )
