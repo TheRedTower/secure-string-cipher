@@ -1,0 +1,9 @@
+{
+  // Disable line-length checks — project uses long URLs, code examples, and
+  // descriptive bullet points that exceed 80 chars by design.
+  "MD013": false,
+
+  // Disable duplicate-heading checks — changelogs legitimately repeat headings
+  // like "Security", "Fixed", "Changed" under each version section.
+  "MD024": false
+}
