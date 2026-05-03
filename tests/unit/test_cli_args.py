@@ -201,6 +201,270 @@ class TestVaultParser:
         assert args.vault_command == "reset"
 
 
+class TestKeyFileParser:
+    """Tests for key-file argument parsing."""
+
+    def test_encrypt_key_file_flag(self):
+        """encrypt --key-file should set key_file argument."""
+        parser = create_parser()
+        args = parser.parse_args(
+            ["encrypt", "-t", "test", "--key-file", "/path/to/key.pem"]
+        )
+        assert args.key_file == "/path/to/key.pem"
+
+    def test_decrypt_key_file_flag(self):
+        """decrypt --key-file should set key_file argument."""
+        parser = create_parser()
+        args = parser.parse_args(
+            ["decrypt", "-t", "test", "--key-file", "/path/to/key.pem"]
+        )
+        assert args.key_file == "/path/to/key.pem"
+
+    def test_encrypt_vault_and_key_file_mutual_exclusion(self, capsys):
+        """encrypt with both --vault and --key-file should error."""
+        import secure_string_cipher.cli_args as cli_args
+
+        cli_args._quiet_mode = True
+        cli_args._no_color = True
+
+        args = argparse.Namespace(
+            text="Hello World",
+            file=None,
+            vault="my-key",
+            key_file="/path/to/key.pem",
+            force=False,
+            quiet=True,
+            no_color=True,
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_encrypt(args)
+        assert exc_info.value.code == EXIT_INPUT_ERROR
+
+        captured = capsys.readouterr()
+        assert "Cannot specify both" in captured.err
+
+    def test_decrypt_vault_and_key_file_mutual_exclusion(self, capsys):
+        """decrypt with both --vault and --key-file should error."""
+        import secure_string_cipher.cli_args as cli_args
+
+        cli_args._quiet_mode = True
+        cli_args._no_color = True
+
+        args = argparse.Namespace(
+            text="gAAAAABh...",
+            file=None,
+            vault="my-key",
+            key_file="/path/to/key.pem",
+            force=False,
+            quiet=True,
+            no_color=True,
+            output=None,
+            restore_filename=True,
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_decrypt(args)
+        assert exc_info.value.code == EXIT_INPUT_ERROR
+
+        captured = capsys.readouterr()
+        assert "Cannot specify both" in captured.err
+
+
+class TestKeyFileEncryption:
+    """Tests for key-file based encryption/decryption."""
+
+    def test_encrypt_text_with_key_file(self, tmp_path, capsys):
+        """encrypt -t with --key-file should produce decryptable ciphertext."""
+        import secure_string_cipher.cli_args as cli_args
+
+        cli_args._quiet_mode = True
+        cli_args._no_color = True
+
+        key_file = tmp_path / "test.key"
+        key_file.write_bytes(b"my-secret-key-data-12345")
+
+        args = argparse.Namespace(
+            text="Secret message for key-file test",
+            file=None,
+            vault=None,
+            key_file=str(key_file),
+            force=False,
+            quiet=True,
+            no_color=True,
+        )
+
+        result = cmd_encrypt(args)
+        assert result == EXIT_SUCCESS
+
+        encrypted = capsys.readouterr().out.strip()
+        assert len(encrypted) > 0
+
+        # Decrypt with same key file
+        decrypt_args = argparse.Namespace(
+            text=encrypted,
+            file=None,
+            vault=None,
+            key_file=str(key_file),
+            force=False,
+            quiet=True,
+            no_color=True,
+            output=None,
+            restore_filename=True,
+        )
+        cmd_decrypt(decrypt_args)
+        decrypted = capsys.readouterr().out.strip()
+
+        assert decrypted == "Secret message for key-file test"
+
+    def test_encrypt_with_key_file_wrong_key(self, tmp_path, capsys):
+        """decrypt with wrong key file should fail."""
+        import secure_string_cipher.cli_args as cli_args
+
+        cli_args._quiet_mode = True
+        cli_args._no_color = True
+
+        key_file = tmp_path / "test.key"
+        key_file.write_bytes(b"correct-key-data")
+        wrong_key_file = tmp_path / "wrong.key"
+        wrong_key_file.write_bytes(b"wrong-key-data")
+
+        # Encrypt with correct key
+        args = argparse.Namespace(
+            text="Secret message",
+            file=None,
+            vault=None,
+            key_file=str(key_file),
+            force=False,
+            quiet=True,
+            no_color=True,
+        )
+        cmd_encrypt(args)
+        encrypted = capsys.readouterr().out.strip()
+
+        # Decrypt with wrong key
+        decrypt_args = argparse.Namespace(
+            text=encrypted,
+            file=None,
+            vault=None,
+            key_file=str(wrong_key_file),
+            force=False,
+            quiet=True,
+            no_color=True,
+            output=None,
+            restore_filename=True,
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_decrypt(decrypt_args)
+        assert exc_info.value.code == EXIT_AUTH_ERROR
+
+    def test_key_file_not_found(self, tmp_path, capsys):
+        """--key-file with non-existent file should error."""
+        import secure_string_cipher.cli_args as cli_args
+
+        cli_args._quiet_mode = True
+        cli_args._no_color = True
+
+        args = argparse.Namespace(
+            text="test",
+            file=None,
+            vault=None,
+            key_file=str(tmp_path / "nonexistent.key"),
+            force=False,
+            quiet=True,
+            no_color=True,
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_encrypt(args)
+        assert exc_info.value.code == EXIT_FILE_ERROR
+
+        captured = capsys.readouterr()
+        assert "Key file not found" in captured.err
+
+    def test_key_file_empty(self, tmp_path, capsys):
+        """--key-file with empty file should error."""
+        import secure_string_cipher.cli_args as cli_args
+
+        cli_args._quiet_mode = True
+        cli_args._no_color = True
+
+        key_file = tmp_path / "empty.key"
+        key_file.write_text("")
+
+        args = argparse.Namespace(
+            text="test",
+            file=None,
+            vault=None,
+            key_file=str(key_file),
+            force=False,
+            quiet=True,
+            no_color=True,
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_encrypt(args)
+        assert exc_info.value.code == EXIT_FILE_ERROR
+
+        captured = capsys.readouterr()
+        assert "Key file is empty" in captured.err
+
+    def test_key_file_deterministic(self, tmp_path, capsys):
+        """Same key file should produce same encryption key (deterministic)."""
+        import secure_string_cipher.cli_args as cli_args
+
+        cli_args._quiet_mode = True
+        cli_args._no_color = True
+
+        key_file = tmp_path / "test.key"
+        key_file.write_bytes(b"deterministic-test-key")
+
+        # First encryption
+        args1 = argparse.Namespace(
+            text="Same message",
+            file=None,
+            vault=None,
+            key_file=str(key_file),
+            force=False,
+            quiet=True,
+            no_color=True,
+        )
+        cmd_encrypt(args1)
+        encrypted1 = capsys.readouterr().out.strip()
+
+        # Second encryption with same key file
+        args2 = argparse.Namespace(
+            text="Same message",
+            file=None,
+            vault=None,
+            key_file=str(key_file),
+            force=False,
+            quiet=True,
+            no_color=True,
+        )
+        cmd_encrypt(args2)
+        encrypted2 = capsys.readouterr().out.strip()
+
+        # Same key file + same plaintext should produce different ciphertext
+        # due to random salt/nonce, but both should decrypt with same key
+        assert encrypted1 != encrypted2  # Randomized encryption
+
+        # Both should decrypt successfully
+        for encrypted in [encrypted1, encrypted2]:
+            decrypt_args = argparse.Namespace(
+                text=encrypted,
+                file=None,
+                vault=None,
+                key_file=str(key_file),
+                force=False,
+                quiet=True,
+                no_color=True,
+                output=None,
+                restore_filename=True,
+            )
+            cmd_decrypt(decrypt_args)
+            decrypted = capsys.readouterr().out.strip()
+            assert decrypted == "Same message"
+
+
 # =============================================================================
 # Output Function Tests
 # =============================================================================

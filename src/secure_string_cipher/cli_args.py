@@ -201,6 +201,33 @@ def _get_password_from_vault(label: str) -> str:
         _exit_error(EXIT_AUTH_ERROR, "Wrong master password.")
 
 
+def _get_password_from_key_file(key_file_path: str) -> str:
+    """Derive deterministic passphrase from a key file.
+
+    Uses SHA-256 hash of the key file content as the passphrase.
+    This ensures consistent key derivation regardless of file format.
+
+    Args:
+        key_file_path: Path to the key file
+
+    Returns:
+        Hex-encoded SHA-256 hash of key file content
+
+    Raises:
+        CryptoError: If key file cannot be read or is invalid
+    """
+    from hashlib import sha256
+
+    key_file = Path(key_file_path)
+    _ensure_no_symlink(key_file, "key file")
+    if not key_file.exists():
+        _exit_error(EXIT_FILE_ERROR, f"Key file not found: {key_file_path}")
+    key_data = key_file.read_bytes()
+    if len(key_data) == 0:
+        _exit_error(EXIT_FILE_ERROR, f"Key file is empty: {key_file_path}")
+    return sha256(key_data).hexdigest()
+
+
 def _load_file_metadata(input_path: Path) -> FileMetadata:
     """Load unencrypted metadata from an encrypted file.
 
@@ -291,9 +318,16 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
     if args.text and args.file:
         _exit_error(EXIT_INPUT_ERROR, "Cannot specify both --text and --file.")
 
+    # Validate mutually exclusive options
+    if args.vault and args.key_file:
+        _exit_error(
+            EXIT_INPUT_ERROR,
+            "Cannot specify both --vault and --key-file. Choose one.",
+        )
+
     # Validate file existence and overwrite BEFORE prompting for password
     output_path = None
-    if args.file:
+    if args.file and args.file != "-":
         filepath = Path(args.file)
 
         if not filepath.exists():
@@ -308,9 +342,17 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
                 f"{output_path} already exists.\nRun again with --force to overwrite.",
             )
 
-    # Get password (after validation)
+    # Get password/key
+    password: str
     if args.vault:
         password = _get_password_from_vault(args.vault)
+    elif getattr(args, "key_file", None):
+        try:
+            password = _get_password_from_key_file(args.key_file)
+        except CryptoError:
+            raise
+        except Exception as e:
+            _exit_error(EXIT_FILE_ERROR, f"Key file error: {e}")
     else:
         password = _prompt_password("Enter password: ", confirm=True)
 
@@ -330,7 +372,6 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
 
         # Handle stdin/stdout streaming
         if filepath == "-":
-            # Read from stdin, encrypt, write to stdout
             try:
                 data = sys.stdin.buffer.read()
                 ciphertext = encrypt_text(
@@ -347,41 +388,7 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
         filepath_obj = Path(filepath)
         output_path = filepath_obj.with_suffix(filepath_obj.suffix + ".enc")
 
-        # Check overwrite
-        if output_path.exists() and not args.force:
-            _exit_error(
-                EXIT_FILE_ERROR,
-                f"{output_path} already exists.\nRun again with --force to overwrite.",
-            )
-
-    # Get password (after validation)
-    if args.vault:
-        password = _get_password_from_vault(args.vault)
-    else:
-        password = _prompt_password("Enter password: ", confirm=True)
-
-    # Encrypt text
-    if args.text:
-        try:
-            ciphertext = encrypt_text(args.text, password)
-            print(ciphertext)
-            _print_info("✓ Encrypted successfully")
-            return EXIT_SUCCESS
-        except CryptoError as e:
-            _exit_error(EXIT_AUTH_ERROR, f"Encryption failed: {e}")
-
-    # Encrypt file
-    if args.file:
-        filepath = args.file
-
-        # Already handled stdin case above
-        if filepath == "-":
-            return EXIT_SUCCESS
-
-        filepath_obj = Path(filepath)
-        output_path = filepath_obj.with_suffix(filepath_obj.suffix + ".enc")
-
-        # Remove file for overwrite (core.py would prompt otherwise)
+        # Remove file for overwrite
         if output_path.exists() and args.force:
             output_path.unlink()
 
@@ -413,6 +420,13 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
     if args.text and args.file:
         _exit_error(EXIT_INPUT_ERROR, "Cannot specify both --text and --file.")
 
+    # Validate mutually exclusive options
+    if args.vault and args.key_file:
+        _exit_error(
+            EXIT_INPUT_ERROR,
+            "Cannot specify both --vault and --key-file. Choose one.",
+        )
+
     # Validate file existence and overwrite BEFORE prompting for password
     output_arg = getattr(args, "output", None)
     restore_filename = getattr(args, "restore_filename", True)
@@ -440,9 +454,17 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
                 f"{output_path} already exists.\nRun again with --force to overwrite.",
             )
 
-    # Get password (after validation)
+    # Get password/key
+    password: str
     if args.vault:
         password = _get_password_from_vault(args.vault)
+    elif getattr(args, "key_file", None):
+        try:
+            password = _get_password_from_key_file(args.key_file)
+        except CryptoError:
+            raise
+        except Exception as e:
+            _exit_error(EXIT_FILE_ERROR, f"Key file error: {e}")
     else:
         password = _prompt_password("Enter password: ", confirm=False)
 
@@ -501,48 +523,14 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
             _exit_error(EXIT_FILE_ERROR, f"File error: {e}")
 
         # Check overwrite
-        if output_path.exists() and not args.force:
-            _exit_error(
-                EXIT_FILE_ERROR,
-                f"{output_path} already exists.\nRun again with --force to overwrite.",
-            )
-
-    # Get password (after validation)
-    if args.vault:
-        password = _get_password_from_vault(args.vault)
-    else:
-        password = _prompt_password("Enter password: ", confirm=False)
-
-    # Decrypt text
-    if args.text:
-        # Rate limit text decryption attempts
-        allowed, wait = _cli_limiter.check_rate_limit("decrypt_text", "")
-        if not allowed:
-            _exit_error(
-                EXIT_AUTH_ERROR,
-                f"Too many failed attempts. Please wait {wait:.0f} seconds.",
-            )
-        try:
-            plaintext = decrypt_text(args.text, password)
-            _cli_limiter.record_attempt("decrypt_text", "", success=True)
-            print(plaintext)
-            _print_info("✓ Decrypted successfully")
-            return EXIT_SUCCESS
-        except CryptoError:
-            _cli_limiter.record_attempt("decrypt_text", "", success=False)
-            _exit_error(
-                EXIT_AUTH_ERROR, "Decryption failed. Wrong password or corrupted data."
-            )
-
-    # Decrypt file
-    if args.file:
-        filepath = args.file
-
-        # Already handled stdin case above
-        if filepath == "-":
-            return EXIT_SUCCESS
-
-        filepath_obj = Path(filepath)
+        if output_path.exists():
+            if not args.force:
+                _exit_error(
+                    EXIT_FILE_ERROR,
+                    f"{output_path} already exists.\nRun again with --force to overwrite.",
+                )
+            # Remove existing file for overwrite
+            output_path.unlink()
 
         try:
             actual_output, _ = decrypt_file(
@@ -867,6 +855,11 @@ Examples:
         help="Use password from vault",
     )
     encrypt_parser.add_argument(
+        "--key-file",
+        metavar="PATH",
+        help="Use key file for encryption (deterministic key derivation)",
+    )
+    encrypt_parser.add_argument(
         "--force",
         action="store_true",
         help="Overwrite existing output file",
@@ -914,6 +907,11 @@ Examples:
         "--vault",
         metavar="LABEL",
         help="Use password from vault",
+    )
+    decrypt_parser.add_argument(
+        "--key-file",
+        metavar="PATH",
+        help="Use key file for decryption (deterministic key derivation)",
     )
     decrypt_parser.add_argument(
         "--force",

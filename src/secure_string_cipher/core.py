@@ -78,6 +78,7 @@ __all__ = [
     "derive_key",
     "compute_key_commitment",
     "verify_key_commitment",
+    "generate_key_pair",
     "encrypt_text",
     "decrypt_text",
     "encrypt_file",
@@ -748,3 +749,111 @@ def decrypt_file(
         raise
     except Exception as e:
         raise CryptoError(f"Decryption failed: {e}") from e
+
+
+# =============================================================================
+# Key File Support
+# =============================================================================
+
+
+def derive_key_from_key_file(key_file_path: str | Path, salt: bytes) -> bytes:
+    """
+    Derive an encryption key from a key file using Argon2id.
+
+    The key file can be any file (PEM public key, SSH key, or random data).
+    Its content is hashed and used as the passphrase for Argon2id.
+
+    Args:
+        key_file_path: Path to the key file
+        salt: Random salt for key derivation
+
+    Returns:
+        32-byte key suitable for AES-256
+
+    Raises:
+        CryptoError: If key file cannot be read or key derivation fails
+    """
+    try:
+        key_file = Path(key_file_path)
+        if not key_file.exists():
+            raise CryptoError(f"Key file not found: {key_file_path}")
+        if not key_file.is_file():
+            raise CryptoError(f"Key file is not a regular file: {key_file_path}")
+
+        # Read key file content
+        key_data = key_file.read_bytes()
+        if len(key_data) == 0:
+            raise CryptoError(f"Key file is empty: {key_file_path}")
+
+        # Use SHA-256 of key file as the "passphrase" for Argon2id
+        # This ensures consistent key derivation regardless of file format
+        from hashlib import sha256
+
+        key_hash = sha256(key_data).hexdigest()
+
+        return derive_key(key_hash, salt)
+    except CryptoError:
+        raise
+    except Exception as e:
+        raise CryptoError(f"Key file processing failed: {e}") from e
+
+
+def generate_key_pair(
+    private_key_path: str | Path, public_key_path: str | Path | None = None
+) -> None:
+    """
+    Generate an RSA key pair for recipient-based encryption.
+
+    This is a convenience function for creating key files that can be used
+    with the recipient/key-file encryption workflow.
+
+    Args:
+        private_key_path: Path where private key will be saved
+        public_key_path: Path where public key will be saved (defaults to private_key_path + '.pub')
+
+    Raises:
+        CryptoError: If key generation or file operations fail
+    """
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        private_path = Path(private_key_path)
+        if public_key_path is None:
+            public_path = Path(str(private_path) + ".pub")
+        else:
+            public_path = Path(public_key_path)
+
+        # Generate private key
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+        )
+
+        # Serialize private key (PKCS8, no encryption for simplicity)
+        private_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+
+        # Serialize public key
+        public_key = private_key.public_key()
+        public_pem = public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+
+        # Write files
+        private_path.write_bytes(private_pem)
+        private_path.chmod(0o600)
+        public_path.write_bytes(public_pem)
+        public_path.chmod(0o644)
+
+    except ImportError as err:
+        raise CryptoError(
+            "Key pair generation requires cryptography library. "
+            "Install with: pip install cryptography"
+        ) from err
+    except Exception as e:
+        raise CryptoError(f"Key pair generation failed: {e}") from e
