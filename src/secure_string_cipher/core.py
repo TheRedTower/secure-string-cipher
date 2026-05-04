@@ -867,7 +867,10 @@ def generate_key_pair(
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
         )
 
-        def _secure_write(path: Path, data: bytes, mode: int) -> None:
+        def _write_key_file_securely(path: Path, data: bytes, mode: int) -> None:
+            if path.is_symlink():
+                raise CryptoError(f"Refusing to use symlinked key output path: {path}")
+
             flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
             if hasattr(os, "O_NOFOLLOW"):
                 flags |= os.O_NOFOLLOW
@@ -878,7 +881,10 @@ def generate_key_pair(
                 while view:
                     written = os.write(fd, view)
                     if written <= 0:
-                        raise CryptoError(f"Failed writing key file: {path}")
+                        raise CryptoError(
+                            f"Failed writing key file: {path} "
+                            f"(remaining bytes: {len(view)})"
+                        )
                     view = view[written:]
                 os.fsync(fd)
             finally:
@@ -887,8 +893,8 @@ def generate_key_pair(
             os.chmod(path, mode)
 
         # Write files with secure open flags (where supported)
-        _secure_write(private_path, private_pem, 0o600)
-        _secure_write(public_path, public_pem, 0o644)
+        _write_key_file_securely(private_path, private_pem, 0o600)
+        _write_key_file_securely(public_path, public_pem, 0o644)
 
     except ImportError as err:
         raise CryptoError(
