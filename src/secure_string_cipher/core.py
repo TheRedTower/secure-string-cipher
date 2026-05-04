@@ -877,7 +877,13 @@ def generate_key_pair(
             if hasattr(os, "O_NOFOLLOW"):
                 flags |= os.O_NOFOLLOW
 
-            fd = os.open(path, flags, mode)
+            try:
+                fd = os.open(path, flags, mode)
+            except OSError as exc:
+                raise CryptoError(
+                    f"Failed to open key file for secure write: {path}"
+                ) from exc
+
             try:
                 if hasattr(os, "fchmod"):
                     os.fchmod(fd, mode)
