@@ -868,6 +868,8 @@ def generate_key_pair(
         )
 
         def _write_key_file_securely(path: Path, data: bytes, mode: int) -> None:
+            # Re-check immediately before open to reduce TOCTOU window and
+            # enforce no-symlink behavior even when O_NOFOLLOW is unavailable.
             if path.is_symlink():
                 raise CryptoError(f"Refusing to use symlinked key output path: {path}")
 
@@ -885,7 +887,7 @@ def generate_key_pair(
                     written = os.write(fd, view)
                     if written == 0:
                         raise CryptoError(
-                            f"Failed writing key file: {path} "
+                            f"Write operation returned 0 bytes for key file: {path} "
                             f"(remaining bytes: {len(view)})"
                         )
                     view = view[written:]
