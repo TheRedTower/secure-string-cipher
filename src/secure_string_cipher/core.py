@@ -877,10 +877,13 @@ def generate_key_pair(
 
             fd = os.open(path, flags, mode)
             try:
+                if hasattr(os, "fchmod"):
+                    os.fchmod(fd, mode)
+
                 view = memoryview(data)
                 while view:
                     written = os.write(fd, view)
-                    if written <= 0:
+                    if written == 0:
                         raise CryptoError(
                             f"Failed writing key file: {path} "
                             f"(remaining bytes: {len(view)})"
@@ -890,7 +893,8 @@ def generate_key_pair(
             finally:
                 os.close(fd)
 
-            os.chmod(path, mode)
+            if not hasattr(os, "fchmod"):
+                os.chmod(path, mode)
 
         # Write files with secure open flags (where supported)
         _write_key_file_securely(private_path, private_pem, 0o600)
