@@ -178,26 +178,28 @@ Derive a cryptographic key from a passphrase using Argon2id.
 ```python
 from secure_string_cipher import derive_key
 
-key, salt = derive_key(passphrase: str, salt: bytes | None = None) -> tuple[bytes, bytes]
+key = derive_key(passphrase: str, salt: bytes) -> bytes
 ```
 
 **Parameters:**
 
 - `passphrase` (str): Password to derive key from
-- `salt` (bytes, optional): 16-byte salt. If None, generates random salt.
+- `salt` (bytes): 16-byte salt for key derivation
 
-**Returns:** Tuple of (32-byte key, 16-byte salt)
+**Returns:** 32-byte key suitable for AES-256
 
 **Example:**
 
 ```python
 from secure_string_cipher import derive_key
+import os
 
 # Generate new key with random salt
-key, salt = derive_key("MySecurePass123!")
+salt = os.urandom(16)
+key = derive_key("MySecurePass123!", salt)
 
 # Re-derive same key with stored salt
-key2, _ = derive_key("MySecurePass123!", salt=salt)
+key2 = derive_key("MySecurePass123!", salt)
 assert key == key2
 ```
 
@@ -239,15 +241,15 @@ This ensures consistent key derivation regardless of file format.
 ```python
 from secure_string_cipher import derive_key_from_key_file
 
-key, salt = derive_key_from_key_file(key_file_path: str | Path, salt: bytes | None = None) -> tuple[bytes, bytes]
+key = derive_key_from_key_file(key_file_path: str | Path, salt: bytes) -> bytes
 ```
 
 **Parameters:**
 
 - `key_file_path` (str | Path): Path to the key file
-- `salt` (bytes, optional): 16-byte salt. If None, generates random salt.
+- `salt` (bytes): 16-byte salt for key derivation
 
-**Returns:** Tuple of (32-byte key, 16-byte salt)
+**Returns:** 32-byte key suitable for AES-256
 
 **Raises:** `CryptoError` if key file cannot be read or is empty
 
@@ -257,12 +259,14 @@ key, salt = derive_key_from_key_file(key_file_path: str | Path, salt: bytes | No
 
 ```python
 from secure_string_cipher import derive_key_from_key_file
+import os
 
 # Derive key from an SSH private key
-key, salt = derive_key_from_key_file("/home/user/.ssh/id_rsa")
+salt = os.urandom(16)
+key = derive_key_from_key_file("/home/user/.ssh/id_rsa", salt)
 
 # Re-derive same key with stored salt
-key2, _ = derive_key_from_key_file("/home/user/.ssh/id_rsa", salt=salt)
+key2 = derive_key_from_key_file("/home/user/.ssh/id_rsa", salt)
 assert key == key2
 ```
 
@@ -452,14 +456,14 @@ Validate password meets security requirements.
 ```python
 from secure_string_cipher import check_password_strength
 
-is_strong, issues = check_password_strength(password: str) -> tuple[bool, list[str]]
+is_strong, message = check_password_strength(password: str) -> tuple[bool, str]
 ```
 
 **Parameters:**
 
 - `password` (str): Password to validate
 
-**Returns:** Tuple of (is_strong: bool, issues: list of problem descriptions)
+**Returns:** Tuple of (is_strong: bool, message: str with details)
 
 **Requirements:**
 
@@ -474,12 +478,12 @@ is_strong, issues = check_password_strength(password: str) -> tuple[bool, list[s
 ```python
 from secure_string_cipher import check_password_strength
 
-is_strong, issues = check_password_strength("weak")
+is_strong, message = check_password_strength("weak")
 if not is_strong:
-    print(f"Password problems: {issues}")
-    # ["Too short (minimum 12 characters)", "Missing uppercase", ...]
+    print(f"Password problems: {message}")
+    # "Too short (minimum 12 characters), missing uppercase, ..."
 
-is_strong, issues = check_password_strength("MySecurePass123!")
+is_strong, message = check_password_strength("MySecurePass123!")
 print(is_strong)  # True
 ```
 
@@ -487,12 +491,12 @@ print(is_strong)  # True
 
 ### constant_time_compare
 
-Compare two strings in constant time to prevent timing attacks.
+Compare two byte strings in constant time to prevent timing attacks.
 
 ```python
 from secure_string_cipher import constant_time_compare
 
-is_equal = constant_time_compare(a: str, b: str) -> bool
+is_equal = constant_time_compare(a: bytes, b: bytes) -> bool
 ```
 
 **Example:**
@@ -501,7 +505,7 @@ is_equal = constant_time_compare(a: str, b: str) -> bool
 from secure_string_cipher import constant_time_compare
 
 # Use this instead of == for security-sensitive comparisons
-if constant_time_compare(user_input, stored_password_hash):
+if constant_time_compare(user_hash, stored_hash):
     print("Authenticated")
 ```
 
@@ -514,19 +518,18 @@ Add random delay to prevent timing analysis.
 ```python
 from secure_string_cipher import add_timing_jitter
 
-add_timing_jitter(min_ms: float = 1.0, max_ms: float = 10.0) -> None
+add_timing_jitter() -> None
 ```
+
+Adds between 0-10ms of random delay.
 
 **Example:**
 
 ```python
 from secure_string_cipher import add_timing_jitter
 
-# Add random 1-10ms delay
+# Add random 0-10ms delay
 add_timing_jitter()
-
-# Custom range
-add_timing_jitter(min_ms=5.0, max_ms=50.0)
 ```
 
 ---
@@ -825,7 +828,7 @@ Securely delete a file by overwriting with random data.
 ```python
 from secure_string_cipher import secure_overwrite
 
-secure_overwrite(filepath: str, passes: int = 3) -> None
+secure_overwrite(filepath: str) -> None
 ```
 
 **Example:**
@@ -834,7 +837,7 @@ secure_overwrite(filepath: str, passes: int = 3) -> None
 from secure_string_cipher import secure_overwrite
 
 # Securely delete sensitive file
-secure_overwrite("plaintext_backup.txt", passes=3)
+secure_overwrite("plaintext_backup.txt")
 ```
 
 ---

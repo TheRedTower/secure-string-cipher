@@ -22,8 +22,10 @@ from .core import (
     decrypt_file,
     decrypt_text,
     derive_key,
+    derive_key_from_key_file,
     encrypt_file,
     encrypt_text,
+    generate_key_pair,
     verify_key_commitment,
 )
 from .passphrase_generator import generate_passphrase
@@ -52,6 +54,8 @@ __all__ = [
     "encrypt_file",
     "decrypt_file",
     "derive_key",
+    "derive_key_from_key_file",
+    "generate_key_pair",
     "StreamProcessor",
     "FileMetadata",
     # Key commitment
