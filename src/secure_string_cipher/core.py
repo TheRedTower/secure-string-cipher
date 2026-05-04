@@ -835,9 +835,7 @@ def generate_key_pair(
         _ensure_no_symlink(public_path.parent, "public key parent")
 
         if private_path.resolve(strict=False) == public_path.resolve(strict=False):
-            raise CryptoError(
-                "Private and public key paths must be different files"
-            )
+            raise CryptoError("Private and public key paths must be different files")
 
         private_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         public_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
