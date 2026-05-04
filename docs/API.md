@@ -228,6 +228,87 @@ assert verify_key_commitment(key, salt, commitment)
 
 ---
 
+### derive_key_from_key_file
+
+Derive a cryptographic key from a key file using Argon2id.
+
+The key file can be any file (PEM public key, SSH key, or random data).
+Its content is hashed with SHA-256 and the result is used as the passphrase for Argon2id.
+This ensures consistent key derivation regardless of file format.
+
+```python
+from secure_string_cipher import derive_key_from_key_file
+
+key, salt = derive_key_from_key_file(key_file_path: str | Path, salt: bytes | None = None) -> tuple[bytes, bytes]
+```
+
+**Parameters:**
+
+- `key_file_path` (str | Path): Path to the key file
+- `salt` (bytes, optional): 16-byte salt. If None, generates random salt.
+
+**Returns:** Tuple of (32-byte key, 16-byte salt)
+
+**Raises:** `CryptoError` if key file cannot be read or is empty
+
+**Security:** The key file is validated - must exist, be a regular file (not a symlink), and be non-empty.
+
+**Example:**
+
+```python
+from secure_string_cipher import derive_key_from_key_file
+
+# Derive key from an SSH private key
+key, salt = derive_key_from_key_file("/home/user/.ssh/id_rsa")
+
+# Re-derive same key with stored salt
+key2, _ = derive_key_from_key_file("/home/user/.ssh/id_rsa", salt=salt)
+assert key == key2
+```
+
+---
+
+### generate_key_pair
+
+Generate an RSA key pair for recipient-based encryption workflows.
+
+```python
+from secure_string_cipher import generate_key_pair
+
+generate_key_pair(
+    private_key_path: str | Path,
+    public_key_path: str | Path | None = None
+) -> None
+```
+
+**Parameters:**
+
+- `private_key_path` (str | Path): Path where private key will be saved (PEM format)
+- `public_key_path` (str | Path, optional): Path where public key will be saved. Defaults to `private_key_path + ".pub"`
+
+**Returns:** None (writes key files to disk)
+
+**Raises:** `CryptoError` if key generation or file operations fail
+
+**Security:** Private key is saved with `0o600` permissions (owner read/write only). Public key is saved with `0o644` permissions.
+
+**Example:**
+
+```python
+from secure_string_cipher import generate_key_pair
+
+# Generate RSA key pair
+generate_key_pair("/path/to/private_key.pem", "/path/to/public_key.pem")
+# Private key: /path/to/private_key.pem (chmod 600)
+# Public key:  /path/to/public_key.pem  (chmod 644)
+
+# Or let it auto-generate the public key filename
+generate_key_pair("/path/to/private_key.pem")
+# Public key will be saved to: /path/to/private_key.pem.pub
+```
+
+**Note:** This function requires the `cryptography` library for RSA key generation.
+
 ## Passphrase Generation
 
 ### generate_passphrase

@@ -12,6 +12,7 @@ A security-focused AES-256-GCM encryption CLI tool with passphrase vault and mod
 - **AES-256-GCM encryption** for text and files with authenticated encryption
 - **Argon2id key derivation** – memory-hard, GPU/ASIC resistant
 - **Key commitment scheme** – prevents partitioning oracle attacks
+- **Key-file support** – use any file as encryption key via `--key-file` (SHA-256 → Argon2id)
 - **Hidden password input** – passwords hidden in interactive terminals, visible for scripts/tests
 - **Inline passphrase generation** – type `/gen` at any password prompt
 - **Encrypted passphrase vault** with HMAC-SHA256 integrity verification
@@ -66,6 +67,9 @@ ssc encrypt -t "Secret message"
 # Encrypt a file
 ssc encrypt -f document.pdf
 
+# Encrypt using a key file
+ssc encrypt -f document.pdf --key-file /path/to/key.pem
+
 # Decrypt a file (restores original filename by default)
 ssc decrypt -f document.pdf.enc
 
@@ -77,6 +81,9 @@ ssc decrypt -f document.pdf.enc --no-restore-filename
 
 # Decrypt using a vault password
 ssc decrypt -f document.pdf.enc --vault my-server
+
+# Decrypt using a key file
+ssc decrypt -f document.pdf.enc --key-file /path/to/key.pem
 
 # Store a password in vault
 ssc store my-server

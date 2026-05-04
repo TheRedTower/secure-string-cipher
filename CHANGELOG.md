@@ -33,7 +33,6 @@
 - 632 tests passing (was 57, added 9 new key-file tests)
 - All CI checks passing (ruff, mypy, format, detect-secrets)
 
-
 ## [1.0.33] - 2026-04-29
 
 ### Security
