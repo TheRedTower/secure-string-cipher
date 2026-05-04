@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.1.0] - 2026-05-04
+
+### Added
+
+- **Key-file support** for non-interactive encryption/decryption via `--key-file` option
+  - Derive deterministic passphrase from any file using SHA-256 → Argon2id → AES-256-GCM
+  - Enables automation, scripting, and CI/CD integration
+  - Mutual exclusion with `--vault` option enforced
+  - Symlink protection for key files
+- `generate_key_pair()` function in `core.py` for RSA key pair generation
+- Comprehensive unit tests for key-file functionality (9 new tests)
+
+### Fixed
+
+- File overwrite validation now checks **before** password prompt (was prompting then failing)
+- stdin handling in encryption (removed duplicate password prompt)
+- Dead code cleanup (removed unused exports)
+
+### Security
+
+- Dependency audit completed — zero vulnerabilities in production dependencies
+- All cryptographic dependencies (cryptography, argon2-cffi, pynacl) fully patched
+
+### Documentation
+
+- Added `AUDITS/DEPENDENCY_AUDIT.md` — comprehensive supply-chain security audit
+- All markdown files pass linting (MD022, MD032, MD060, MD012)
+
+### Changed
+
+- 632 tests passing (was 57, added 9 new key-file tests)
+- All CI checks passing (ruff, mypy, format, detect-secrets)
+
+
 ## [1.0.33] - 2026-04-29
 
 ### Security
