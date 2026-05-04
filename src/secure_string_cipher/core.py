@@ -893,8 +893,7 @@ def generate_key_pair(
                     written = os.write(fd, view)
                     if written == 0:
                         raise CryptoError(
-                            f"Write operation returned 0 bytes for key file: {path} "
-                            f"(remaining bytes: {len(view)})"
+                            f"Failed to write key file completely: {path}"
                         )
                     view = view[written:]
                 os.fsync(fd)
