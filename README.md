@@ -21,6 +21,16 @@ A security-focused AES-256-GCM encryption CLI tool with passphrase vault and mod
 - Chunked file streaming (256 KiB) for low memory usage
 - Automatic vault backups (last 5 kept)
 
+## Documentation
+
+- [API Reference](docs/API.md) — Complete programmatic API documentation
+- [Developer Guide](DEVELOPER.md) — Development workflow and tooling
+- [Contributing](CONTRIBUTING.md) — Contribution guidelines
+- [Security Policy](.github/SECURITY.md) — Supported versions and vulnerability reporting
+- [Cryptographic Design](.github/CRYPTOGRAPHY.md) — Design document for security auditors
+- [Dependency Audit](AUDITS/DEPENDENCY_AUDIT.md) — Supply-chain security audit report
+- [Changelog](CHANGELOG.md) — Release history
+
 ## Quick Start
 
 ```bash
@@ -238,7 +248,7 @@ from secure_string_cipher import encrypt_file, decrypt_file
 encrypt_file("document.pdf", "document.pdf.enc", "MySecurePass123!")
 
 # Decrypt it (explicit output path)
-decrypt_file("document.pdf.enc", "document.pdf", "MySecurePass123!")
+output_path, metadata = decrypt_file("document.pdf.enc", "document.pdf", "MySecurePass123!")
 ```
 
 > File operations refuse symlinked inputs/outputs (except system-managed paths like /var) to prevent path hijacking.

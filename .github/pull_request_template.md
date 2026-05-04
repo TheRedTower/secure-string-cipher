@@ -18,7 +18,7 @@
 
 ## Security
 <!-- If your changes affect security, answer these -->
-- Have you reviewed the [security policy](../security/policy)?
+- Have you reviewed the [security policy](../SECURITY.md)?
 - Does this add new cryptographic operations?
 - Any security implications?
 - Did you add appropriate tests?

@@ -2,6 +2,46 @@
 
 Complete API documentation for secure-string-cipher.
 
+## Table of Contents
+
+- [Core Encryption](#core-encryption)
+  - [encrypt_text](#encrypt_text)
+  - [decrypt_text](#decrypt_text)
+  - [encrypt_file](#encrypt_file)
+  - [decrypt_file](#decrypt_file)
+- [Key Derivation](#key-derivation)
+  - [derive_key](#derive_key)
+  - [compute_key_commitment / verify_key_commitment](#compute_key_commitment--verify_key_commitment)
+  - [derive_key_from_key_file](#derive_key_from_key_file)
+  - [generate_key_pair](#generate_key_pair)
+- [Passphrase Generation](#passphrase-generation)
+  - [generate_passphrase](#generate_passphrase)
+- [Passphrase Vault](#passphrase-vault)
+  - [PassphraseVault](#passphrasevault)
+- [Security Utilities](#security-utilities)
+  - [check_password_strength](#check_password_strength)
+  - [constant_time_compare](#constant_time_compare)
+  - [add_timing_jitter](#add_timing_jitter)
+- [Secure Memory](#secure-memory)
+  - [SecureString / SecureBytes](#securestring--securebytes)
+  - [has_secure_memory](#has_secure_memory)
+  - [secure_wipe](#secure_wipe)
+- [Rate Limiting](#rate-limiting)
+  - [RateLimiter](#ratelimiter)
+  - [rate_limited](#rate_limited)
+- [Audit Logging](#audit-logging)
+  - [AuditLogger](#auditlogger)
+  - [Convenience Functions](#convenience-functions)
+- [Exceptions](#exceptions)
+  - [CryptoError](#cryptoerror)
+  - [SecurityError](#securityerror)
+  - [RateLimitError](#ratelimiterror)
+- [Utility Functions](#utility-functions)
+  - [colorize](#colorize)
+  - [ProgressBar](#progressbar)
+  - [secure_overwrite](#secure_overwrite)
+- [Configuration Constants](#configuration-constants)
+
 ## Core Encryption
 
 ### encrypt_text
