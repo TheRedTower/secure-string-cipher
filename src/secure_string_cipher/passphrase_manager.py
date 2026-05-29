@@ -133,8 +133,7 @@ class PassphraseVault:
         """
         config_path = cls._backend_config_path()
         config_path.parent.mkdir(exist_ok=True, mode=0o700)
-        config_path.write_text(backend + "\n")
-        os.chmod(config_path, 0o600)
+        secure_atomic_write(config_path, (backend + "\n").encode("utf-8"), mode=0o600)
 
     def _compute_hmac(self, data: str, master_password: str, salt: bytes) -> str:
         """Compute HMAC for integrity verification using Argon2id-derived key.
