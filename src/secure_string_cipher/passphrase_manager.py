@@ -31,7 +31,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from .core import decrypt_text, derive_key, encrypt_text
+from .core import _ensure_no_symlink, decrypt_text, derive_key, encrypt_text
 from .security import secure_atomic_write
 
 # Vault format constants
@@ -120,7 +120,7 @@ class PassphraseVault:
                 value = config_path.read_text().strip()
                 if value in (BACKEND_FILE, BACKEND_KEYCHAIN):
                     return value
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             pass
         return BACKEND_FILE
 
@@ -442,6 +442,24 @@ class PassphraseVault:
         if not self.vault_path.exists():
             raise ValueError("No vault file found.")
         return self.vault_path.read_text()
+
+    def import_raw(self, contents: str) -> None:
+        """Import raw vault contents into the active backend."""
+        if self._backend == BACKEND_KEYCHAIN:
+            assert self._keychain is not None
+            self._keychain.store_vault(contents)
+            return
+        _ensure_no_symlink(self.vault_path, "vault file")
+        self.vault_path.parent.mkdir(parents=True, exist_ok=True)
+        secure_atomic_write(self.vault_path, contents.encode("utf-8"), mode=0o600)
+
+    def reset_vault(self) -> None:
+        """Delete the vault from the active backend."""
+        if self._backend == BACKEND_KEYCHAIN:
+            assert self._keychain is not None
+            self._keychain.delete_vault()
+            return
+        self.vault_path.unlink()
 
     def migrate_to_keychain(self, master_password: str) -> None:
         """Migrate vault data from file backend to keychain.

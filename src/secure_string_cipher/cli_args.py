@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import getpass
-import os
 import sys
 from pathlib import Path
 from typing import NoReturn
@@ -150,7 +149,7 @@ def _get_vault() -> PassphraseVault:
     vault = PassphraseVault()
 
     # Check if vault exists
-    if not vault.vault_path.exists():
+    if not vault.vault_exists():
         print("Vault not initialized. Initialize now? (y/n): ", end="", flush=True)
         response = input().strip().lower()
         if response != "y":
@@ -635,16 +634,14 @@ def cmd_vault_export(args: argparse.Namespace) -> int:
         # Verify master password by listing labels
         vault.list_labels(master)
 
-        # Read raw vault file
-        if vault.vault_path.exists():
-            content = vault.vault_path.read_text()
-            print(content)
-            _print_info("✓ Vault exported (pipe to file to save)")
-            return EXIT_SUCCESS
-        else:
-            _exit_error(EXIT_VAULT_ERROR, "Vault file not found.")
+        content = vault.export_raw()
+        print(content)
+        _print_info("✓ Vault exported (pipe to file to save)")
+        return EXIT_SUCCESS
     except CryptoError:
         _exit_error(EXIT_AUTH_ERROR, "Wrong master password.")
+    except ValueError as e:
+        _exit_error(EXIT_VAULT_ERROR, str(e))
 
 
 def _validate_vault_format(content: str) -> bool:
@@ -676,6 +673,7 @@ def cmd_vault_import(args: argparse.Namespace) -> int:
 
     if not import_path.exists():
         _exit_error(EXIT_FILE_ERROR, f"File not found: {args.file}")
+    _ensure_no_symlink(import_path, "vault import file")
 
     vault = PassphraseVault()
 
@@ -692,19 +690,17 @@ def cmd_vault_import(args: argparse.Namespace) -> int:
         )
 
     # Confirm if vault exists
-    if vault.vault_path.exists():
+    if vault.vault_exists():
         print("Existing vault will be replaced. Continue? (y/n): ", end="", flush=True)
         response = input().strip().lower()
         if response != "y":
             _exit_error(EXIT_INPUT_ERROR, "Import cancelled.")
 
     try:
-        vault.vault_path.parent.mkdir(parents=True, exist_ok=True)
-        vault.vault_path.write_text(content)
-        os.chmod(vault.vault_path, 0o600)
+        vault.import_raw(content)
         _print_info("✓ Vault imported successfully")
         return EXIT_SUCCESS
-    except OSError as e:
+    except (OSError, CryptoError, ValueError) as e:
         _exit_error(EXIT_FILE_ERROR, f"Import failed: {e}")
 
 
@@ -712,7 +708,7 @@ def cmd_vault_reset(args: argparse.Namespace) -> int:
     """Reset (wipe) vault."""
     vault = PassphraseVault()
 
-    if not vault.vault_path.exists():
+    if not vault.vault_exists():
         _exit_error(EXIT_VAULT_ERROR, "Vault does not exist.")
 
     print("⚠️  This will PERMANENTLY DELETE all stored passwords.")
@@ -723,7 +719,7 @@ def cmd_vault_reset(args: argparse.Namespace) -> int:
         _exit_error(EXIT_INPUT_ERROR, "Reset cancelled.")
 
     try:
-        vault.vault_path.unlink()
+        vault.reset_vault()
         _print_info("✓ Vault reset. All passwords deleted.")
         return EXIT_SUCCESS
     except OSError as e:

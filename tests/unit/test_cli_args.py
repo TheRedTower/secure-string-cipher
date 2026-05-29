@@ -20,6 +20,7 @@ from secure_string_cipher.cli_args import (
     cmd_decrypt,
     cmd_encrypt,
     cmd_vault_delete,
+    cmd_vault_export,
     cmd_vault_import,
     cmd_vault_list,
     cmd_vault_reset,
@@ -911,6 +912,26 @@ class TestVaultCommands:
 
     @patch("secure_string_cipher.cli_args._get_vault")
     @patch("secure_string_cipher.cli_args._prompt_master_password")
+    def test_vault_export_reads_active_backend(self, mock_master, mock_vault, capsys):
+        """vault export should use active backend export method."""
+        mock_master.return_value = "MasterPassword123!"
+        mock_vault_instance = MagicMock()
+        mock_vault_instance.export_raw.return_value = (
+            "SSCVAULT\nabcd\n---DATA---\n...\n---HMAC---\n..."
+        )
+        mock_vault.return_value = mock_vault_instance
+
+        args = argparse.Namespace()
+        result = cmd_vault_export(args)
+
+        assert result == EXIT_SUCCESS
+        mock_vault_instance.list_labels.assert_called_once_with("MasterPassword123!")
+        mock_vault_instance.export_raw.assert_called_once()
+        captured = capsys.readouterr()
+        assert "SSCVAULT" in captured.out
+
+    @patch("secure_string_cipher.cli_args._get_vault")
+    @patch("secure_string_cipher.cli_args._prompt_master_password")
     def test_vault_delete_success(self, mock_master, mock_vault, capsys):
         """vault delete should delete entry and show success."""
         import secure_string_cipher.cli_args as cli_args
@@ -994,7 +1015,7 @@ class TestVaultImportReset:
     def test_vault_import_valid_format(self, mock_vault_class, tmp_path):
         """vault import should succeed with valid vault format."""
         mock_vault_instance = MagicMock()
-        mock_vault_instance.vault_path.exists.return_value = False
+        mock_vault_instance.vault_exists.return_value = False
         mock_vault_class.return_value = mock_vault_instance
 
         valid_file = tmp_path / "valid_backup.txt"
@@ -1005,13 +1026,14 @@ class TestVaultImportReset:
         args = argparse.Namespace(file=str(valid_file))
         result = cmd_vault_import(args)
         assert result == EXIT_SUCCESS
+        mock_vault_instance.import_raw.assert_called_once()
 
     @patch("builtins.input", return_value="NOT_RESET")
     @patch("secure_string_cipher.cli_args.PassphraseVault")
     def test_vault_reset_requires_confirmation(self, mock_vault_class, mock_input):
         """vault reset should require typing RESET."""
         mock_vault_instance = MagicMock()
-        mock_vault_instance.vault_path.exists.return_value = True
+        mock_vault_instance.vault_exists.return_value = True
         mock_vault_class.return_value = mock_vault_instance
 
         args = argparse.Namespace()

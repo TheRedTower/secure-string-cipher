@@ -33,6 +33,17 @@ class TestPassphraseVaultInit:
 
         assert vault.backup_dir == backup_dir
 
+    def test_invalid_backend_config_falls_back_to_file(self, tmp_path, monkeypatch):
+        """Invalid backend config encoding should not break vault init."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        config_path = tmp_path / ".secure-cipher" / "backend.conf"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_bytes(b"\xff\xfe")
+
+        vault = PassphraseVault()
+
+        assert vault.backend == "file"
+
 
 class TestPassphraseVaultBackups:
     """Tests for vault backup functionality."""

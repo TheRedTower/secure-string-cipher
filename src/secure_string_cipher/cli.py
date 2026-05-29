@@ -21,7 +21,7 @@ from .core import (
 from .passphrase_generator import generate_passphrase
 from .passphrase_manager import PassphraseVault
 from .rate_limiter import RateLimiter
-from .security import sanitize_filename, secure_atomic_write
+from .security import sanitize_filename
 from .timing_safe import check_password_strength
 from .utils import colorize, secure_overwrite
 
@@ -710,10 +710,7 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
                     out_stream.write("Import cancelled.\n")
                     out_stream.flush()
                     return
-            vault.vault_path.parent.mkdir(parents=True, exist_ok=True)
-            secure_atomic_write(
-                vault.vault_path, content.encode("utf-8"), mode=0o600
-            )
+            vault.import_raw(content)
             out_stream.write(
                 colorize("\n✅ Vault imported successfully!", "green") + "\n"
             )
@@ -737,7 +734,7 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
             out_stream.flush()
             return
         try:
-            vault.vault_path.unlink()
+            vault.reset_vault()
             out_stream.write(
                 colorize("\n✅ Vault reset. All passwords deleted.", "green") + "\n"
             )
