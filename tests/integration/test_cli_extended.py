@@ -319,7 +319,7 @@ class TestVaultOperations:
 
     def test_manage_cancel(self):
         """Should handle cancel option in manage."""
-        in_stream = StringIO("3\n")  # Cancel option
+        in_stream = StringIO("6\n")  # Cancel option
         out_stream = StringIO()
 
         with patch(

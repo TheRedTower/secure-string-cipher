@@ -730,12 +730,42 @@ def cmd_vault_reset(args: argparse.Namespace) -> int:
         _exit_error(EXIT_FILE_ERROR, f"Reset failed: {e}")
 
 
+def cmd_vault_migrate(args: argparse.Namespace) -> int:
+    """Migrate vault between backends."""
+    from .keychain_backend import KeychainUnavailableError
+
+    target = args.target_backend
+    vault = PassphraseVault()
+
+    master = _prompt_master_password()
+
+    try:
+        if target == "keychain":
+            vault.migrate_to_keychain(master)
+            _print_info("✓ Vault migrated to OS keychain.")
+            _print_info(
+                "  Your vault is now stored in the OS keychain. "
+                "The file vault remains as a backup."
+            )
+        else:
+            vault.migrate_to_file(master)
+            _print_info("✓ Vault migrated to file.")
+            _print_info(f"  Vault location: {vault.vault_path}")
+        return EXIT_SUCCESS
+    except KeychainUnavailableError as e:
+        _exit_error(EXIT_VAULT_ERROR, str(e))
+    except ValueError as e:
+        _exit_error(EXIT_AUTH_ERROR, str(e))
+    except Exception as e:
+        _exit_error(EXIT_VAULT_ERROR, f"Migration failed: {e}")
+
+
 def cmd_vault(args: argparse.Namespace) -> int:
     """Vault subcommand router."""
     # This shouldn't be called directly - subparsers handle routing
     _exit_error(
         EXIT_INPUT_ERROR,
-        "Must specify vault subcommand: list, delete, export, import, reset",
+        "Must specify vault subcommand: list, delete, export, import, reset, migrate",
     )
 
 
@@ -1000,6 +1030,27 @@ Examples:
     )
     vault_reset_parser.set_defaults(func=cmd_vault_reset)
 
+    # vault migrate
+    vault_migrate_parser = vault_subparsers.add_parser(
+        "migrate",
+        help="Migrate vault between backends (file ↔ keychain)",
+        description="Migrate vault data between file and keychain backends.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  ssc vault migrate --to keychain    Move vault to OS keychain
+  ssc vault migrate --to file        Move vault back to disk
+""",
+    )
+    vault_migrate_parser.add_argument(
+        "--to",
+        dest="target_backend",
+        choices=["keychain", "file"],
+        required=True,
+        help="Target backend to migrate to",
+    )
+    vault_migrate_parser.set_defaults(func=cmd_vault_migrate)
+
     vault_parser.set_defaults(func=cmd_vault)
 
     # --- shred ---
@@ -1056,13 +1107,13 @@ def main() -> NoReturn:
     if args.command == "vault" and not hasattr(args, "func"):
         _exit_error(
             EXIT_INPUT_ERROR,
-            "Must specify vault subcommand: list, delete, export, import, reset",
+            "Must specify vault subcommand: list, delete, export, import, reset, migrate",
         )
 
     if args.command == "vault" and args.vault_command is None:
         _exit_error(
             EXIT_INPUT_ERROR,
-            "Must specify vault subcommand: list, delete, export, import, reset",
+            "Must specify vault subcommand: list, delete, export, import, reset, migrate",
         )
 
     # Run command

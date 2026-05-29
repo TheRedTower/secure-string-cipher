@@ -18,6 +18,10 @@ Complete API documentation for secure-string-cipher.
   - [generate_passphrase](#generate_passphrase)
 - [Passphrase Vault](#passphrase-vault)
   - [PassphraseVault](#passphrasevault)
+- [Keychain Backend](#keychain-backend)
+  - [KeychainVaultBackend](#keychainvaultbackend)
+  - [is_keychain_available](#is_keychain_available)
+  - [KeychainError / KeychainUnavailableError](#keychainerror--keychainunavailableerror)
 - [Security Utilities](#security-utilities)
   - [check_password_strength](#check_password_strength)
   - [constant_time_compare](#constant_time_compare)
@@ -483,6 +487,69 @@ vault.update_passphrase(
 
 # Delete
 vault.delete_passphrase("production-db", master_password="VaultMaster!")  # pragma: allowlist secret
+```
+
+---
+
+## Keychain Backend
+
+### KeychainVaultBackend
+
+Store vault data in the OS keychain instead of a file.
+
+```python
+from secure_string_cipher import KeychainVaultBackend, is_keychain_available
+
+# Check availability
+if is_keychain_available():
+    backend = KeychainVaultBackend()
+    backend.store_vault(vault_contents)
+    data = backend.load_vault()
+    backend.delete_vault()
+```
+
+**Methods:**
+
+| Method | Description |
+| ------ | ----------- |
+| `store_vault(contents: str)` | Store encrypted vault blob in keychain |
+| `load_vault() -> str \| None` | Load vault from keychain (None if not found) |
+| `delete_vault()` | Remove vault from keychain |
+| `vault_exists() -> bool` | Check if vault exists in keychain |
+
+### is_keychain_available
+
+Check if a usable OS keychain backend is available.
+
+```python
+from secure_string_cipher import is_keychain_available
+
+available = is_keychain_available()  # True/False
+```
+
+### KeychainError / KeychainUnavailableError
+
+```python
+from secure_string_cipher import KeychainError, KeychainUnavailableError
+
+# KeychainError: Base exception for keychain operations
+# KeychainUnavailableError: Raised when keyring is not installed or has no backend
+```
+
+### PassphraseVault with Keychain
+
+```python
+from secure_string_cipher import PassphraseVault, BACKEND_KEYCHAIN, BACKEND_FILE
+
+# Use keychain backend
+vault = PassphraseVault(backend=BACKEND_KEYCHAIN)
+
+# Use file backend (default)
+vault = PassphraseVault(backend=BACKEND_FILE)
+
+# Migrate between backends
+vault.migrate_to_keychain(master_password)
+vault.migrate_to_file(master_password)
 ```
 
 ---

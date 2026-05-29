@@ -28,8 +28,14 @@ from .core import (
     generate_key_pair,
     verify_key_commitment,
 )
+from .keychain_backend import (
+    KeychainError,
+    KeychainUnavailableError,
+    KeychainVaultBackend,
+    is_keychain_available,
+)
 from .passphrase_generator import generate_passphrase
-from .passphrase_manager import PassphraseVault
+from .passphrase_manager import BACKEND_FILE, BACKEND_KEYCHAIN, PassphraseVault
 from .rate_limiter import RateLimiter, RateLimitError, get_global_limiter, rate_limited
 from .secure_memory import SecureBytes, SecureString, has_secure_memory, secure_wipe
 from .security import SecurityError
@@ -76,6 +82,13 @@ __all__ = [
     # Passphrase management
     "generate_passphrase",
     "PassphraseVault",
+    "BACKEND_FILE",
+    "BACKEND_KEYCHAIN",
+    # Keychain
+    "KeychainVaultBackend",
+    "KeychainError",
+    "KeychainUnavailableError",
+    "is_keychain_available",
     # Rate limiting
     "RateLimiter",
     "RateLimitError",

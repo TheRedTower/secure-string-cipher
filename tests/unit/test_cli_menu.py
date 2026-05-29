@@ -111,8 +111,8 @@ class TestInvalidInputs:
     """Test rejection of invalid/malicious inputs."""
 
     def test_invalid_number_rejected(self):
-        """Numbers outside 0-9 range should be rejected."""
-        in_stream = io.StringIO("10\n0\n")
+        """Numbers outside 0-11 range should be rejected."""
+        in_stream = io.StringIO("12\n0\n")
         out_stream = io.StringIO()
 
         result = _get_mode(in_stream, out_stream)
@@ -311,7 +311,7 @@ class TestReprompting:
 
         assert result == 5
         output = out_stream.getvalue()
-        assert output.count("Select operation [0-9]:") == 2
+        assert output.count("Select operation [0-11]:") == 2
 
     def test_reprompts_multiple_times(self):
         """Menu should reprompt multiple times if needed."""
@@ -323,7 +323,7 @@ class TestReprompting:
         assert result == 7
         output = out_stream.getvalue()
         assert output.count("Invalid choice") == 3
-        assert output.count("Select operation [0-9]:") == 4
+        assert output.count("Select operation [0-11]:") == 4
 
 
 class TestEdgeCases:
