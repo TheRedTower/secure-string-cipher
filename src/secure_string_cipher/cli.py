@@ -6,7 +6,6 @@ When stdin is piped or redirected (tests, scripts), visible input is used.
 """
 
 import getpass as getpass_module
-import os
 import sys
 from hashlib import sha256
 from pathlib import Path
@@ -22,7 +21,7 @@ from .core import (
 from .passphrase_generator import generate_passphrase
 from .passphrase_manager import PassphraseVault
 from .rate_limiter import RateLimiter
-from .security import sanitize_filename
+from .security import sanitize_filename, secure_atomic_write
 from .timing_safe import check_password_strength
 from .utils import colorize, secure_overwrite
 
@@ -670,7 +669,7 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
             return
         try:
             vault.list_labels(master_pw)  # Verify password
-            content = vault.vault_path.read_text()
+            content = vault.export_raw()
             out_stream.write(colorize("\n✅ Vault exported:", "green") + "\n")
             out_stream.write(content + "\n")
             out_stream.write("\n💡 Copy the above output to save as a backup file.\n")
@@ -694,6 +693,7 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
             out_stream.flush()
             return
         try:
+            _ensure_no_symlink(path, "vault import file")
             content = path.read_text()
             # Basic validation
             if not content.startswith("SSCVAULT\n"):
@@ -711,8 +711,9 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
                     out_stream.flush()
                     return
             vault.vault_path.parent.mkdir(parents=True, exist_ok=True)
-            vault.vault_path.write_text(content)
-            os.chmod(vault.vault_path, 0o600)
+            secure_atomic_write(
+                vault.vault_path, content.encode("utf-8"), mode=0o600
+            )
             out_stream.write(
                 colorize("\n✅ Vault imported successfully!", "green") + "\n"
             )

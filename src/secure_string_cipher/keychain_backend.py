@@ -49,11 +49,19 @@ def _get_keyring():
 
     # Verify a usable backend is available
     backend = keyring.get_keyring()
+    backend_module = type(backend).__module__ or ""
     backend_name = type(backend).__name__
-    # The "fail" backend means no real keychain is available
-    if "Fail" in backend_name or "null" in backend_name.lower():
+    # The fail backend (keyring.backends.fail.Keyring) and null backend
+    # indicate no real keychain is available. Check module path for reliable
+    # detection since the class name alone ("Keyring") is ambiguous.
+    if (
+        backend_module.startswith("keyring.backends.fail")
+        or backend_module.startswith("keyring.backends.null")
+        or "Fail" in backend_name
+        or "null" in backend_name.lower()
+    ):
         raise KeychainUnavailableError(
-            f"No usable keychain backend found (got: {backend_name}). "
+            f"No usable keychain backend found (got: {backend_module}.{backend_name}). "
             "Ensure your OS keychain service is running."
         )
 

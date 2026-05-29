@@ -51,30 +51,18 @@ class PassphraseVault:
     - "keychain": OS keychain via the keyring library
     """
 
-    def __init__(self, vault_path: str | None = None, backend: str = BACKEND_FILE):
+    def __init__(self, vault_path: str | None = None, backend: str | None = None):
         """Initialize the passphrase vault.
 
         Args:
             vault_path: Path to the vault file. If None, uses default location.
                 Ignored when backend is "keychain".
-            backend: Storage backend - "file" (default) or "keychain".
+            backend: Storage backend - "file" or "keychain". If None, reads from
+                the persisted backend config (defaults to "file" if not set).
 
         Raises:
             ValueError: If backend is not recognized.
         """
-        if backend not in (BACKEND_FILE, BACKEND_KEYCHAIN):
-            raise ValueError(
-                f"Unknown backend '{backend}'. Use '{BACKEND_FILE}' or '{BACKEND_KEYCHAIN}'."
-            )
-
-        self._backend = backend
-        self._keychain = None
-
-        if backend == BACKEND_KEYCHAIN:
-            from .keychain_backend import KeychainVaultBackend
-
-            self._keychain = KeychainVaultBackend()
-
         if vault_path is None:
             # Default to user's home directory
             home = Path.home()
@@ -92,10 +80,61 @@ class PassphraseVault:
                 self.backup_dir = self.vault_path.parent / "backups"
             self.backup_dir.mkdir(exist_ok=True, mode=0o700)
 
+        # Resolve backend: explicit > persisted config > default (file)
+        if backend is None:
+            backend = self._load_backend_config()
+
+        if backend not in (BACKEND_FILE, BACKEND_KEYCHAIN):
+            raise ValueError(
+                f"Unknown backend '{backend}'. Use '{BACKEND_FILE}' or '{BACKEND_KEYCHAIN}'."
+            )
+
+        self._backend = backend
+        self._keychain = None
+
+        if backend == BACKEND_KEYCHAIN:
+            from .keychain_backend import KeychainVaultBackend
+
+            self._keychain = KeychainVaultBackend()
+
     @property
     def backend(self) -> str:
         """Return the current storage backend name."""
         return self._backend
+
+    @staticmethod
+    def _backend_config_path() -> Path:
+        """Return path to the backend configuration file."""
+        return Path.home() / ".secure-cipher" / "backend.conf"
+
+    @classmethod
+    def _load_backend_config(cls) -> str:
+        """Load the persisted backend choice from config file.
+
+        Returns:
+            The backend name, or BACKEND_FILE if no config exists.
+        """
+        config_path = cls._backend_config_path()
+        try:
+            if config_path.exists():
+                value = config_path.read_text().strip()
+                if value in (BACKEND_FILE, BACKEND_KEYCHAIN):
+                    return value
+        except OSError:
+            pass
+        return BACKEND_FILE
+
+    @classmethod
+    def save_backend_config(cls, backend: str) -> None:
+        """Persist the backend choice to config file.
+
+        Args:
+            backend: The backend name to persist ("file" or "keychain").
+        """
+        config_path = cls._backend_config_path()
+        config_path.parent.mkdir(exist_ok=True, mode=0o700)
+        config_path.write_text(backend + "\n")
+        os.chmod(config_path, 0o600)
 
     def _compute_hmac(self, data: str, master_password: str, salt: bytes) -> str:
         """Compute HMAC for integrity verification using Argon2id-derived key.
@@ -278,9 +317,11 @@ class PassphraseVault:
         try:
             vault_data = self._load_vault(master_password)
         except ValueError:
-            # If vault doesn't exist or is empty, start fresh
-            if self.vault_path.exists() and self.vault_path.stat().st_size > 0:
-                raise  # Re-raise if file exists but can't decrypt
+            # If vault doesn't exist or is empty, start fresh.
+            # Use backend-aware existence check to avoid overwriting
+            # a keychain vault when the master password is wrong.
+            if self.vault_exists():
+                raise  # Re-raise if vault exists but can't decrypt
             vault_data = {}
 
         if label in vault_data:
@@ -384,6 +425,25 @@ class PassphraseVault:
             return "OS Keychain"
         return str(self.vault_path)
 
+    def export_raw(self) -> str:
+        """Export the raw vault contents from the active backend.
+
+        Returns:
+            The raw vault contents string.
+
+        Raises:
+            ValueError: If no vault exists in the active backend.
+        """
+        if self._backend == BACKEND_KEYCHAIN:
+            assert self._keychain is not None
+            contents = self._keychain.load_vault()
+            if contents is None:
+                raise ValueError("No vault found in keychain.")
+            return contents
+        if not self.vault_path.exists():
+            raise ValueError("No vault file found.")
+        return self.vault_path.read_text()
+
     def migrate_to_keychain(self, master_password: str) -> None:
         """Migrate vault data from file backend to keychain.
 
@@ -411,6 +471,9 @@ class PassphraseVault:
         # Store in keychain
         keychain = KeychainVaultBackend()
         keychain.store_vault(vault_contents)
+
+        # Persist backend choice so subsequent commands use keychain
+        self.save_backend_config(BACKEND_KEYCHAIN)
 
     def migrate_to_file(self, master_password: str) -> None:
         """Migrate vault data from keychain to file backend.
@@ -443,6 +506,9 @@ class PassphraseVault:
 
         # Write to file
         secure_atomic_write(self.vault_path, vault_contents.encode("utf-8"), mode=0o600)
+
+        # Persist backend choice so subsequent commands use file
+        self.save_backend_config(BACKEND_FILE)
 
     def list_backups(self) -> list[str]:
         """List available backup files.
