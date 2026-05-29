@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.2.0] - 2026-05-29
+
+### Added
+
+- **OS Keychain backend** for passphrase vault storage
+  - macOS Keychain, Windows Credential Vault, Linux Secret Service support
+  - Install with `pip install secure-string-cipher[keychain]`
+  - `ssc vault migrate --to keychain` / `--to file` migration commands
+  - `PassphraseVault(backend="keychain")` programmatic API
+  - `is_keychain_available()` detection function
+- **Interactive mode feature parity** with non-interactive CLI
+  - Secure shred (option 10) — multi-pass file deletion
+  - Key-file encrypt/decrypt (option 11) — use any file as encryption key
+  - Vault management expanded (option 9) — export, import, reset vault
+  - Rate limiting on decrypt operations (exponential backoff)
+- **Documentation**: `docs/KEYCHAIN.md` — dedicated keychain setup guide per OS
+
+### Changed
+
+- Interactive menu expanded from 10 to 12 options (0-11)
+- Vault management sub-menu now includes export, import, and reset
+- `PassphraseVault` constructor accepts `backend` parameter ("file" | "keychain")
+- 313 tests passing (was 288 in v1.1.0)
+
+### Security
+
+- Rate limiting now active in both interactive and non-interactive modes
+- Keychain backend adds OS-level protection layer for vault storage
+
 ## [1.1.0] - 2026-05-04
 
 ### Added

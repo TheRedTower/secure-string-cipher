@@ -13,17 +13,21 @@ A security-focused AES-256-GCM encryption CLI tool with passphrase vault and mod
 - **Argon2id key derivation** – memory-hard, GPU/ASIC resistant
 - **Key commitment scheme** – prevents partitioning oracle attacks
 - **Key-file support** – use any file as encryption key via `--key-file` (SHA-256 → Argon2id)
+- **OS Keychain integration** – store vault in macOS Keychain, Windows Credential Vault, or Linux Secret Service
 - **Hidden password input** – passwords hidden in interactive terminals, visible for scripts/tests
 - **Inline passphrase generation** – type `/gen` at any password prompt
 - **Encrypted passphrase vault** with HMAC-SHA256 integrity verification
 - **Secure memory handling** via libsodium (PyNaCl) when available
 - **Timing-safe operations** – constant-time comparisons prevent side-channel attacks
+- **Rate limiting** – exponential backoff on failed decrypt/vault attempts
+- **Secure shred** – multi-pass overwrite file deletion
 - Chunked file streaming (256 KiB) for low memory usage
 - Automatic vault backups (last 5 kept)
 
 ## Documentation
 
 - [API Reference](docs/API.md) — Complete programmatic API documentation
+- [Keychain Backend](docs/KEYCHAIN.md) — OS keychain integration guide
 - [Developer Guide](DEVELOPER.md) — Development workflow and tooling
 - [Contributing](CONTRIBUTING.md) — Contribution guidelines
 - [Security Policy](.github/SECURITY.md) — Supported versions and vulnerability reporting
@@ -123,30 +127,35 @@ ssc start
 You'll see this menu:
 
 ```text
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃                       AVAILABLE OPERATIONS                     ┃
-┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
-┃                                                                ┃
-┃  TEXT & FILE ENCRYPTION                                        ┃
-┃                                                                ┃
-┃    [1] Encrypt Text      →  Encrypt a message (base64 output)  ┃
-┃    [2] Decrypt Text      →  Decrypt an encrypted message       ┃
-┃    [3] Encrypt File      →  Encrypt a file (creates .enc)      ┃
-┃    [4] Decrypt File      →  Decrypt an encrypted file          ┃
-┃                                                                ┃
-┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
-┃  PASSPHRASE VAULT (Optional)                                   ┃
-┃                                                                ┃
-┃    [5] Generate Passphrase  →  Create secure random password   ┃
-┃    [6] Store in Vault       →  Save passphrase securely        ┃
-┃    [7] Retrieve from Vault  →  Get stored passphrase           ┃
-┃    [8] List Vault Entries   →  View all stored labels          ┃
-┃    [9] Manage Vault         →  Update or delete entries        ┃
-┃                                                                ┃
-┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
-┃    [0] Exit                →  Quit application                 ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                       ⚡ AVAILABLE OPERATIONS ⚡                      ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+┃                                                                      ┃
+┃  📝  TEXT & FILE ENCRYPTION                                          ┃
+┃                                                                      ┃
+┃    [1] Encrypt Text      →  Encrypt a message (base64 output)        ┃
+┃    [2] Decrypt Text      →  Decrypt an encrypted message             ┃
+┃    [3] Encrypt File      →  Encrypt a file (creates .enc)            ┃
+┃    [4] Decrypt File      →  Decrypt an encrypted file                ┃
+┃                                                                      ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+┃  🔑  PASSPHRASE VAULT (Optional)                                     ┃
+┃                                                                      ┃
+┃    [5] Generate Passphrase  →  Create secure random password         ┃
+┃    [6] Store in Vault       →  Save passphrase securely              ┃
+┃    [7] Retrieve from Vault  →  Get stored passphrase                 ┃
+┃    [8] List Vault Entries   →  View all stored labels                ┃
+┃    [9] Manage Vault         →  Update, delete, export, import        ┃
+┃                                                                      ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+┃  🛡️  SECURITY TOOLS                                                  ┃
+┃                                                                      ┃
+┃   [10] Secure Shred      →  Permanently delete a file                ┃
+┃   [11] Use Key File      →  Encrypt/decrypt with a key file          ┃
+┃                                                                      ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+┃    [0] Exit                →  Quit application                       ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ```
 
 Choose an option and follow the prompts.
@@ -184,6 +193,23 @@ The vault stores passphrases encrypted with your master password at `~/.secure-c
 - **Retrieve/manage** – Options 7-9 for lookup, listing, and deletion
 
 All vault operations use HMAC integrity verification and maintain automatic backups.
+
+### OS Keychain Integration
+
+Optionally store your vault in the OS keychain for added security:
+
+```bash
+# Install with keychain support
+pip install secure-string-cipher[keychain]
+
+# Migrate existing vault to keychain
+ssc vault migrate --to keychain
+
+# Migrate back to file if needed
+ssc vault migrate --to file
+```
+
+See [docs/KEYCHAIN.md](docs/KEYCHAIN.md) for full setup instructions per platform.
 
 ## Docker
 
