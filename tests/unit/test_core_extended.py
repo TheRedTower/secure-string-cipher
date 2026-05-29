@@ -15,8 +15,10 @@ from secure_string_cipher.core import (
     compute_key_commitment,
     decrypt_file,
     decrypt_text,
+    derive_key_from_key_file,
     encrypt_file,
     encrypt_text,
+    generate_key_pair,
     verify_key_commitment,
 )
 
@@ -217,3 +219,40 @@ class TestKeyCommitment:
         commitment2 = compute_key_commitment(key2)
 
         assert commitment1 != commitment2
+
+
+class TestKeyFileAndKeyPairSecurity:
+    """Tests for key-file and key-pair path hardening."""
+
+    def test_derive_key_from_key_file_rejects_symlink(self, tmp_path):
+        """Should reject symlinked key files."""
+
+        real_key = tmp_path / "real.key"
+        real_key.write_bytes(b"key-material")
+        symlink_key = tmp_path / "key_link.key"
+        symlink_key.symlink_to(real_key)
+
+        with pytest.raises(CryptoError, match="symlinked key file path"):
+            derive_key_from_key_file(str(symlink_key), b"salt" * 4)
+
+    def test_generate_key_pair_rejects_symlink_private_path(self, tmp_path):
+        """Should reject symlinked private-key output paths."""
+
+        real_private = tmp_path / "real_private.pem"
+        real_private.write_text("placeholder")
+        symlink_private = tmp_path / "private.pem"
+        symlink_private.symlink_to(real_private)
+
+        with pytest.raises(CryptoError, match="symlinked private key path"):
+            generate_key_pair(str(symlink_private))
+
+    def test_generate_key_pair_rejects_same_output_path(self, tmp_path):
+        """Should reject using the same path for private and public keys."""
+
+        key_path = tmp_path / "id_rsa.pem"
+
+        with pytest.raises(
+            CryptoError,
+            match="Private and public key paths must be different files",
+        ):
+            generate_key_pair(str(key_path), str(key_path))

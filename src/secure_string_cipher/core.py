@@ -775,10 +775,15 @@ def derive_key_from_key_file(key_file_path: str | Path, salt: bytes) -> bytes:
     """
     try:
         key_file = Path(key_file_path)
+        _ensure_no_symlink(key_file, "key file")
         if not key_file.exists():
             raise CryptoError(f"Key file not found: {key_file_path}")
         if not key_file.is_file():
             raise CryptoError(f"Key file is not a regular file: {key_file_path}")
+        if key_file.stat().st_size > MAX_FILE_SIZE:
+            raise CryptoError(
+                f"Key file too large. Maximum size is {MAX_FILE_SIZE / (1024 * 1024):.1f} MB"
+            )
 
         # Read key file content
         key_data = key_file.read_bytes()
@@ -824,6 +829,24 @@ def generate_key_pair(
         else:
             public_path = Path(public_key_path)
 
+        _ensure_no_symlink(private_path, "private key")
+        _ensure_no_symlink(public_path, "public key")
+        _ensure_no_symlink(private_path.parent, "private key parent")
+        _ensure_no_symlink(public_path.parent, "public key parent")
+
+        if private_path.resolve(strict=False) == public_path.resolve(strict=False):
+            raise CryptoError("Private and public key paths must be different files")
+
+        private_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        public_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+        for key_path, label in (
+            (private_path, "Private"),
+            (public_path, "Public"),
+        ):
+            if key_path.exists() and not key_path.is_file():
+                raise CryptoError(f"{label} key path is not a regular file: {key_path}")
+
         # Generate private key
         private_key = rsa.generate_private_key(
             public_exponent=65537,
@@ -844,11 +867,45 @@ def generate_key_pair(
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
         )
 
-        # Write files
-        private_path.write_bytes(private_pem)
-        private_path.chmod(0o600)
-        public_path.write_bytes(public_pem)
-        public_path.chmod(0o644)
+        def _write_key_file_securely(path: Path, data: bytes, mode: int) -> None:
+            # Re-check immediately before open to reduce TOCTOU window and
+            # enforce no-symlink behavior even when O_NOFOLLOW is unavailable.
+            if path.is_symlink():
+                raise CryptoError(f"Refusing to use symlinked key output path: {path}")
+
+            flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+
+            try:
+                fd = os.open(path, flags, mode)
+            except OSError as exc:
+                raise CryptoError(
+                    f"Failed to open key file for secure write: {path}"
+                ) from exc
+
+            try:
+                if hasattr(os, "fchmod"):
+                    os.fchmod(fd, mode)
+
+                view = memoryview(data)
+                while view:
+                    written = os.write(fd, view)
+                    if written == 0:
+                        raise CryptoError(
+                            f"Failed to write key file completely: {path}"
+                        )
+                    view = view[written:]
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+
+            if not hasattr(os, "fchmod"):
+                os.chmod(path, mode)
+
+        # Write files with secure open flags (where supported)
+        _write_key_file_securely(private_path, private_pem, 0o600)
+        _write_key_file_securely(public_path, public_pem, 0o644)
 
     except ImportError as err:
         raise CryptoError(
