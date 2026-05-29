@@ -700,8 +700,10 @@ def cmd_vault_import(args: argparse.Namespace) -> int:
         vault.import_raw(content)
         _print_info("✓ Vault imported successfully")
         return EXIT_SUCCESS
-    except (OSError, CryptoError, ValueError) as e:
+    except OSError as e:
         _exit_error(EXIT_FILE_ERROR, f"Import failed: {e}")
+    except CryptoError as e:
+        _exit_error(EXIT_VAULT_ERROR, f"Invalid or unsafe vault data: {e}")
 
 
 def cmd_vault_reset(args: argparse.Namespace) -> int:

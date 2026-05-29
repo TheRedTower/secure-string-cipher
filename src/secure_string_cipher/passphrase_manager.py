@@ -446,7 +446,8 @@ class PassphraseVault:
     def import_raw(self, contents: str) -> None:
         """Import raw vault contents into the active backend."""
         if self._backend == BACKEND_KEYCHAIN:
-            assert self._keychain is not None
+            if self._keychain is None:
+                raise RuntimeError("Keychain backend not initialized.")
             self._keychain.store_vault(contents)
             return
         _ensure_no_symlink(self.vault_path, "vault file")
@@ -456,10 +457,12 @@ class PassphraseVault:
     def reset_vault(self) -> None:
         """Delete the vault from the active backend."""
         if self._backend == BACKEND_KEYCHAIN:
-            assert self._keychain is not None
+            if self._keychain is None:
+                raise RuntimeError("Keychain backend not initialized.")
             self._keychain.delete_vault()
             return
-        self.vault_path.unlink()
+        _ensure_no_symlink(self.vault_path, "vault file")
+        self.vault_path.unlink(missing_ok=True)
 
     def migrate_to_keychain(self, master_password: str) -> None:
         """Migrate vault data from file backend to keychain.

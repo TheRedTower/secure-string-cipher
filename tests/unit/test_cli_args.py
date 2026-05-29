@@ -916,9 +916,7 @@ class TestVaultCommands:
         """vault export should use active backend export method."""
         mock_master.return_value = "MasterPassword123!"
         mock_vault_instance = MagicMock()
-        mock_vault_instance.export_raw.return_value = (
-            "SSCVAULT\nabcd\n---DATA---\n...\n---HMAC---\n..."
-        )
+        mock_vault_instance.export_raw.return_value = "SSCVAULT\nabcd1234\n---DATA---\nencrypted_payload\n---HMAC---\n0123456789abcdef"
         mock_vault.return_value = mock_vault_instance
 
         args = argparse.Namespace()
