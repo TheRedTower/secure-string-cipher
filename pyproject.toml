@@ -36,6 +36,9 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+keychain = [
+    "keyring>=25.0.0",
+]
 dev = [
     "pytest==8.4.2",
     "pytest-cov==7.0.0",
@@ -48,6 +51,7 @@ dev = [
     "detect-secrets==1.5.0",      # Secret scanning
     "pip-audit==2.9.0",           # Vulnerability scanning
     "pre-commit>=4.5.0",
+    "keyring>=25.0.0",            # For keychain backend tests
 ]
 test = [
     "pytest==8.4.2",

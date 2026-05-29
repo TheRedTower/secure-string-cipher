@@ -2,10 +2,10 @@
 Passphrase management module for secure storage and retrieval.
 
 This module encrypts generated passphrases with a master password and stores them
-in an encrypted vault file. Users can retrieve their passphrases by providing
-the master password.
+in an encrypted vault file or OS keychain. Users can retrieve their passphrases
+by providing the master password.
 
-Vault Format:
+Vault Format (file backend):
     SSCVAULT
     <hmac_salt_hex>
     ---DATA---
@@ -15,6 +15,11 @@ Vault Format:
 
 The HMAC key is derived using Argon2id with a random salt, providing
 memory-hard protection against brute-force attacks on integrity verification.
+
+Storage Backends:
+    - "file" (default): Encrypted vault file on disk
+    - "keychain": OS keychain (macOS Keychain, Windows Credential Vault,
+      Linux Secret Service). Install with: pip install secure-string-cipher[keychain]
 """
 
 import hashlib
@@ -33,16 +38,43 @@ from .security import secure_atomic_write
 _VAULT_HEADER = "SSCVAULT"
 _HMAC_SALT_SIZE = 32  # 256 bits
 
+# Backend type literals
+BACKEND_FILE = "file"
+BACKEND_KEYCHAIN = "keychain"
+
 
 class PassphraseVault:
-    """Manages encrypted passphrase storage with integrity protection."""
+    """Manages encrypted passphrase storage with integrity protection.
 
-    def __init__(self, vault_path: str | None = None):
+    Supports two storage backends:
+    - "file": Traditional encrypted vault file on disk (default)
+    - "keychain": OS keychain via the keyring library
+    """
+
+    def __init__(self, vault_path: str | None = None, backend: str = BACKEND_FILE):
         """Initialize the passphrase vault.
 
         Args:
             vault_path: Path to the vault file. If None, uses default location.
+                Ignored when backend is "keychain".
+            backend: Storage backend - "file" (default) or "keychain".
+
+        Raises:
+            ValueError: If backend is not recognized.
         """
+        if backend not in (BACKEND_FILE, BACKEND_KEYCHAIN):
+            raise ValueError(
+                f"Unknown backend '{backend}'. Use '{BACKEND_FILE}' or '{BACKEND_KEYCHAIN}'."
+            )
+
+        self._backend = backend
+        self._keychain = None
+
+        if backend == BACKEND_KEYCHAIN:
+            from .keychain_backend import KeychainVaultBackend
+
+            self._keychain = KeychainVaultBackend()
+
         if vault_path is None:
             # Default to user's home directory
             home = Path.home()
@@ -59,6 +91,11 @@ class PassphraseVault:
             else:
                 self.backup_dir = self.vault_path.parent / "backups"
             self.backup_dir.mkdir(exist_ok=True, mode=0o700)
+
+    @property
+    def backend(self) -> str:
+        """Return the current storage backend name."""
+        return self._backend
 
     def _compute_hmac(self, data: str, master_password: str, salt: bytes) -> str:
         """Compute HMAC for integrity verification using Argon2id-derived key.
@@ -108,16 +145,28 @@ class PassphraseVault:
         Raises:
             ValueError: If vault is corrupted or tampered with
         """
-        if not self.vault_path.exists():
+        # Load vault contents from appropriate backend
+        if self._backend == BACKEND_KEYCHAIN:
+            assert self._keychain is not None
+            vault_contents = self._keychain.load_vault()
+            if vault_contents is None:
+                return {}
+            vault_contents = vault_contents.strip()
+        else:
+            if not self.vault_path.exists():
+                return {}
+            try:
+                with open(self.vault_path) as f:
+                    vault_contents = f.read().strip()
+            except Exception:
+                raise ValueError(
+                    "Failed to decrypt vault. Wrong master password or corrupted vault file."
+                ) from None
+
+        if not vault_contents:
             return {}
 
         try:
-            with open(self.vault_path) as f:
-                vault_contents = f.read().strip()
-
-            if not vault_contents:
-                return {}
-
             # Parse vault format: SSCVAULT / hmac_salt_hex / ---DATA--- / encrypted / ---HMAC--- / hmac
             lines = vault_contents.split("\n")
 
@@ -199,8 +248,14 @@ class PassphraseVault:
             f"{vault_hmac}"
         )
 
-        # Use atomic write to prevent corruption during write
-        secure_atomic_write(self.vault_path, vault_contents.encode("utf-8"), mode=0o600)
+        if self._backend == BACKEND_KEYCHAIN:
+            assert self._keychain is not None
+            self._keychain.store_vault(vault_contents)
+        else:
+            # Use atomic write to prevent corruption during write
+            secure_atomic_write(
+                self.vault_path, vault_contents.encode("utf-8"), mode=0o600
+            )
 
     def store_passphrase(
         self, label: str, passphrase: str, master_password: str
@@ -309,20 +364,85 @@ class PassphraseVault:
         self._save_vault(vault_data, master_password)
 
     def vault_exists(self) -> bool:
-        """Check if the vault file exists.
+        """Check if the vault exists (file or keychain).
 
         Returns:
-            True if vault file exists, False otherwise
+            True if vault exists, False otherwise
         """
+        if self._backend == BACKEND_KEYCHAIN:
+            assert self._keychain is not None
+            return self._keychain.vault_exists()
         return self.vault_path.exists()
 
     def get_vault_path(self) -> str:
-        """Get the path to the vault file.
+        """Get the path/location of the vault.
 
         Returns:
-            Path to the vault file as a string
+            Path to the vault file or "keychain" indicator as a string
         """
+        if self._backend == BACKEND_KEYCHAIN:
+            return "OS Keychain"
         return str(self.vault_path)
+
+    def migrate_to_keychain(self, master_password: str) -> None:
+        """Migrate vault data from file backend to keychain.
+
+        Args:
+            master_password: Master password to decrypt/re-encrypt the vault
+
+        Raises:
+            ValueError: If file vault doesn't exist or can't be read
+        """
+        from .keychain_backend import KeychainVaultBackend
+
+        # Load from file
+        if not self.vault_path.exists():
+            raise ValueError("No file vault found to migrate.")
+
+        with open(self.vault_path) as f:
+            vault_contents = f.read().strip()
+
+        if not vault_contents:
+            raise ValueError("Vault file is empty.")
+
+        # Verify we can decrypt it (validates master password)
+        self._load_vault(master_password)
+
+        # Store in keychain
+        keychain = KeychainVaultBackend()
+        keychain.store_vault(vault_contents)
+
+    def migrate_to_file(self, master_password: str) -> None:
+        """Migrate vault data from keychain to file backend.
+
+        Args:
+            master_password: Master password to decrypt/re-encrypt the vault
+
+        Raises:
+            ValueError: If keychain vault doesn't exist or can't be read
+        """
+        from .keychain_backend import KeychainVaultBackend
+
+        keychain = KeychainVaultBackend()
+        vault_contents = keychain.load_vault()
+
+        if vault_contents is None:
+            raise ValueError("No keychain vault found to migrate.")
+
+        # Verify we can decrypt it (validates master password)
+        # Temporarily switch to keychain to load
+        old_backend = self._backend
+        old_keychain = self._keychain
+        self._backend = BACKEND_KEYCHAIN
+        self._keychain = keychain
+        try:
+            self._load_vault(master_password)
+        finally:
+            self._backend = old_backend
+            self._keychain = old_keychain
+
+        # Write to file
+        secure_atomic_write(self.vault_path, vault_contents.encode("utf-8"), mode=0o600)
 
     def list_backups(self) -> list[str]:
         """List available backup files.
