@@ -6,10 +6,14 @@ When stdin is piped or redirected (tests, scripts), visible input is used.
 """
 
 import getpass as getpass_module
+import os
 import sys
+from hashlib import sha256
+from pathlib import Path
 from typing import TextIO
 
 from .core import (
+    _ensure_no_symlink,
     decrypt_file,
     decrypt_text,
     encrypt_file,
@@ -17,12 +21,16 @@ from .core import (
 )
 from .passphrase_generator import generate_passphrase
 from .passphrase_manager import PassphraseVault
+from .rate_limiter import RateLimiter
 from .security import sanitize_filename
 from .timing_safe import check_password_strength
-from .utils import colorize
+from .utils import colorize, secure_overwrite
 
 # Security: Maximum password retry attempts before exiting
 MAX_PASSWORD_RETRIES = 5
+
+# Rate limiter for interactive decrypt attempts
+_interactive_limiter = RateLimiter()
 
 
 def _read_password(
@@ -127,7 +135,13 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
         line("   [6] Store in Vault       →  Save passphrase securely"),
         line("   [7] Retrieve from Vault  →  Get stored passphrase"),
         line("   [8] List Vault Entries   →  View all stored labels"),
-        line("   [9] Manage Vault         →  Update or delete entries"),
+        line("   [9] Manage Vault         →  Update, delete, export, import"),
+        line(),
+        separator,
+        line("🛡️  SECURITY TOOLS"),
+        line(),
+        line("  [10] Secure Shred     →  Permanently delete a file"),
+        line("  [11] Use Key File     →  Encrypt/decrypt with a key file"),
         line(),
         separator,
         line("   [0] Exit               →  Quit application"),
@@ -141,7 +155,7 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
 
     while True:
         try:
-            out_stream.write("Select operation [0-9]: ")
+            out_stream.write("Select operation [0-11]: ")
             out_stream.flush()
             choice = in_stream.readline()
             if choice == "":
@@ -157,7 +171,20 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
         if not choice:
             return 1
 
-        if choice in {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}:
+        if choice in {
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
+        }:
             try:
                 return int(choice)
             except ValueError:
@@ -607,21 +634,17 @@ def _handle_list_vault(in_stream: TextIO, out_stream: TextIO) -> None:
 
 
 def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
-    """Handle vault management (update/delete passphrases)."""
+    """Handle vault management (update/delete/export/import/reset passphrases)."""
     vault = PassphraseVault()
-
-    if not vault.vault_exists():
-        out_stream.write(
-            "Error: No vault found. Create one by storing a passphrase first (option 6).\n"
-        )
-        out_stream.flush()
-        return
 
     out_stream.write(colorize("\n⚙️  Vault Management", "cyan") + "\n")
     out_stream.write("\nSelect action:\n")
     out_stream.write("  1. Update passphrase\n")
     out_stream.write("  2. Delete passphrase\n")
-    out_stream.write("  3. Cancel\n")
+    out_stream.write("  3. Export vault\n")
+    out_stream.write("  4. Import vault\n")
+    out_stream.write("  5. Reset vault (delete all)\n")
+    out_stream.write("  6. Cancel\n")
     out_stream.write("Choice [1]: ")
     out_stream.flush()
 
@@ -629,8 +652,105 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
     if not choice:
         choice = "1"
 
-    if choice == "3":
+    if choice == "6":
         out_stream.write("Cancelled.\n")
+        out_stream.flush()
+        return
+
+    # Export doesn't need vault to exist first
+    if choice == "3":
+        if not vault.vault_exists():
+            out_stream.write("Error: No vault found.\n")
+            out_stream.flush()
+            return
+        master_pw = _read_password("\nEnter master password: ", in_stream, out_stream)
+        if not master_pw:
+            out_stream.write("Error: Master password cannot be empty\n")
+            out_stream.flush()
+            return
+        try:
+            vault.list_labels(master_pw)  # Verify password
+            content = vault.vault_path.read_text()
+            out_stream.write(colorize("\n✅ Vault exported:", "green") + "\n")
+            out_stream.write(content + "\n")
+            out_stream.write("\n💡 Copy the above output to save as a backup file.\n")
+            out_stream.flush()
+        except Exception as e:
+            out_stream.write(f"Error exporting vault: {e}\n")
+            out_stream.flush()
+        return
+
+    if choice == "4":
+        out_stream.write("\nEnter path to vault backup file: ")
+        out_stream.flush()
+        import_path = in_stream.readline().rstrip("\n")
+        if not import_path:
+            out_stream.write("Error: Path cannot be empty\n")
+            out_stream.flush()
+            return
+        path = Path(import_path)
+        if not path.exists():
+            out_stream.write(f"Error: File not found: {import_path}\n")
+            out_stream.flush()
+            return
+        try:
+            content = path.read_text()
+            # Basic validation
+            if not content.startswith("SSCVAULT\n"):
+                out_stream.write("Error: Invalid vault format.\n")
+                out_stream.flush()
+                return
+            if vault.vault_exists():
+                out_stream.write(
+                    "⚠️  Existing vault will be replaced. Continue? (yes/no): "
+                )
+                out_stream.flush()
+                confirm = in_stream.readline().rstrip("\n").lower()
+                if confirm != "yes":
+                    out_stream.write("Import cancelled.\n")
+                    out_stream.flush()
+                    return
+            vault.vault_path.parent.mkdir(parents=True, exist_ok=True)
+            vault.vault_path.write_text(content)
+            os.chmod(vault.vault_path, 0o600)
+            out_stream.write(
+                colorize("\n✅ Vault imported successfully!", "green") + "\n"
+            )
+            out_stream.flush()
+        except Exception as e:
+            out_stream.write(f"Error importing vault: {e}\n")
+            out_stream.flush()
+        return
+
+    if choice == "5":
+        if not vault.vault_exists():
+            out_stream.write("Error: No vault found.\n")
+            out_stream.flush()
+            return
+        out_stream.write("\n⚠️  This will PERMANENTLY DELETE all stored passwords.\n")
+        out_stream.write("Type RESET to confirm: ")
+        out_stream.flush()
+        confirm = in_stream.readline().rstrip("\n")
+        if confirm != "RESET":
+            out_stream.write("Reset cancelled.\n")
+            out_stream.flush()
+            return
+        try:
+            vault.vault_path.unlink()
+            out_stream.write(
+                colorize("\n✅ Vault reset. All passwords deleted.", "green") + "\n"
+            )
+            out_stream.flush()
+        except Exception as e:
+            out_stream.write(f"Error resetting vault: {e}\n")
+            out_stream.flush()
+        return
+
+    # Options 1 and 2 require vault to exist
+    if not vault.vault_exists():
+        out_stream.write(
+            "Error: No vault found. Create one by storing a passphrase first (option 6).\n"
+        )
         out_stream.flush()
         return
 
@@ -701,6 +821,150 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
         out_stream.flush()
 
 
+def _handle_secure_shred(in_stream: TextIO, out_stream: TextIO) -> None:
+    """Handle secure file shredding."""
+    out_stream.write(colorize("\n🗑️  Secure Shred", "cyan") + "\n")
+    out_stream.write("\nEnter file path to securely delete: ")
+    out_stream.flush()
+
+    filepath = in_stream.readline().rstrip("\n")
+    if not filepath:
+        out_stream.write("Error: File path cannot be empty\n")
+        out_stream.flush()
+        return
+
+    path = Path(filepath)
+    if not path.exists():
+        out_stream.write(f"Error: File not found: {filepath}\n")
+        out_stream.flush()
+        return
+
+    if path.is_dir():
+        out_stream.write("Error: Cannot shred directories. Specify a file.\n")
+        out_stream.flush()
+        return
+
+    out_stream.write(
+        f"\n⚠️  This will PERMANENTLY delete '{filepath}' with secure overwrite.\n"
+    )
+    out_stream.write("Type 'yes' to confirm: ")
+    out_stream.flush()
+    confirm = in_stream.readline().rstrip("\n").lower()
+
+    if confirm != "yes":
+        out_stream.write("Shred cancelled.\n")
+        out_stream.flush()
+        return
+
+    try:
+        secure_overwrite(filepath)
+        out_stream.write(
+            colorize(f"\n✅ File '{filepath}' securely shredded!", "green") + "\n"
+        )
+        out_stream.flush()
+    except Exception as e:
+        out_stream.write(f"Error shredding file: {e}\n")
+        out_stream.flush()
+
+
+def _handle_key_file_operation(in_stream: TextIO, out_stream: TextIO) -> None:
+    """Handle encrypt/decrypt using a key file."""
+    out_stream.write(colorize("\n🔑 Key File Operation", "cyan") + "\n")
+    out_stream.write("\nSelect operation:\n")
+    out_stream.write("  1. Encrypt file with key file\n")
+    out_stream.write("  2. Decrypt file with key file\n")
+    out_stream.write("  3. Cancel\n")
+    out_stream.write("Choice [1]: ")
+    out_stream.flush()
+
+    choice = in_stream.readline().rstrip("\n")
+    if not choice:
+        choice = "1"
+
+    if choice == "3":
+        out_stream.write("Cancelled.\n")
+        out_stream.flush()
+        return
+
+    is_encrypt = choice == "1"
+
+    # Get key file path
+    out_stream.write("\nEnter key file path: ")
+    out_stream.flush()
+    key_file_path = in_stream.readline().rstrip("\n")
+
+    if not key_file_path:
+        out_stream.write("Error: Key file path cannot be empty\n")
+        out_stream.flush()
+        return
+
+    key_path = Path(key_file_path)
+    try:
+        _ensure_no_symlink(key_path, "key file")
+    except Exception as e:
+        out_stream.write(f"Error: {e}\n")
+        out_stream.flush()
+        return
+
+    if not key_path.exists():
+        out_stream.write(f"Error: Key file not found: {key_file_path}\n")
+        out_stream.flush()
+        return
+
+    key_data = key_path.read_bytes()
+    if len(key_data) == 0:
+        out_stream.write(f"Error: Key file is empty: {key_file_path}\n")
+        out_stream.flush()
+        return
+
+    # Derive password from key file
+    password = sha256(key_data).hexdigest()
+
+    # Get target file
+    if is_encrypt:
+        out_stream.write("\nEnter file path to encrypt: ")
+    else:
+        out_stream.write("\nEnter file path to decrypt: ")
+    out_stream.flush()
+    target_path = in_stream.readline().rstrip("\n")
+
+    if not target_path:
+        out_stream.write("Error: File path cannot be empty\n")
+        out_stream.flush()
+        return
+
+    if not Path(target_path).exists():
+        out_stream.write(f"Error: File not found: {target_path}\n")
+        out_stream.flush()
+        return
+
+    try:
+        if is_encrypt:
+            out_path = target_path + ".enc"
+            encrypt_file(target_path, out_path, password, store_filename=True)
+            out_stream.write(
+                colorize(f"\n✅ Encrypted file -> {out_path}", "green") + "\n"
+            )
+            out_stream.write("(Original filename stored in encrypted file)\n")
+        else:
+            actual_path, metadata = decrypt_file(
+                target_path, None, password, restore_filename=True
+            )
+            out_stream.write(
+                colorize(f"\n✅ Decrypted file -> {actual_path}", "green") + "\n"
+            )
+            if metadata and metadata.original_filename:
+                sanitized = sanitize_filename(metadata.original_filename)
+                if sanitized != metadata.original_filename:
+                    out_stream.write(
+                        f"(Filename sanitized: '{metadata.original_filename}' -> '{sanitized}')\n"
+                    )
+        out_stream.flush()
+    except Exception as e:
+        out_stream.write(f"Error: {e}\n")
+        out_stream.flush()
+
+
 def main(
     in_stream: TextIO | None = None,
     out_stream: TextIO | None = None,
@@ -745,6 +1009,10 @@ def main(
                     _handle_list_vault(in_stream, out_stream)
                 case 9:
                     _handle_manage_vault(in_stream, out_stream)
+                case 10:
+                    _handle_secure_shred(in_stream, out_stream)
+                case 11:
+                    _handle_key_file_operation(in_stream, out_stream)
                 case _:
                     payload = _get_input(mode, in_stream, out_stream)
 
@@ -761,10 +1029,29 @@ def main(
                             out_stream.flush()
                             _handle_clipboard(out, out_stream)
                         case 2:
-                            out = decrypt_text(payload, password)
-                            out_stream.write("Decrypted\n")
-                            out_stream.write(out + "\n")
-                            out_stream.flush()
+                            # Rate limit decrypt attempts
+                            allowed, wait = _interactive_limiter.check_rate_limit(
+                                "decrypt_text", ""
+                            )
+                            if not allowed:
+                                out_stream.write(
+                                    f"⚠️  Too many failed attempts. Wait {wait:.0f}s.\n"
+                                )
+                                out_stream.flush()
+                            else:
+                                try:
+                                    out = decrypt_text(payload, password)
+                                    _interactive_limiter.record_attempt(
+                                        "decrypt_text", "", success=True
+                                    )
+                                    out_stream.write("Decrypted\n")
+                                    out_stream.write(out + "\n")
+                                    out_stream.flush()
+                                except Exception:
+                                    _interactive_limiter.record_attempt(
+                                        "decrypt_text", "", success=False
+                                    )
+                                    raise
                         case 3:
                             out_path = payload + ".enc"
                             encrypt_file(
@@ -776,20 +1063,43 @@ def main(
                             )
                             out_stream.flush()
                         case 4:
-                            # Decrypt with automatic filename restoration
-                            actual_path, metadata = decrypt_file(
-                                payload, None, password, restore_filename=True
+                            # Rate limit file decrypt attempts
+                            allowed, wait = _interactive_limiter.check_rate_limit(
+                                "decrypt_file", payload
                             )
-                            out_stream.write(f"Decrypted file -> {actual_path}\n")
-                            if metadata and metadata.original_filename:
-                                sanitized = sanitize_filename(
-                                    metadata.original_filename
+                            if not allowed:
+                                out_stream.write(
+                                    f"⚠️  Too many failed attempts. Wait {wait:.0f}s.\n"
                                 )
-                                if sanitized != metadata.original_filename:
-                                    out_stream.write(
-                                        f"(Filename sanitized: '{metadata.original_filename}' -> '{sanitized}')\n"
+                                out_stream.flush()
+                            else:
+                                try:
+                                    actual_path, metadata = decrypt_file(
+                                        payload,
+                                        None,
+                                        password,
+                                        restore_filename=True,
                                     )
-                            out_stream.flush()
+                                    _interactive_limiter.record_attempt(
+                                        "decrypt_file", payload, success=True
+                                    )
+                                    out_stream.write(
+                                        f"Decrypted file -> {actual_path}\n"
+                                    )
+                                    if metadata and metadata.original_filename:
+                                        sanitized = sanitize_filename(
+                                            metadata.original_filename
+                                        )
+                                        if sanitized != metadata.original_filename:
+                                            out_stream.write(
+                                                f"(Filename sanitized: '{metadata.original_filename}' -> '{sanitized}')\n"
+                                            )
+                                    out_stream.flush()
+                                except Exception:
+                                    _interactive_limiter.record_attempt(
+                                        "decrypt_file", payload, success=False
+                                    )
+                                    raise
 
         except Exception as e:
             out_stream.write(f"Error: {e}\n")
