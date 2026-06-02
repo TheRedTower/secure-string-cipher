@@ -21,7 +21,7 @@ services:
     cap_add:
       - CHOWN
       - DAC_OVERRIDE
-    read_only: false
+    read_only: true
 
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=100m

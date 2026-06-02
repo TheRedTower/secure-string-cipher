@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class KeychainUnavailableError(KeychainError):
     """Raised when the keyring library is not installed or no backend is available."""
 
 
-def _get_keyring():
+def _get_keyring() -> Any:
     """Import and return the keyring module.
 
     Raises:
@@ -137,7 +138,7 @@ class KeychainVaultBackend:
         """
         try:
             result = self._keyring.get_password(self._service, _VAULT_KEY)
-            return result
+            return cast(str | None, result)
         except Exception as e:
             raise KeychainError(f"Failed to load vault from keychain: {e}") from e
 
@@ -165,7 +166,7 @@ class KeychainVaultBackend:
         except KeychainError:
             return False
 
-    def store_metadata(self, metadata: dict) -> None:
+    def store_metadata(self, metadata: dict[str, Any]) -> None:
         """Store vault metadata (e.g., creation date, backend info).
 
         Args:
@@ -178,7 +179,7 @@ class KeychainVaultBackend:
         except Exception:
             pass  # Metadata storage is best-effort
 
-    def load_metadata(self) -> dict:
+    def load_metadata(self) -> dict[str, Any]:
         """Load vault metadata from keychain.
 
         Returns:
@@ -187,7 +188,7 @@ class KeychainVaultBackend:
         try:
             data = self._keyring.get_password(self._service, "__ssc_metadata__")
             if data:
-                return json.loads(data)
+                return cast(dict[str, Any], json.loads(data))
         except Exception:
             pass
         return {}

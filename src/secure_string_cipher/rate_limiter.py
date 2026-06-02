@@ -14,6 +14,8 @@ import time
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import wraps
+from typing import ParamSpec, TypeVar
 
 from .config import (
     RATE_LIMIT_BACKOFF_MULTIPLIER,
@@ -30,6 +32,10 @@ class AttemptRecord:
     attempts: list[float] = field(default_factory=list)
     lockout_until: float = 0.0
     consecutive_failures: int = 0
+
+
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 class RateLimiter:
@@ -189,7 +195,7 @@ def rate_limited(
     operation: str,
     limiter: RateLimiter | None = None,
     get_identifier: Callable[..., str] | None = None,
-) -> Callable:
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Decorator to apply rate limiting to a function.
 
     Args:
@@ -206,8 +212,9 @@ def rate_limited(
             ...
     """
 
-    def decorator(func: Callable) -> Callable:
-        def wrapper(*args, **kwargs):
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
+        @wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             nonlocal limiter
             if limiter is None:
                 limiter = _global_limiter

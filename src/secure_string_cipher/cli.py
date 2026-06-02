@@ -8,9 +8,10 @@ When stdin is piped or redirected (tests, scripts), visible input is used.
 import getpass as getpass_module
 import os
 import sys
+from collections.abc import Callable
 from hashlib import sha256
 from pathlib import Path
-from typing import TextIO
+from typing import TextIO, cast
 
 from .core import (
     _ensure_no_symlink,
@@ -90,11 +91,14 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
 
     Uses provided in_stream/out_stream for testability.
     """
+    width_fn: Callable[[str], int]
     try:
-        from wcwidth import wcswidth as _wcswidth
+        from wcwidth import wcswidth
+
+        width_fn = cast(Callable[[str], int], wcswidth)
     except ImportError:
         # Fallback to len() if wcwidth is not available
-        _wcswidth = len
+        width_fn = len
 
     # --- Programmatically build the menu with wcwidth for proper Unicode handling ---
     WIDTH = 70
@@ -111,17 +115,17 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
         """
         # Drop variation selectors (U+FE0F / U+FE0E) so width is deterministic.
         normalized = content.replace("\ufe0f", "").replace("\ufe0e", "")
-        width = _wcswidth(normalized)
+        width = width_fn(normalized)
         if width < 0:
             # wcswidth returns -1 for unprintable sequences; fall back to len.
             width = len(normalized)
         # Force emoji that wcswidth under-counts (base shield 🛡 == 1) to 2.
         for ch in normalized:
-            if 0x1F000 <= ord(ch) <= 0x1FAFF and _wcswidth(ch) < 2:
+            if 0x1F000 <= ord(ch) <= 0x1FAFF and width_fn(ch) < 2:
                 width += 1
         return width
 
-    def line(content=""):
+    def line(content: str = "") -> str:
         """Create a properly aligned line accounting for actual terminal width."""
         visual_width = _display_width(content) if content else 0
         padding = max(0, WIDTH - 4 - visual_width)

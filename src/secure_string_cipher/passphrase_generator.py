@@ -3,6 +3,7 @@
 import math
 import secrets
 import string
+from typing import cast
 
 # EFF Diceware Short Wordlist (1296 words)
 # https://www.eff.org/deeplinks/2016/07/new-wordlists-random-passphrases
@@ -3325,7 +3326,7 @@ def generate_mixed_passphrase(word_count: int = 4, number_count: int = 4) -> str
     return f"{words}-{numbers}"
 
 
-def calculate_entropy_bits(passphrase_type: str, **params) -> float:
+def calculate_entropy_bits(passphrase_type: str, **params: object) -> float:
     """Calculate passphrase entropy in bits.
 
     Args:
@@ -3337,12 +3338,12 @@ def calculate_entropy_bits(passphrase_type: str, **params) -> float:
     """
     match passphrase_type:
         case "word":
-            word_count = params.get("word_count", 6)
+            word_count = cast(int, params.get("word_count", 6))
             return math.log2(len(WORD_LIST)) * word_count
 
         case "alphanumeric":
-            length = params.get("length", 24)
-            include_symbols = params.get("include_symbols", True)
+            length = cast(int, params.get("length", 24))
+            include_symbols = cast(bool, params.get("include_symbols", True))
 
             alphabet_size = len(string.ascii_letters) + len(string.digits)
             if include_symbols:
@@ -3351,8 +3352,8 @@ def calculate_entropy_bits(passphrase_type: str, **params) -> float:
             return math.log2(alphabet_size) * length
 
         case "mixed":
-            word_count = params.get("word_count", 4)
-            number_count = params.get("number_count", 4)
+            word_count = cast(int, params.get("word_count", 4))
+            number_count = cast(int, params.get("number_count", 4))
 
             return math.log2(len(WORD_LIST)) * word_count + math.log2(10) * number_count
 
