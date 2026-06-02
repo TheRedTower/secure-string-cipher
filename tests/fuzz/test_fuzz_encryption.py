@@ -197,12 +197,19 @@ class TestEdgeCaseFuzz:
         decrypted = decrypt_text(ciphertext, passphrase)
         assert decrypted == plaintext
 
+    @pytest.mark.xdist_group(name="memory_heavy_fuzz")
     @FUZZ_SETTINGS
     @given(
         size=st.integers(min_value=1, max_value=50000),
     )
     def test_various_sizes(self, size: int):
-        """Fuzz: Various plaintext sizes should work."""
+        """Fuzz: Various plaintext sizes should work.
+
+        Pinned to a single xdist worker via ``xdist_group`` to avoid memory
+        contention: running multiple large-plaintext (up to 50 000 chars) ×
+        Argon2id roundtrips concurrently can starve workers and flake. This
+        keeps full input coverage while serialising only this heavy test.
+        """
         plaintext = "A" * size
         passphrase = "SecurePass123!@#"
 
