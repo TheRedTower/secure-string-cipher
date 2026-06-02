@@ -6,7 +6,7 @@ The following branches have been reviewed and are confirmed as already merged
 into `main` (via squash-merge PRs or identical commits):
 
 | Branch | Status | Action |
-|--------|--------|--------|
+| ------- | ------- | ------- |
 | `copilot/fix-security-issues-codeql` | Squash-merged via PR #2 | Delete |
 | `copilot/implement-passphrase-vault-storage` | Squash-merged via PR #3 | Delete |
 | `copilot/secure-string-cipher-analysis` | Identical to main | Delete |
@@ -43,6 +43,7 @@ After this PR is merged to `main`, complete the v1.2.0 release:
     git push origin v1.2.0
 
 This will trigger the GitHub Actions release workflow which:
+
 1. Builds the Python package (sdist + wheel)
 2. Creates a GitHub Release with changelog and artifacts
 3. Publishes to PyPI
