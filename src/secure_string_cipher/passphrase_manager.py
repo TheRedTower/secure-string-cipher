@@ -19,7 +19,8 @@ memory-hard protection against brute-force attacks on integrity verification.
 Storage Backends:
     - "file" (default): Encrypted vault file on disk
     - "keychain": OS keychain (macOS Keychain, Windows Credential Vault,
-      Linux Secret Service). Install with: pip install secure-string-cipher[keychain]
+      Linux Secret Service). Install with:
+      python -m pip install 'secure-string-cipher[keychain]'
 """
 
 import hashlib

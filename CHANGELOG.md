@@ -34,7 +34,7 @@
 
 - **OS Keychain backend** for passphrase vault storage (`keychain_backend.py`, PR #3)
   - macOS Keychain, Windows Credential Vault, Linux Secret Service support
-  - Install with `pip install secure-string-cipher[keychain]`
+  - Install with `python -m pip install 'secure-string-cipher[keychain]'`
   - `ssc vault migrate --to keychain` / `--to file` migration commands
   - `PassphraseVault(backend="keychain")` programmatic API
   - `is_keychain_available()` detection function

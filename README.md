@@ -199,8 +199,14 @@ All vault operations use HMAC integrity verification and maintain automatic back
 Optionally store your vault in the OS keychain for added security:
 
 ```bash
-# Install with keychain support
-pip install secure-string-cipher[keychain]
+# Existing pipx install: add keychain support to the pipx venv
+pipx inject secure-string-cipher keyring
+
+# New pipx install with keychain support
+pipx install 'secure-string-cipher[keychain]'
+
+# Or for a normal pip/venv install
+python -m pip install 'secure-string-cipher[keychain]'
 
 # Migrate existing vault to keychain
 ssc vault migrate --to keychain

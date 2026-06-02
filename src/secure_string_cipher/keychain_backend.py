@@ -9,7 +9,7 @@ Provides cross-platform OS keychain integration using the `keyring` library:
 The keychain stores individual vault entries (label → encrypted passphrase)
 or the entire vault blob, depending on the storage mode.
 
-Install with: pip install secure-string-cipher[keychain]
+Install with: python -m pip install 'secure-string-cipher[keychain]'
 """
 
 from __future__ import annotations
@@ -23,6 +23,13 @@ logger = logging.getLogger(__name__)
 # Service name used in the OS keychain
 _SERVICE_NAME = "secure-string-cipher"
 _VAULT_KEY = "__ssc_vault_data__"
+_KEYRING_INSTALL_HELP = (
+    "The 'keyring' package is not installed.\n"
+    "Install keychain support in the environment that provides `ssc`:\n"
+    "  pipx inject secure-string-cipher keyring\n"
+    "or, for a pip/venv install:\n"
+    "  python -m pip install 'secure-string-cipher[keychain]'"
+)
 
 
 class KeychainError(Exception):
@@ -43,10 +50,7 @@ def _get_keyring() -> Any:
         import keyring
         import keyring.errors
     except ImportError:
-        raise KeychainUnavailableError(
-            "The 'keyring' package is not installed. "
-            "Install it with: pip install secure-string-cipher[keychain]"
-        ) from None
+        raise KeychainUnavailableError(_KEYRING_INSTALL_HELP) from None
 
     # Verify a usable backend is available
     backend = keyring.get_keyring()

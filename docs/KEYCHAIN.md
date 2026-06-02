@@ -5,10 +5,10 @@ secure credential storage instead of an encrypted file on disk.
 
 ## Overview
 
-| Platform | Keychain Service |
-|----------|-----------------|
-| macOS    | Keychain Access (via Security framework) |
-| Windows  | Windows Credential Vault |
+| Platform | Keychain Service                                |
+| -------- | ----------------------------------------------- |
+| macOS    | Keychain Access (via Security framework)        |
+| Windows  | Windows Credential Vault                        |
 | Linux    | Secret Service API (GNOME Keyring / KDE Wallet) |
 
 **Benefits:**
@@ -23,11 +23,17 @@ secure credential storage instead of an encrypted file on disk.
 The keychain backend requires the `keyring` package:
 
 ```bash
-# Install with keychain support
-pip install secure-string-cipher[keychain]
+# Existing pipx install: add keychain support to the pipx venv
+pipx inject secure-string-cipher keyring
 
-# Or add to existing installation
-pip install keyring
+# New pipx install with keychain support
+pipx install 'secure-string-cipher[keychain]'
+
+# Or for a normal pip/venv install
+python -m pip install 'secure-string-cipher[keychain]'
+
+# Or add the dependency directly to the active environment
+python -m pip install keyring
 ```
 
 ## Usage

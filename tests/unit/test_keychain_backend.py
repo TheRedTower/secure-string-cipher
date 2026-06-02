@@ -10,6 +10,7 @@ from secure_string_cipher.keychain_backend import (
     KeychainError,
     KeychainUnavailableError,
     KeychainVaultBackend,
+    _get_keyring,
     get_keychain_backend_name,
     is_keychain_available,
 )
@@ -69,6 +70,20 @@ class TestGetKeychainBackendName:
         ):
             with pytest.raises(KeychainUnavailableError):
                 get_keychain_backend_name()
+
+
+class TestGetKeyring:
+    """Tests for keyring loading and unavailable guidance."""
+
+    def test_missing_keyring_error_includes_pipx_and_quoted_pip_help(self):
+        with patch.dict("sys.modules", {"keyring": None, "keyring.errors": None}):
+            with pytest.raises(KeychainUnavailableError) as exc_info:
+                _get_keyring()
+
+        message = str(exc_info.value)
+        assert "pipx inject secure-string-cipher keyring" in message
+        assert "python -m pip install 'secure-string-cipher[keychain]'" in message
+        assert "pip install secure-string-cipher[keychain]" not in message
 
 
 class TestKeychainVaultBackend:
