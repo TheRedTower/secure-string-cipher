@@ -25,20 +25,22 @@ into `main` (via squash-merge PRs or identical commits):
 
 ## Release Steps
 
-To complete the v1.2.0 release:
+After this PR is merged to `main`, complete the v1.2.0 release:
 
-```bash
-# 1. Delete stale branches
-git push origin --delete copilot/fix-security-issues-codeql
-git push origin --delete copilot/implement-passphrase-vault-storage
-git push origin --delete copilot/secure-string-cipher-analysis
-git push origin --delete fix/security-quality-cli
-git push origin --delete patch-1
+    # 0. Ensure you're releasing the latest main commit
+    git checkout main
+    git pull --ff-only
 
-# 2. Create and push the release tag
-git tag -a v1.2.0 -m "Release v1.2.0 - Keychain backend, interactive feature parity"
-git push origin v1.2.0
-```
+    # 1. Delete stale branches
+    git push origin --delete copilot/fix-security-issues-codeql
+    git push origin --delete copilot/implement-passphrase-vault-storage
+    git push origin --delete copilot/secure-string-cipher-analysis
+    git push origin --delete fix/security-quality-cli
+    git push origin --delete patch-1
+
+    # 2. Create and push the release tag (from main)
+    git tag -a v1.2.0 -m "Release v1.2.0 - Keychain backend, interactive feature parity"
+    git push origin v1.2.0
 
 This will trigger the GitHub Actions release workflow which:
 1. Builds the Python package (sdist + wheel)
