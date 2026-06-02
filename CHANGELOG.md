@@ -1,33 +1,65 @@
 # Changelog
 
-## [1.2.0] - 2026-05-29
+## [1.2.5] - 2026-06-02
+
+### Fixed
+
+- Interactive menu alignment corrected in README for consistent rendering across terminal widths (PR #10)
+
+### Changed
+
+- DEVELOPER.md and CONTRIBUTING.md updated: correct test counts (826), coverage threshold (75%), updated project structure (PR #9)
+- SECURITY.md supported versions updated: 1.2.x and 1.1.x supported; < 1.1.0 end-of-life (PR #9)
+- Release workflow standardised to use `uv` instead of `pip` for builds, consistent with CI tooling (PR #9)
+- `pre-commit` ruff version aligned with `pyproject.toml` (`v0.14.3`) (PR #9)
+- RELEASE.md added documenting branch cleanup and release steps for v1.2.0 (PR #5)
+- CHANGELOG.md corrected for v1.2.0: accurate release date, test counts, CodeQL security fixes, and PR references
+
+### Documentation
+
+- `docs/README.md` docs landing page added (PR #3)
+- `docs/API.md` table of contents and updated export signatures (PR #3)
+- README interactive menu redesigned for guaranteed terminal alignment
+
+## [1.2.0] - 2026-06-02
 
 ### Added
 
-- **OS Keychain backend** for passphrase vault storage
+- **OS Keychain backend** for passphrase vault storage (`keychain_backend.py`, PR #3)
   - macOS Keychain, Windows Credential Vault, Linux Secret Service support
   - Install with `pip install secure-string-cipher[keychain]`
   - `ssc vault migrate --to keychain` / `--to file` migration commands
   - `PassphraseVault(backend="keychain")` programmatic API
   - `is_keychain_available()` detection function
-- **Interactive mode feature parity** with non-interactive CLI
+- **Interactive mode feature parity** with non-interactive CLI (PR #3)
   - Secure shred (option 10) — multi-pass file deletion
   - Key-file encrypt/decrypt (option 11) — use any file as encryption key
-  - Vault management expanded (option 9) — export, import, reset vault
-  - Rate limiting on decrypt operations (exponential backoff)
-- **Documentation**: `docs/KEYCHAIN.md` — dedicated keychain setup guide per OS
+  - Vault management sub-menu expanded (option 9) — export, import, reset vault
+  - Rate limiting applied to decrypt operations in interactive mode (exponential backoff)
+- **Documentation** additions
+  - `docs/KEYCHAIN.md` — per-OS setup guide for macOS Keychain, Windows Credential Vault, Linux Secret Service
+  - `docs/README.md` — docs landing page
+  - `docs/API.md` — table of contents and new export signatures
 
 ### Changed
 
-- Interactive menu expanded from 10 to 12 options (0-11)
+- Interactive menu expanded from 10 to 12 options (0–11)
 - Vault management sub-menu now includes export, import, and reset
-- `PassphraseVault` constructor accepts `backend` parameter ("file" | "keychain")
-- 313 tests passing (was 288 in v1.1.0)
+- `PassphraseVault` constructor accepts `backend` parameter (`"file"` | `"keychain"`)
+- CI coverage threshold raised from 69% to 75% (PR #8)
+- Release workflow (`release.yml`) switched from `pip` to `uv` for builds, consistent with CI tooling (PR #9)
+- `pre-commit` ruff version pinned to match `pyproject.toml` (`v0.14.3`) (PR #9)
+- `SECURITY.md` supported versions updated: 1.2.x and 1.1.x supported; < 1.1.0 unsupported (PR #9)
+- 826 tests passing, ~85% coverage (was 632 tests, ~68% coverage in v1.1.0)
+  - 165 new tests added across `test_cli_coverage.py`, `test_cli_args_coverage.py`, `test_core_coverage.py`, and `test_package_init.py` (PRs #6, #8)
 
 ### Security
 
-- Rate limiting now active in both interactive and non-interactive modes
-- Keychain backend adds OS-level protection layer for vault storage
+- **Key-file symlink hardening**: `derive_key_from_key_file()` now rejects symlinked key files before any read (CodeQL fix, PR #2)
+- **Key-file size cap**: key files exceeding `MAX_FILE_SIZE` are rejected before reading (PR #2)
+- **RSA key-pair symlink hardening**: `generate_key_pair()` now rejects symlinked private/public key paths and their parent directories (CodeQL fix, PR #2)
+- Rate limiting now active in both interactive and non-interactive decrypt paths
+- Keychain backend delegates secret storage to the OS credential store, reducing in-process exposure of vault passphrases
 
 ## [1.1.0] - 2026-05-04
 
