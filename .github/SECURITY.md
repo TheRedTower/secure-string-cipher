@@ -6,10 +6,11 @@ We actively support the following versions with security updates:
 
 | Version | Supported          | Python Requirements |
 | ------- | ------------------ | ------------------- |
-| 1.0.20+ | :white_check_mark: | 3.12+              |
-| < 1.0.20| :x:                | 3.10+              |
+| 1.2.x   | :white_check_mark: | 3.12+              |
+| 1.1.x   | :white_check_mark: | 3.12+              |
+| < 1.1.0 | :x:                | 3.10+              |
 
-**Note**: Version 1.0.20+ uses Argon2id KDF and key commitment. Files encrypted with older versions are not compatible.
+**Note**: Version 1.1.0+ uses Argon2id KDF and key commitment. Files encrypted with older versions are not compatible.
 
 ## Python Version Support Policy
 
@@ -236,5 +237,5 @@ This project maintains audit documentation for third-party security reviews:
 
 ---
 
-**Last updated:** December 5, 2025
-**Version:** 2.1
+**Last updated:** May 29, 2026
+**Version:** 2.2

@@ -70,7 +70,7 @@ See [DEVELOPER.md](DEVELOPER.md) for detailed workflow, troubleshooting, and rel
 ## Testing
 
 * Write tests for new features
-* CI coverage gate: 69% (current: ~79%)
+* CI coverage gate: 75% (current: ~79%)
 * Include positive and negative test cases
 * Test edge cases and error conditions
 * Use parameterized tests when appropriate
@@ -85,7 +85,7 @@ uv run --locked pytest tests/ --maxfail=3 -n auto
 
 # Optional make wrappers
 make test-quick   # Fast tests (~10s) - for development iteration
-make test         # Full suite (615 tests, ~80s)
+make test         # Full suite (826 tests, ~80s)
 make test-cov     # Full suite with coverage report
 ```
 
@@ -98,23 +98,26 @@ tests/
 ├── helpers.py           # Test utilities
 ├── unit/                # Unit tests (fast, isolated)
 │   ├── test_cli_args.py
+│   ├── test_cli_args_coverage.py
+│   ├── test_cli_coverage.py
 │   ├── test_cli_menu.py
 │   ├── test_core.py
+│   ├── test_core_coverage.py
 │   ├── test_core_extended.py
 │   ├── test_kdf.py
+│   ├── test_keychain_backend.py
+│   ├── test_package_init.py
 │   ├── test_passphrase_generator.py
 │   ├── test_passphrase_manager_extended.py
 │   ├── test_property_based.py
-│   ├── test_secure_memory.py
-│   ├── test_security.py
-│   ├── test_timing_safe.py
 │   └── test_utils.py
 ├── integration/         # Integration tests (CLI workflows)
 │   ├── test_cli.py
 │   ├── test_cli_extended.py
 │   ├── test_cli_workflows.py
 │   ├── test_inline_passphrase_gen.py
-│   └── test_passphrase_manager.py
+│   ├── test_passphrase_manager.py
+│   └── test_ssc_cli.py
 ├── security/            # Security-focused tests
 │   ├── test_audit_log.py
 │   ├── test_key_commitment.py
@@ -159,6 +162,7 @@ secure-string-cipher/
 │       ├── cli_args.py           # Non-interactive argparse CLI (`ssc`)
 │       ├── config.py             # Constants (iterations, chunk size, etc.)
 │       ├── core.py               # AES-256-GCM + Argon2id + key commitment
+│       ├── keychain_backend.py   # OS keychain integration (macOS/Windows/Linux)
 │       ├── passphrase_generator.py  # Random passphrase generation
 │       ├── passphrase_manager.py # Encrypted vault with HMAC integrity
 │       ├── rate_limiter.py       # Brute-force rate limiting
@@ -171,7 +175,10 @@ secure-string-cipher/
 │   ├── factories.py              # Test data factories
 │   ├── helpers.py                # Test utilities
 │   ├── unit/                     # Unit tests (fast, isolated)
-│   └── integration/              # Integration tests (CLI workflows)
+│   ├── integration/              # Integration tests (CLI workflows)
+│   ├── security/                 # Security-focused tests
+│   ├── fuzz/                     # Hypothesis fuzzing tests
+│   └── performance/              # Benchmark tests
 ```
 
 Thank you for contributing!

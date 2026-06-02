@@ -24,7 +24,7 @@ make ci        # Run full CI pipeline locally
 make help         # List all commands
 make format       # Auto-format with Ruff
 make lint         # Check style, types, and code quality
-make test         # Run full test suite (618 tests, ~80s)
+make test         # Run full test suite (826 tests, ~80s)
 make test-quick   # Run fast tests only (207 tests, ~10s)
 make test-slow    # Run KDF/fuzz/performance tests
 make test-cov     # Run tests with coverage
@@ -61,11 +61,11 @@ make ci
 
 ### pytest (Testing)
 
-- Runs automated tests (619 tests)
+- Runs automated tests (826 tests)
 - Unit tests in `tests/unit/`, integration tests in `tests/integration/`
 - Security tests in `tests/security/`, fuzz tests in `tests/fuzz/`
 - Performance benchmarks in `tests/performance/`
-- Markers: `@pytest.mark.unit`, `@pytest.mark.integration`, `@pytest.mark.security`, `@pytest.mark.slow`, `@pytest.mark.fuzz`, `@pytest.mark.benchmark`, `@pytest.mark.e2e`, `@pytest.mark.smoke`
+- Markers: `@pytest.mark.slow`, `@pytest.mark.integration`, `@pytest.mark.security`, `@pytest.mark.fuzz`, `@pytest.mark.benchmark`, `@pytest.mark.e2e`
 - Run with `pytest tests/` or `make test`
 
 ## CI/CD
@@ -83,7 +83,7 @@ GitHub Actions uses uv-locked installs and runs a two-stage pipeline:
 2. **Test matrix** (Python 3.12, 3.13, 3.14 in parallel):
    - uv sync --extra dev --locked
    - Full pytest suite (uv run --locked pytest)
-   - Coverage reporting and 69% gate on 3.14
+   - Coverage reporting and 75% gate on 3.14
 
 ## Common Tasks
 
@@ -208,13 +208,12 @@ pytest tests/ -v
 
 ### Publishing to PyPI
 
-```bash
-# Build
-python -m build
+Publishing is automated via GitHub Actions (`release.yml`). When a `v*` tag is pushed:
 
-# Upload
-python -m twine upload dist/*
-```
+1. Builds sdist + wheel with `python -m build`
+2. Creates a GitHub Release with changelog and artifacts
+3. Publishes to PyPI via trusted publisher (`pypa/gh-action-pypi-publish`)
+4. Builds and pushes multi-arch Docker image to GHCR
 
 ## Tips
 
