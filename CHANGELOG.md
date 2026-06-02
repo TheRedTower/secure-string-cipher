@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.10] - 2026-06-02
+
+### Fixed
+
+- **Interactive menu rendering**: corrected misaligned right borders in the `ssc start` menu. Emoji section headers (notably the shield `🛡️ SECURITY TOOLS`) combine a base codepoint with the U+FE0F variation selector, which terminals render inconsistently (1 vs 2 columns) and which `wcswidth` could miscalculate, pushing box borders out of alignment. Added a deterministic `_display_width()` helper that strips variation selectors and forces emoji to a stable 2-column width, and clamped padding to never go negative.
+- **Type-safety in `cli.py`**: resolved type-checker errors where `_get_password()`, `_handle_clipboard()`, and `main()` declared stream parameters as `TextIO | None` but used them as non-optional `TextIO`. Streams are now bound to non-optional locals after defaulting to `sys.stdin`/`sys.stdout`, satisfying both mypy and Pylance with no behavioural change.
+
 ## [1.2.5] - 2026-06-02
 
 ### Fixed

@@ -91,18 +91,40 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
     Uses provided in_stream/out_stream for testability.
     """
     try:
-        from wcwidth import wcswidth
+        from wcwidth import wcswidth as _wcswidth
     except ImportError:
         # Fallback to len() if wcwidth is not available
-        wcswidth = len
+        _wcswidth = len
 
     # --- Programmatically build the menu with wcwidth for proper Unicode handling ---
     WIDTH = 70
 
+    def _display_width(content: str) -> int:
+        """Return the terminal display width of ``content``.
+
+        Emoji presentation characters (e.g. 🛡️) combine a base codepoint with
+        the U+FE0F variation selector. Terminals render these inconsistently:
+        some honour the requested emoji (2 columns) and some fall back to text
+        presentation (1 column), while ``wcswidth`` may disagree with either.
+        To keep the box borders aligned across terminals we strip the variation
+        selectors and force every emoji to a stable width of 2 columns.
+        """
+        # Drop variation selectors (U+FE0F / U+FE0E) so width is deterministic.
+        normalized = content.replace("\ufe0f", "").replace("\ufe0e", "")
+        width = _wcswidth(normalized)
+        if width < 0:
+            # wcswidth returns -1 for unprintable sequences; fall back to len.
+            width = len(normalized)
+        # Force emoji that wcswidth under-counts (base shield 🛡 == 1) to 2.
+        for ch in normalized:
+            if 0x1F000 <= ord(ch) <= 0x1FAFF and _wcswidth(ch) < 2:
+                width += 1
+        return width
+
     def line(content=""):
         """Create a properly aligned line accounting for actual terminal width."""
-        visual_width = wcswidth(content) if content else 0
-        padding = WIDTH - 4 - visual_width
+        visual_width = _display_width(content) if content else 0
+        padding = max(0, WIDTH - 4 - visual_width)
         return f"┃ {content}{' ' * padding} ┃\n"
 
     header = "┏" + "━" * (WIDTH - 2) + "┓\n"
@@ -110,8 +132,8 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
     footer = "┗" + "━" * (WIDTH - 2) + "┛\n"
 
     title = "⚡ AVAILABLE OPERATIONS ⚡"
-    title_visual_width = wcswidth(title)
-    total_padding = WIDTH - 4 - title_visual_width
+    title_visual_width = _display_width(title)
+    total_padding = max(0, WIDTH - 4 - title_visual_width)
     left_pad = total_padding // 2
     right_pad = total_padding - left_pad
     title_line = f"┃ {' ' * left_pad}{title}{' ' * right_pad} ┃\n"
@@ -138,7 +160,7 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
         line("   [9] Manage Vault         →  Update, delete, export, import"),
         line(),
         separator,
-        line("🛡️  SECURITY TOOLS"),
+        line("🛡  SECURITY TOOLS"),
         line(),
         line("  [10] Secure Shred     →  Permanently delete a file"),
         line("  [11] Use Key File     →  Encrypt/decrypt with a key file"),
@@ -333,10 +355,8 @@ def _get_password(
     Raises:
         SystemExit: If max retries exceeded or user cancels
     """
-    if in_stream is None:
-        in_stream = sys.stdin
-    if out_stream is None:
-        out_stream = sys.stdout
+    istream: TextIO = sys.stdin if in_stream is None else in_stream
+    ostream: TextIO = sys.stdout if out_stream is None else out_stream
 
     attempts = 0
 
@@ -344,35 +364,35 @@ def _get_password(
         attempts += 1
 
         # Show requirements with helper command hint
-        out_stream.write("\n🔑 Password Entry\n")
-        out_stream.write(
+        ostream.write("\n🔑 Password Entry\n")
+        ostream.write(
             "Password must be at least 12 chars, include upper/lower/digits/symbols\n"
         )
-        out_stream.write(
+        ostream.write(
             colorize(
                 "💡 Tip: Type '/gen' to auto-generate a secure passphrase\n", "cyan"
             )
         )
 
-        pw = _read_password("Enter passphrase: ", in_stream, out_stream)
+        pw = _read_password("Enter passphrase: ", istream, ostream)
         if pw == "":
-            out_stream.write("❌ Password entry cancelled\n")
-            out_stream.flush()
+            ostream.write("❌ Password entry cancelled\n")
+            ostream.flush()
             sys.exit(1)
 
         # Check for special commands to generate passphrase
         if pw.lower() in ("/gen", "/generate", "/g"):
-            generated_pw = _handle_generate_passphrase_inline(in_stream, out_stream)
+            generated_pw = _handle_generate_passphrase_inline(istream, ostream)
             if generated_pw:
                 pw = generated_pw
                 # Skip confirmation for generated passwords since user already saw it
                 confirm = False
             else:
                 # Generation was cancelled, retry
-                out_stream.write(
+                ostream.write(
                     "⚠️  Passphrase generation cancelled. Please try again.\n\n"
                 )
-                out_stream.flush()
+                ostream.flush()
                 continue
 
         # Validate password strength
@@ -380,71 +400,71 @@ def _get_password(
         if not valid:
             remaining = max_retries - attempts
             if remaining > 0:
-                out_stream.write(f"❌ {msg}\n")
-                out_stream.write(
+                ostream.write(f"❌ {msg}\n")
+                ostream.write(
                     f"⚠️  Attempt {attempts}/{max_retries}. {remaining} attempts remaining.\n"
                 )
-                out_stream.write("Please try again.\n\n")
-                out_stream.flush()
+                ostream.write("Please try again.\n\n")
+                ostream.flush()
                 continue
             else:
-                out_stream.write(f"❌ {msg}\n")
-                out_stream.write(
+                ostream.write(f"❌ {msg}\n")
+                ostream.write(
                     f"🚫 Maximum password attempts ({max_retries}) exceeded. Exiting for security.\n"
                 )
-                out_stream.flush()
+                ostream.flush()
                 sys.exit(1)
 
         # If confirmation required, validate match
         if confirm:
-            confirm_pw = _read_password("Confirm passphrase: ", in_stream, out_stream)
+            confirm_pw = _read_password("Confirm passphrase: ", istream, ostream)
 
             if confirm_pw == "":
                 remaining = max_retries - attempts
                 if remaining > 0:
-                    out_stream.write(
+                    ostream.write(
                         "❌ Passwords do not match (confirmation cancelled)\n"
                     )
-                    out_stream.write(
+                    ostream.write(
                         f"⚠️  Attempt {attempts}/{max_retries}. {remaining} attempts remaining.\n"
                     )
-                    out_stream.write("Please try again.\n\n")
-                    out_stream.flush()
+                    ostream.write("Please try again.\n\n")
+                    ostream.flush()
                     continue
                 else:
-                    out_stream.write("❌ Passwords do not match\n")
-                    out_stream.write(
+                    ostream.write("❌ Passwords do not match\n")
+                    ostream.write(
                         f"🚫 Maximum password attempts ({max_retries}) exceeded. Exiting for security.\n"
                     )
-                    out_stream.flush()
+                    ostream.flush()
                     sys.exit(1)
 
             if confirm_pw != pw:
                 remaining = max_retries - attempts
                 if remaining > 0:
-                    out_stream.write("❌ Passwords do not match\n")
-                    out_stream.write(
+                    ostream.write("❌ Passwords do not match\n")
+                    ostream.write(
                         f"⚠️  Attempt {attempts}/{max_retries}. {remaining} attempts remaining.\n"
                     )
-                    out_stream.write("Please try again.\n\n")
-                    out_stream.flush()
+                    ostream.write("Please try again.\n\n")
+                    ostream.flush()
                     continue
                 else:
-                    out_stream.write("❌ Passwords do not match\n")
-                    out_stream.write(
+                    ostream.write("❌ Passwords do not match\n")
+                    ostream.write(
                         f"🚫 Maximum password attempts ({max_retries}) exceeded. Exiting for security.\n"
                     )
-                    out_stream.flush()
+                    ostream.flush()
                     sys.exit(1)
 
         # Password valid and confirmed (if required)
         return pw
 
     # This shouldn't be reached, but just in case
-    out_stream.write(
+    ostream.write(
         f"🚫 Maximum password attempts ({max_retries}) exceeded. Exiting for security.\n"
     )
-    out_stream.flush()
+    ostream.flush()
     sys.exit(1)
 
 
@@ -455,21 +475,20 @@ def _handle_clipboard(text: str, out_stream: TextIO | None = None) -> None:
         text: Text to copy to clipboard
         out_stream: Output stream for messages
     """
-    if out_stream is None:
-        out_stream = sys.stdout
+    ostream: TextIO = sys.stdout if out_stream is None else out_stream
 
     try:
         import pyperclip
 
         pyperclip.copy(text)
-        out_stream.write("📋 Copied to clipboard!\n")
-        out_stream.flush()
+        ostream.write("📋 Copied to clipboard!\n")
+        ostream.flush()
     except ImportError:
-        out_stream.write("⚠️  Clipboard unavailable (pyperclip not installed)\n")
-        out_stream.flush()
+        ostream.write("⚠️  Clipboard unavailable (pyperclip not installed)\n")
+        ostream.flush()
     except Exception as e:
-        out_stream.write(f"⚠️  Could not copy to clipboard: {e}\n")
-        out_stream.flush()
+        ostream.write(f"⚠️  Could not copy to clipboard: {e}\n")
+        ostream.flush()
 
 
 def _handle_generate_passphrase(in_stream: TextIO, out_stream: TextIO) -> None:
@@ -981,18 +1000,16 @@ def main(
     Returns:
         0 on success, 1 on error when exit_on_completion is False. Otherwise None.
     """
-    if in_stream is None:
-        in_stream = sys.stdin
-    if out_stream is None:
-        out_stream = sys.stdout
+    istream: TextIO = sys.stdin if in_stream is None else in_stream
+    ostream: TextIO = sys.stdout if out_stream is None else out_stream
 
-    _print_banner(out_stream)
+    _print_banner(ostream)
 
     while True:
-        mode = _get_mode(in_stream, out_stream)
+        mode = _get_mode(istream, ostream)
         if mode is None or mode == 0:
-            out_stream.write("Exiting\n")
-            out_stream.flush()
+            ostream.write("Exiting\n")
+            ostream.flush()
             if exit_on_completion:
                 sys.exit(0)
             return 0
@@ -1000,53 +1017,53 @@ def main(
         try:
             match mode:
                 case 5:
-                    _handle_generate_passphrase(in_stream, out_stream)
+                    _handle_generate_passphrase(istream, ostream)
                 case 6:
-                    _handle_store_passphrase(in_stream, out_stream)
+                    _handle_store_passphrase(istream, ostream)
                 case 7:
-                    _handle_retrieve_passphrase(in_stream, out_stream)
+                    _handle_retrieve_passphrase(istream, ostream)
                 case 8:
-                    _handle_list_vault(in_stream, out_stream)
+                    _handle_list_vault(istream, ostream)
                 case 9:
-                    _handle_manage_vault(in_stream, out_stream)
+                    _handle_manage_vault(istream, ostream)
                 case 10:
-                    _handle_secure_shred(in_stream, out_stream)
+                    _handle_secure_shred(istream, ostream)
                 case 11:
-                    _handle_key_file_operation(in_stream, out_stream)
+                    _handle_key_file_operation(istream, ostream)
                 case _:
-                    payload = _get_input(mode, in_stream, out_stream)
+                    payload = _get_input(mode, istream, ostream)
 
                     is_encrypt = mode in (1, 3)
                     password = _get_password(
-                        confirm=is_encrypt, in_stream=in_stream, out_stream=out_stream
+                        confirm=is_encrypt, in_stream=istream, out_stream=ostream
                     )
 
                     match mode:
                         case 1:
                             out = encrypt_text(payload, password)
-                            out_stream.write("Encrypted\n")
-                            out_stream.write(out + "\n")
-                            out_stream.flush()
-                            _handle_clipboard(out, out_stream)
+                            ostream.write("Encrypted\n")
+                            ostream.write(out + "\n")
+                            ostream.flush()
+                            _handle_clipboard(out, ostream)
                         case 2:
                             # Rate limit decrypt attempts
                             allowed, wait = _interactive_limiter.check_rate_limit(
                                 "decrypt_text", ""
                             )
                             if not allowed:
-                                out_stream.write(
+                                ostream.write(
                                     f"⚠️  Too many failed attempts. Wait {wait:.0f}s.\n"
                                 )
-                                out_stream.flush()
+                                ostream.flush()
                             else:
                                 try:
                                     out = decrypt_text(payload, password)
                                     _interactive_limiter.record_attempt(
                                         "decrypt_text", "", success=True
                                     )
-                                    out_stream.write("Decrypted\n")
-                                    out_stream.write(out + "\n")
-                                    out_stream.flush()
+                                    ostream.write("Decrypted\n")
+                                    ostream.write(out + "\n")
+                                    ostream.flush()
                                 except Exception:
                                     _interactive_limiter.record_attempt(
                                         "decrypt_text", "", success=False
@@ -1057,21 +1074,21 @@ def main(
                             encrypt_file(
                                 payload, out_path, password, store_filename=True
                             )
-                            out_stream.write(f"Encrypted file -> {out_path}\n")
-                            out_stream.write(
+                            ostream.write(f"Encrypted file -> {out_path}\n")
+                            ostream.write(
                                 "(Original filename stored in encrypted file)\n"
                             )
-                            out_stream.flush()
+                            ostream.flush()
                         case 4:
                             # Rate limit file decrypt attempts
                             allowed, wait = _interactive_limiter.check_rate_limit(
                                 "decrypt_file", payload
                             )
                             if not allowed:
-                                out_stream.write(
+                                ostream.write(
                                     f"⚠️  Too many failed attempts. Wait {wait:.0f}s.\n"
                                 )
-                                out_stream.flush()
+                                ostream.flush()
                             else:
                                 try:
                                     actual_path, metadata = decrypt_file(
@@ -1083,18 +1100,16 @@ def main(
                                     _interactive_limiter.record_attempt(
                                         "decrypt_file", payload, success=True
                                     )
-                                    out_stream.write(
-                                        f"Decrypted file -> {actual_path}\n"
-                                    )
+                                    ostream.write(f"Decrypted file -> {actual_path}\n")
                                     if metadata and metadata.original_filename:
                                         sanitized = sanitize_filename(
                                             metadata.original_filename
                                         )
                                         if sanitized != metadata.original_filename:
-                                            out_stream.write(
+                                            ostream.write(
                                                 f"(Filename sanitized: '{metadata.original_filename}' -> '{sanitized}')\n"
                                             )
-                                    out_stream.flush()
+                                    ostream.flush()
                                 except Exception:
                                     _interactive_limiter.record_attempt(
                                         "decrypt_file", payload, success=False
@@ -1102,34 +1117,34 @@ def main(
                                     raise
 
         except Exception as e:
-            out_stream.write(f"Error: {e}\n")
-            out_stream.flush()
+            ostream.write(f"Error: {e}\n")
+            ostream.flush()
 
-        out_stream.write("\n")
-        out_stream.flush()
+        ostream.write("\n")
+        ostream.flush()
 
         while True:
-            out_stream.write("Continue? (y/n): ")
-            out_stream.flush()
+            ostream.write("Continue? (y/n): ")
+            ostream.flush()
             try:
-                choice = in_stream.readline().strip().lower()
+                choice = istream.readline().strip().lower()
                 match choice:
                     case "n" | "no":
-                        out_stream.write("Exiting\n")
-                        out_stream.flush()
+                        ostream.write("Exiting\n")
+                        ostream.flush()
                         if exit_on_completion:
                             sys.exit(0)
                         return 0
                     case "y" | "yes" | "":
-                        out_stream.write("\n")
-                        out_stream.flush()
+                        ostream.write("\n")
+                        ostream.flush()
                         break
                     case _:
-                        out_stream.write("Please enter 'y' or 'n'\n")
-                        out_stream.flush()
+                        ostream.write("Please enter 'y' or 'n'\n")
+                        ostream.flush()
             except (KeyboardInterrupt, EOFError):
-                out_stream.write("\nExiting\n")
-                out_stream.flush()
+                ostream.write("\nExiting\n")
+                ostream.flush()
                 if exit_on_completion:
                     sys.exit(0)
                 return 0
