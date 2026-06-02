@@ -105,7 +105,7 @@ jobs:
             --cov-report=html:htmlcov \
             --cov-report=json:coverage.json \
             --cov-report=xml \
-            --cov-fail-under=69
+            --cov-fail-under=75
         else
           uv run --locked pytest tests/
         fi
