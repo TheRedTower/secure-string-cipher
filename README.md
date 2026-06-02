@@ -128,33 +128,33 @@ You'll see this menu:
 
 ```text
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃                       ⚡ AVAILABLE OPERATIONS ⚡                      ┃
+┃                       ⚡ AVAILABLE OPERATIONS ⚡                    ┃
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
-┃                                                                      ┃
-┃  📝  TEXT & FILE ENCRYPTION                                          ┃
-┃                                                                      ┃
-┃    [1] Encrypt Text      →  Encrypt a message (base64 output)        ┃
-┃    [2] Decrypt Text      →  Decrypt an encrypted message             ┃
-┃    [3] Encrypt File      →  Encrypt a file (creates .enc)            ┃
-┃    [4] Decrypt File      →  Decrypt an encrypted file                ┃
-┃                                                                      ┃
+┃                                                                    ┃
+┃  📝  TEXT & FILE ENCRYPTION                                        ┃
+┃                                                                    ┃
+┃    [1] Encrypt Text      →  Encrypt a message (base64 output)      ┃
+┃    [2] Decrypt Text      →  Decrypt an encrypted message           ┃
+┃    [3] Encrypt File      →  Encrypt a file (creates .enc)          ┃
+┃    [4] Decrypt File      →  Decrypt an encrypted file              ┃
+┃                                                                    ┃
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
-┃  🔑  PASSPHRASE VAULT (Optional)                                     ┃
-┃                                                                      ┃
-┃    [5] Generate Passphrase  →  Create secure random password         ┃
-┃    [6] Store in Vault       →  Save passphrase securely              ┃
-┃    [7] Retrieve from Vault  →  Get stored passphrase                 ┃
-┃    [8] List Vault Entries   →  View all stored labels                ┃
-┃    [9] Manage Vault         →  Update, delete, export, import        ┃
-┃                                                                      ┃
+┃  🔑  PASSPHRASE VAULT (Optional)                                   ┃
+┃                                                                    ┃
+┃    [5] Generate Passphrase  →  Create secure random password       ┃
+┃    [6] Store in Vault       →  Save passphrase securely            ┃
+┃    [7] Retrieve from Vault  →  Get stored passphrase               ┃
+┃    [8] List Vault Entries   →  View all stored labels              ┃
+┃    [9] Manage Vault         →  Update, delete, export, import      ┃
+┃                                                                    ┃
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
-┃  🛡️  SECURITY TOOLS                                                  ┃
-┃                                                                      ┃
-┃   [10] Secure Shred      →  Permanently delete a file                ┃
-┃   [11] Use Key File      →  Encrypt/decrypt with a key file          ┃
-┃                                                                      ┃
+┃  🛡️  SECURITY TOOLS                                                ┃
+┃                                                                    ┃
+┃   [10] Secure Shred      →  Permanently delete a file              ┃
+┃   [11] Use Key File      →  Encrypt/decrypt with a key file        ┃
+┃                                                                    ┃
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
-┃    [0] Exit                →  Quit application                       ┃
+┃    [0] Exit                →  Quit application                     ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ```
 
