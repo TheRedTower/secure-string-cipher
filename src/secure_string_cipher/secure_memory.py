@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import array
 import secrets
+from types import TracebackType
 from typing import TYPE_CHECKING
 
 # Try to use libsodium for secure memory operations via PyNaCl's internal FFI
@@ -124,7 +125,12 @@ class SecureBytes:
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """
         Context manager exit - ensures data is wiped even if an exception occurs.
         """
@@ -168,7 +174,12 @@ class SecureString:
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """
         Context manager exit - ensures string is wiped even if an exception occurs.
         """

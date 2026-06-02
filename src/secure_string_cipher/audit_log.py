@@ -18,7 +18,7 @@ import threading
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .config import (
     AUDIT_LOG_BACKUP_COUNT,
@@ -78,7 +78,7 @@ class AuditLogger:
     _lock = threading.Lock()
     _initialized: bool = False
 
-    def __new__(cls, *args, **kwargs) -> "AuditLogger":
+    def __new__(cls, *args: object, **kwargs: object) -> "AuditLogger":
         """Singleton pattern - only one audit logger instance."""
         if cls._instance is None:
             with cls._lock:
@@ -140,6 +140,8 @@ class AuditLogger:
         if not self.enabled or self.level == AuditLevel.OFF:
             return False
 
+        current_level = cast(int, self.level.value)
+
         # Critical events always logged (except OFF)
         critical_events = {
             AuditEvent.AUTH_FAILURE,
@@ -147,7 +149,7 @@ class AuditLogger:
             AuditEvent.INTEGRITY_CHECK_FAILED,
         }
         if event in critical_events:
-            return self.level.value >= AuditLevel.CRITICAL.value
+            return current_level >= cast(int, AuditLevel.CRITICAL.value)
 
         # Security success events at STANDARD+
         security_events = {
@@ -157,10 +159,10 @@ class AuditLogger:
             AuditEvent.KEY_DERIVATION,
         }
         if event in security_events:
-            return self.level.value >= AuditLevel.STANDARD.value
+            return current_level >= cast(int, AuditLevel.STANDARD.value)
 
         # All other events at VERBOSE
-        return self.level.value >= AuditLevel.VERBOSE.value
+        return current_level >= cast(int, AuditLevel.VERBOSE.value)
 
     def _rotate_if_needed(self) -> None:
         """Rotate log file if it exceeds max size."""
@@ -359,17 +361,17 @@ def get_audit_logger() -> AuditLogger:
 
 # Convenience functions for common operations
 def audit_auth_failure(
-    operation: str, reason: str = "invalid_credentials", **kwargs
+    operation: str, reason: str = "invalid_credentials", **kwargs: Any
 ) -> None:
     """Log an authentication failure."""
     get_audit_logger().log_auth_failure(operation, reason, **kwargs)
 
 
-def audit_rate_limit(operation: str, wait_seconds: float, **kwargs) -> None:
+def audit_rate_limit(operation: str, wait_seconds: float, **kwargs: Any) -> None:
     """Log a rate limit trigger."""
     get_audit_logger().log_rate_limit(operation, wait_seconds, **kwargs)
 
 
-def audit_event(event: AuditEvent, success: bool = True, **details) -> None:
+def audit_event(event: AuditEvent, success: bool = True, **details: Any) -> None:
     """Log a generic audit event."""
     get_audit_logger().log(event, success, details if details else None)

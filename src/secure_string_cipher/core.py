@@ -15,6 +15,7 @@ import os
 import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import TracebackType
 from typing import BinaryIO
 
 from cryptography.hazmat.backends import default_backend
@@ -176,7 +177,12 @@ class StreamProcessor:
 
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Clean up file handle."""
         if self.file:
             self.file.close()

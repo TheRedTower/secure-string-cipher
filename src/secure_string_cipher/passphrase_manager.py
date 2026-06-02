@@ -30,6 +30,7 @@ import secrets
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 from .core import decrypt_text, derive_key, encrypt_text
 from .security import secure_atomic_write
@@ -211,7 +212,7 @@ class PassphraseVault:
                 ) from None
 
             decrypted_json = decrypt_text(encrypted_vault, master_password)
-            return json.loads(decrypted_json)
+            return cast(dict[str, str], json.loads(decrypted_json))
 
         except json.JSONDecodeError:
             raise ValueError("Vault file is corrupted. Check backups.") from None

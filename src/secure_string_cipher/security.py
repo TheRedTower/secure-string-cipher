@@ -12,6 +12,7 @@ import shutil
 import sys
 import tempfile
 import unicodedata
+from collections.abc import Iterator
 from pathlib import Path
 
 
@@ -437,7 +438,7 @@ def create_secure_temp_file(
             raise SecurityError(f"Directory is not writable: {directory}")
 
     @contextlib.contextmanager
-    def _secure_temp_context():
+    def _secure_temp_context() -> Iterator[tuple[int, str]]:
         fd = None
         path = None
         try:

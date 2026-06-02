@@ -1038,7 +1038,6 @@ dependencies = [
     { name = "cryptography" },
     { name = "pynacl" },
     { name = "pyperclip" },
-    { name = "urllib3" },
     { name = "wcwidth" },
 ]
 
@@ -1090,7 +1089,6 @@ requires-dist = [
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = "==3.8.0" },
     { name = "pytest-xdist", marker = "extra == 'test'", specifier = "==3.8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.14.3" },
-    { name = "urllib3", specifier = "==2.6.3" },
     { name = "wcwidth", specifier = "==0.2.14" },
 ]
 provides-extras = ["keychain", "dev", "test"]
