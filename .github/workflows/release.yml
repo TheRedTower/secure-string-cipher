@@ -99,5 +99,6 @@ jobs:
           type=registry,ref=ghcr.io/${{ github.repository }}:buildcache
         cache-to: type=gha,mode=max,scope=buildkit
         build-args: |
+          SSC_VERSION=${{ steps.meta.outputs.version }}
           BUILDKIT_INLINE_CACHE=1
           BUILDKIT_PROGRESS=plain

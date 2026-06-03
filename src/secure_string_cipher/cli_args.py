@@ -496,7 +496,7 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
     output_arg = getattr(args, "output", None)
     restore_filename = getattr(args, "restore_filename", True)
     output_path = None
-    if args.file:
+    if args.file and args.file != "-":
         filepath = Path(args.file)
 
         if not filepath.exists():

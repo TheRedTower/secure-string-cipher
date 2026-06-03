@@ -5,11 +5,37 @@ These tests target uncovered code paths to improve overall test coverage.
 """
 
 import os
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from secure_string_cipher.core import encrypt_text
 from secure_string_cipher.passphrase_manager import PassphraseVault
+
+
+def _mock_keyring_with_storage():
+    """Create a minimal keyring mock backed by an in-memory dict."""
+    storage = {}
+    mock = MagicMock()
+    mock.get_keyring.return_value = MagicMock(__class__=type("TestKeyring", (), {}))
+    mock.errors = MagicMock()
+    mock.errors.PasswordDeleteError = type("PasswordDeleteError", (Exception,), {})
+
+    def set_password(service, key, value):
+        storage[(service, key)] = value
+
+    def get_password(service, key):
+        return storage.get((service, key))
+
+    def delete_password(service, key):
+        if (service, key) not in storage:
+            raise mock.errors.PasswordDeleteError("not found")
+        del storage[(service, key)]
+
+    mock.set_password = set_password
+    mock.get_password = get_password
+    mock.delete_password = delete_password
+    return mock
 
 
 class TestPassphraseVaultInit:
@@ -49,8 +75,33 @@ class TestPassphraseVaultBackups:
             vault.store_passphrase(f"entry{i}", f"pass{i}", "MasterPassword123!@#")
 
         # Check backup count (should be <= 5)
-        backups = list(vault.backup_dir.glob("vault_*.enc"))
+        backups = list(vault.backup_dir.glob("vault_backup_*.enc"))
         assert len(backups) <= 5
+
+    def test_list_and_restore_backup_success(self, tmp_path):
+        """Should list newest backups first and restore selected backup."""
+        vault = PassphraseVault(vault_path=str(tmp_path / "vault.enc"))
+        old_backup = vault.backup_dir / "vault_backup_20250101_000000.enc"
+        new_backup = vault.backup_dir / "vault_backup_20250102_000000.enc"
+        old_backup.write_text("old raw vault")
+        new_backup.write_text("new raw vault")
+
+        assert vault.list_backups() == [str(new_backup), str(old_backup)]
+
+        vault.restore_from_backup(1)
+
+        assert vault.vault_path.read_text() == "old raw vault"
+
+    def test_restore_backup_errors(self, tmp_path):
+        """Should reject restore when no backup exists or index is invalid."""
+        vault = PassphraseVault(vault_path=str(tmp_path / "vault.enc"))
+
+        with pytest.raises(ValueError, match="No backups"):
+            vault.restore_from_backup()
+
+        (vault.backup_dir / "vault_backup_20250101_000000.enc").write_text("raw")
+        with pytest.raises(ValueError, match="out of range"):
+            vault.restore_from_backup(1)
 
 
 class TestPassphraseVaultErrors:
@@ -98,6 +149,44 @@ class TestPassphraseVaultErrors:
         # Should raise some exception (CryptoError or ValueError depending on implementation)
         with pytest.raises((ValueError, Exception)):
             vault.retrieve_passphrase("test", "WrongPassword123!@#")
+
+    @pytest.mark.parametrize(
+        ("raw_contents", "message"),
+        [
+            ("LEGACY\nsalt\n---DATA---\ndata\n---HMAC---\nhmac", "Unrecognized"),
+            ("SSCVAULT\nsalt\nBAD\npayload\n---HMAC---\nhmac", "format"),
+            ("SSCVAULT\nnot-hex\n---DATA---\npayload\n---HMAC---\nhmac", "salt"),
+            ("SSCVAULT\nabcdef\n---DATA---\npayload\nNOHMAC\nhmac", "missing HMAC"),
+        ],
+    )
+    def test_load_vault_rejects_malformed_raw_contents(
+        self, tmp_path, raw_contents, message
+    ):
+        """Should reject malformed vault storage before decryption."""
+        vault = PassphraseVault(vault_path=str(tmp_path / "vault.enc"))
+        vault.vault_path.write_text(raw_contents)
+
+        with pytest.raises(ValueError, match=message):
+            vault.list_labels("master")
+
+    def test_load_vault_rejects_invalid_decrypted_json(self, tmp_path):
+        """Should reject authenticated vault contents that are not JSON."""
+        master = "master"
+        vault = PassphraseVault(vault_path=str(tmp_path / "vault.enc"))
+        encrypted_vault = encrypt_text("not-json", master)
+        hmac_salt = b"\x01" * 32
+        vault_hmac = vault._compute_hmac(encrypted_vault, master, hmac_salt)
+        vault.vault_path.write_text(
+            "SSCVAULT\n"
+            f"{hmac_salt.hex()}\n"
+            "---DATA---\n"
+            f"{encrypted_vault}\n"
+            "---HMAC---\n"
+            f"{vault_hmac}"
+        )
+
+        with pytest.raises(ValueError, match="corrupted"):
+            vault.list_labels(master)
 
 
 class TestPassphraseVaultOperations:
@@ -151,3 +240,108 @@ class TestPassphraseVaultOperations:
 
         labels = vault.list_labels(master)
         assert labels == []
+
+
+class TestPassphraseVaultRawStorage:
+    """Tests for backend-aware raw vault storage helpers."""
+
+    def test_file_backend_raw_storage_roundtrip_and_delete(self, tmp_path):
+        """Should read, write, and delete raw file vault contents."""
+        vault = PassphraseVault(vault_path=str(tmp_path / "vault.enc"))
+
+        assert vault.read_raw_vault() is None
+
+        vault.write_raw_vault("raw vault contents")
+        assert vault.read_raw_vault() == "raw vault contents"
+        assert vault.vault_exists() is True
+
+        vault.delete_vault_storage()
+        assert vault.read_raw_vault() is None
+        vault.delete_vault_storage()
+
+    def test_keychain_backend_raw_storage_roundtrip_and_delete(self, tmp_path):
+        """Should proxy raw storage helpers to the keychain backend."""
+        mock_keyring = _mock_keyring_with_storage()
+        with patch(
+            "secure_string_cipher.keychain_backend._get_keyring",
+            return_value=mock_keyring,
+        ):
+            vault = PassphraseVault(
+                vault_path=str(tmp_path / "vault.enc"), backend="keychain"
+            )
+
+        assert vault.get_vault_path() == "OS Keychain"
+        assert vault.read_raw_vault() is None
+        assert vault.vault_exists() is False
+
+        vault.write_raw_vault("keychain raw vault")
+        assert vault.read_raw_vault() == "keychain raw vault"
+        assert vault.vault_exists() is True
+
+        vault.delete_vault_storage()
+        assert vault.read_raw_vault() is None
+        assert vault.vault_exists() is False
+
+
+class TestPassphraseVaultMigration:
+    """Tests for file/keychain migration helpers."""
+
+    def test_migrate_to_keychain_stores_existing_file_vault(self, tmp_path):
+        """Should validate and copy raw file vault contents to keychain."""
+        master = "master"
+        vault = PassphraseVault(vault_path=str(tmp_path / "vault.enc"))
+        vault.store_passphrase("label", "value", master)
+        raw_contents = vault.read_raw_vault()
+        mock_keychain = MagicMock()
+
+        with patch(
+            "secure_string_cipher.keychain_backend.KeychainVaultBackend",
+            return_value=mock_keychain,
+        ):
+            vault.migrate_to_keychain(master)
+
+        mock_keychain.store_vault.assert_called_once_with(raw_contents)
+
+    def test_migrate_to_keychain_rejects_missing_or_empty_file_vault(self, tmp_path):
+        """Should fail clearly when no usable file vault is present."""
+        missing_vault = PassphraseVault(vault_path=str(tmp_path / "missing.enc"))
+        with pytest.raises(ValueError, match="No file vault"):
+            missing_vault.migrate_to_keychain("master")
+
+        empty_vault = PassphraseVault(vault_path=str(tmp_path / "empty.enc"))
+        empty_vault.vault_path.write_text("")
+        with pytest.raises(ValueError, match="empty"):
+            empty_vault.migrate_to_keychain("master")
+
+    def test_migrate_to_file_writes_keychain_vault_and_restores_backend(self, tmp_path):
+        """Should validate keychain contents, write them to disk, and restore state."""
+        master = "master"
+        source = PassphraseVault(vault_path=str(tmp_path / "source.enc"))
+        source.store_passphrase("label", "value", master)
+        raw_contents = source.read_raw_vault()
+        mock_keychain = MagicMock()
+        mock_keychain.load_vault.return_value = raw_contents
+
+        target = PassphraseVault(vault_path=str(tmp_path / "target.enc"))
+        with patch(
+            "secure_string_cipher.keychain_backend.KeychainVaultBackend",
+            return_value=mock_keychain,
+        ):
+            target.migrate_to_file(master)
+
+        assert target.backend == "file"
+        assert target.read_raw_vault() == raw_contents
+        assert target.retrieve_passphrase("label", master) == "value"
+
+    def test_migrate_to_file_rejects_missing_keychain_vault(self, tmp_path):
+        """Should fail clearly when the keychain has no vault contents."""
+        mock_keychain = MagicMock()
+        mock_keychain.load_vault.return_value = None
+        vault = PassphraseVault(vault_path=str(tmp_path / "vault.enc"))
+
+        with patch(
+            "secure_string_cipher.keychain_backend.KeychainVaultBackend",
+            return_value=mock_keychain,
+        ):
+            with pytest.raises(ValueError, match="No keychain vault"):
+                vault.migrate_to_file("master")

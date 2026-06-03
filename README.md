@@ -1,7 +1,7 @@
 # secure-string-cipher
 
 [![CI](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-79%25-green.svg)](https://github.com/TheRedTower/secure-string-cipher)
+[![Coverage](https://img.shields.io/badge/coverage-85%25-green.svg)](https://github.com/TheRedTower/secure-string-cipher)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
@@ -371,8 +371,8 @@ uv sync --extra dev --locked
 # Run checks with the locked environment
 uv run --locked ruff check src tests
 uv run --locked ruff format --check src tests
-uv run --locked mypy src tests
-uv run --locked pytest tests/ --cov=secure_string_cipher --cov-report=xml --cov-fail-under=69
+uv run --locked mypy src
+uv run --locked pytest tests/ --cov=secure_string_cipher --cov-report=xml --cov-fail-under=85
 ```
 
 See [DEVELOPER.md](DEVELOPER.md) for detailed development workflow and [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.

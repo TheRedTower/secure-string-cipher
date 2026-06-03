@@ -19,6 +19,8 @@ Covers:
 from __future__ import annotations
 
 import argparse
+import io
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -30,19 +32,44 @@ from secure_string_cipher.cli_args import (
     EXIT_SUCCESS,
     EXIT_VAULT_ERROR,
     _get_password_from_key_file,
+    _get_password_from_vault,
+    _get_vault,
     _validate_vault_format,
     cmd_decrypt,
     cmd_encrypt,
     cmd_shred,
     cmd_store,
+    cmd_vault_backend,
+    cmd_vault_backups,
     cmd_vault_delete,
     cmd_vault_export,
     cmd_vault_import,
     cmd_vault_list,
     cmd_vault_migrate,
     cmd_vault_reset,
+    cmd_vault_restore,
+    cmd_vault_status,
 )
-from secure_string_cipher.core import CryptoError, encrypt_file, encrypt_text
+from secure_string_cipher.core import (
+    CryptoError,
+    encrypt_bytes,
+    encrypt_file,
+    encrypt_text,
+)
+
+
+class _BinaryInput:
+    def __init__(self, data: bytes):
+        self.buffer = io.BytesIO(data)
+
+
+class _BinaryOutput:
+    def __init__(self):
+        self.buffer = io.BytesIO()
+
+    def isatty(self):
+        return False
+
 
 # =============================================================================
 # _validate_vault_format
@@ -119,6 +146,134 @@ class TestGetPasswordFromKeyFile:
         with pytest.raises(SystemExit) as exc_info:
             _get_password_from_key_file(str(key_file))
         assert exc_info.value.code == EXIT_FILE_ERROR
+
+
+# =============================================================================
+# vault helper flows
+# =============================================================================
+
+
+class TestVaultHelpers:
+    """Tests for vault helper functions."""
+
+    @patch("secure_string_cipher.cli_args.PassphraseVault")
+    def test_get_vault_returns_existing_vault(self, mock_vault_cls):
+        """Should return existing vault without prompting."""
+        mock_vault = MagicMock()
+        mock_vault.vault_exists.return_value = True
+        mock_vault_cls.return_value = mock_vault
+
+        assert _get_vault() is mock_vault
+
+    @patch("secure_string_cipher.cli_args._prompt_password_with_validation")
+    @patch("builtins.input", return_value="y")
+    @patch("secure_string_cipher.cli_args.PassphraseVault")
+    def test_get_vault_initializes_missing_vault(
+        self, mock_vault_cls, mock_input, mock_prompt
+    ):
+        """Should initialize a missing vault when the user accepts."""
+        mock_vault = MagicMock()
+        mock_vault.vault_exists.return_value = False
+        mock_vault_cls.return_value = mock_vault
+        mock_prompt.return_value = "master"
+
+        assert _get_vault() is mock_vault
+        mock_vault.store_passphrase.assert_called_once_with(
+            "__init__", "init", "master"
+        )
+        mock_vault.delete_passphrase.assert_called_once_with("__init__", "master")
+
+    @patch("builtins.input", return_value="n")
+    @patch("secure_string_cipher.cli_args.PassphraseVault")
+    def test_get_vault_exits_when_initialization_declined(
+        self, mock_vault_cls, mock_input
+    ):
+        """Should exit when the missing vault initialization is declined."""
+        mock_vault = MagicMock()
+        mock_vault.vault_exists.return_value = False
+        mock_vault_cls.return_value = mock_vault
+
+        with pytest.raises(SystemExit) as exc_info:
+            _get_vault()
+        assert exc_info.value.code == EXIT_VAULT_ERROR
+
+    @patch(
+        "secure_string_cipher.cli_args._prompt_master_password", return_value="master"
+    )
+    @patch("secure_string_cipher.cli_args._get_vault")
+    def test_get_password_from_vault_success(self, mock_get_vault, mock_prompt_master):
+        """Should retrieve vault password and record a successful unlock."""
+        mock_vault = MagicMock()
+        mock_vault.vault_path = "vault.enc"
+        mock_vault.retrieve_passphrase.return_value = "stored"
+        mock_get_vault.return_value = mock_vault
+        limiter = MagicMock()
+        limiter.check_rate_limit.return_value = (True, 0)
+
+        with patch("secure_string_cipher.cli_args._cli_limiter", limiter):
+            assert _get_password_from_vault("label") == "stored"
+
+        mock_vault.retrieve_passphrase.assert_called_once_with("label", "master")
+        limiter.record_attempt.assert_called_once_with(
+            "vault_unlock", "vault.enc", success=True
+        )
+
+    @patch("secure_string_cipher.cli_args._get_vault")
+    def test_get_password_from_vault_rate_limited(self, mock_get_vault):
+        """Should exit before prompting when vault unlock is rate limited."""
+        mock_vault = MagicMock()
+        mock_vault.vault_path = "vault.enc"
+        mock_get_vault.return_value = mock_vault
+        limiter = MagicMock()
+        limiter.check_rate_limit.return_value = (False, 30.0)
+
+        with patch("secure_string_cipher.cli_args._cli_limiter", limiter):
+            with pytest.raises(SystemExit) as exc_info:
+                _get_password_from_vault("label")
+
+        assert exc_info.value.code == EXIT_AUTH_ERROR
+
+    @patch(
+        "secure_string_cipher.cli_args._prompt_master_password", return_value="master"
+    )
+    @patch("secure_string_cipher.cli_args._get_vault")
+    def test_get_password_from_vault_missing_label(
+        self, mock_get_vault, mock_prompt_master
+    ):
+        """Should map missing vault labels to a vault exit error."""
+        mock_vault = MagicMock()
+        mock_vault.vault_path = "vault.enc"
+        mock_vault.retrieve_passphrase.side_effect = ValueError("not found")
+        mock_get_vault.return_value = mock_vault
+        limiter = MagicMock()
+        limiter.check_rate_limit.return_value = (True, 0)
+
+        with patch("secure_string_cipher.cli_args._cli_limiter", limiter):
+            with pytest.raises(SystemExit) as exc_info:
+                _get_password_from_vault("missing")
+
+        assert exc_info.value.code == EXIT_VAULT_ERROR
+
+    @patch(
+        "secure_string_cipher.cli_args._prompt_master_password", return_value="master"
+    )
+    @patch("secure_string_cipher.cli_args._get_vault")
+    def test_get_password_from_vault_crypto_error(
+        self, mock_get_vault, mock_prompt_master
+    ):
+        """Should map vault authentication failures to auth errors."""
+        mock_vault = MagicMock()
+        mock_vault.vault_path = "vault.enc"
+        mock_vault.retrieve_passphrase.side_effect = CryptoError("auth")
+        mock_get_vault.return_value = mock_vault
+        limiter = MagicMock()
+        limiter.check_rate_limit.return_value = (True, 0)
+
+        with patch("secure_string_cipher.cli_args._cli_limiter", limiter):
+            with pytest.raises(SystemExit) as exc_info:
+                _get_password_from_vault("label")
+
+        assert exc_info.value.code == EXIT_AUTH_ERROR
 
 
 # =============================================================================
@@ -266,6 +421,50 @@ class TestCmdEncryptPaths:
         )
         result = cmd_encrypt(args)
         assert result == EXIT_SUCCESS
+
+    @patch("secure_string_cipher.cli_args._prompt_password", return_value="pw")
+    def test_encrypt_stdin_binary_to_stdout(self, mock_prompt):
+        """Should encrypt raw stdin bytes to stdout."""
+        stdout = _BinaryOutput()
+        args = argparse.Namespace(
+            text=None,
+            file="-",
+            vault=None,
+            key_file=None,
+            force=False,
+        )
+
+        with (
+            patch.object(sys, "stdin", _BinaryInput(b"\x00payload")),
+            patch.object(sys, "stdout", stdout),
+        ):
+            result = cmd_encrypt(args)
+
+        assert result == EXIT_SUCCESS
+        assert stdout.buffer.getvalue().strip()
+
+    @patch("secure_string_cipher.cli_args._prompt_password", return_value="pw")
+    @patch(
+        "secure_string_cipher.cli_args.encrypt_bytes", side_effect=CryptoError("bad")
+    )
+    def test_encrypt_stdin_crypto_error(self, mock_encrypt_bytes, mock_prompt):
+        """Should map stdin encryption failures to auth errors."""
+        args = argparse.Namespace(
+            text=None,
+            file="-",
+            vault=None,
+            key_file=None,
+            force=False,
+        )
+
+        with (
+            patch.object(sys, "stdin", _BinaryInput(b"payload")),
+            patch.object(sys, "stdout", _BinaryOutput()),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encrypt(args)
+
+        assert exc_info.value.code == EXIT_AUTH_ERROR
 
 
 # =============================================================================
@@ -467,6 +666,64 @@ class TestCmdDecryptPaths:
         )
         result = cmd_decrypt(args)
         assert result == EXIT_SUCCESS
+
+    @patch("secure_string_cipher.cli_args._prompt_password", return_value="pw")
+    def test_decrypt_stdin_binary_to_stdout(self, mock_prompt):
+        """Should decrypt stdin bytes without requiring a real input file."""
+        token = encrypt_bytes(b"\x00payload", "pw")
+        stdout = _BinaryOutput()
+        limiter = MagicMock()
+        limiter.check_rate_limit.return_value = (True, 0)
+        args = argparse.Namespace(
+            text=None,
+            file="-",
+            vault=None,
+            key_file=None,
+            force=False,
+            output=None,
+            restore_filename=True,
+        )
+
+        with (
+            patch.object(sys, "stdin", _BinaryInput(token + b"\n")),
+            patch.object(sys, "stdout", stdout),
+            patch("secure_string_cipher.cli_args._cli_limiter", limiter),
+        ):
+            result = cmd_decrypt(args)
+
+        assert result == EXIT_SUCCESS
+        assert stdout.buffer.getvalue() == b"\x00payload"
+        limiter.record_attempt.assert_called_once_with(
+            "decrypt_file", "-", success=True
+        )
+
+    @patch("secure_string_cipher.cli_args._prompt_password", return_value="pw")
+    def test_decrypt_stdin_crypto_error(self, mock_prompt):
+        """Should map stdin decryption failures to auth errors."""
+        limiter = MagicMock()
+        limiter.check_rate_limit.return_value = (True, 0)
+        args = argparse.Namespace(
+            text=None,
+            file="-",
+            vault=None,
+            key_file=None,
+            force=False,
+            output=None,
+            restore_filename=True,
+        )
+
+        with (
+            patch.object(sys, "stdin", _BinaryInput(b"not-base64")),
+            patch.object(sys, "stdout", _BinaryOutput()),
+            patch("secure_string_cipher.cli_args._cli_limiter", limiter),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_decrypt(args)
+
+        assert exc_info.value.code == EXIT_AUTH_ERROR
+        limiter.record_attempt.assert_called_once_with(
+            "decrypt_file", "-", success=False
+        )
 
 
 # =============================================================================
@@ -823,6 +1080,163 @@ class TestCmdVaultMigrate:
         with pytest.raises(SystemExit) as exc_info:
             cmd_vault_migrate(args)
         assert exc_info.value.code == EXIT_AUTH_ERROR
+
+    @patch("secure_string_cipher.cli_args._prompt_master_password")
+    @patch("secure_string_cipher.cli_args.PassphraseVault")
+    def test_migrate_keychain_unavailable(self, mock_vault_cls, mock_prompt_master):
+        """Should map unavailable keychain backend to vault error."""
+        from secure_string_cipher.keychain_backend import KeychainUnavailableError
+
+        mock_vault = MagicMock()
+        mock_vault_cls.return_value = mock_vault
+        mock_prompt_master.return_value = "master"
+        mock_vault.migrate_to_keychain.side_effect = KeychainUnavailableError("no key")
+
+        args = argparse.Namespace(target_backend="keychain")
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_vault_migrate(args)
+        assert exc_info.value.code == EXIT_VAULT_ERROR
+
+    @patch("secure_string_cipher.cli_args._prompt_master_password")
+    @patch("secure_string_cipher.cli_args.PassphraseVault")
+    def test_migrate_unexpected_error(self, mock_vault_cls, mock_prompt_master):
+        """Should map unexpected migration failures to vault error."""
+        mock_vault = MagicMock()
+        mock_vault_cls.return_value = mock_vault
+        mock_prompt_master.return_value = "master"
+        mock_vault.migrate_to_file.side_effect = RuntimeError("boom")
+
+        args = argparse.Namespace(target_backend="file")
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_vault_migrate(args)
+        assert exc_info.value.code == EXIT_VAULT_ERROR
+
+
+# =============================================================================
+# vault status/backend/backups/restore
+# =============================================================================
+
+
+class TestCmdVaultManagement:
+    """Tests for newer vault management commands."""
+
+    @patch("secure_string_cipher.cli_args.load_vault_settings")
+    @patch("secure_string_cipher.cli_args.PassphraseVault")
+    def test_status_prints_backend_and_paths(
+        self, mock_vault_cls, mock_load_settings, capsys
+    ):
+        """Should print current backend, locations, and existence."""
+        settings = MagicMock()
+        settings.vault_backend = "file"
+        mock_load_settings.return_value = settings
+        mock_vault = MagicMock()
+        mock_vault.backend = "file"
+        mock_vault.vault_path = "/vault.enc"
+        mock_vault.backup_dir = "/backups"
+        mock_vault.get_vault_path.return_value = "/vault.enc"
+        mock_vault.vault_exists.return_value = True
+        mock_vault_cls.return_value = mock_vault
+
+        result = cmd_vault_status(argparse.Namespace())
+
+        assert result == EXIT_SUCCESS
+        output = capsys.readouterr().out
+        assert "Backend: file" in output
+        assert "Vault exists: yes" in output
+
+    @patch("secure_string_cipher.cli_args.load_vault_settings")
+    def test_backend_prints_current_backend(self, mock_load_settings, capsys):
+        """Should print active backend when no backend is supplied."""
+        settings = MagicMock()
+        settings.vault_backend = "keychain"
+        mock_load_settings.return_value = settings
+
+        result = cmd_vault_backend(argparse.Namespace(backend=None))
+
+        assert result == EXIT_SUCCESS
+        assert capsys.readouterr().out.strip() == "keychain"
+
+    @patch("secure_string_cipher.cli_args.set_vault_backend")
+    def test_backend_sets_active_backend(self, mock_set_backend):
+        """Should persist a requested active backend."""
+        settings = MagicMock()
+        settings.vault_backend = "file"
+        mock_set_backend.return_value = settings
+
+        result = cmd_vault_backend(argparse.Namespace(backend="file"))
+
+        assert result == EXIT_SUCCESS
+        mock_set_backend.assert_called_once_with("file")
+
+    @patch(
+        "secure_string_cipher.cli_args.set_vault_backend", side_effect=ValueError("bad")
+    )
+    def test_backend_invalid_backend_exits(self, mock_set_backend):
+        """Should map invalid backend settings to input errors."""
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_vault_backend(argparse.Namespace(backend="invalid"))
+        assert exc_info.value.code == EXIT_INPUT_ERROR
+
+    @patch("secure_string_cipher.cli_args.PassphraseVault")
+    def test_backups_prints_empty_message(self, mock_vault_cls, capsys):
+        """Should print a clear message when no backups exist."""
+        mock_vault = MagicMock()
+        mock_vault.list_backups.return_value = []
+        mock_vault_cls.return_value = mock_vault
+
+        result = cmd_vault_backups(argparse.Namespace())
+
+        assert result == EXIT_SUCCESS
+        assert "No backups" in capsys.readouterr().out
+        mock_vault_cls.assert_called_once_with(backend="file")
+
+    @patch("secure_string_cipher.cli_args.PassphraseVault")
+    def test_backups_prints_indexed_list(self, mock_vault_cls, capsys):
+        """Should print available backups with indexes."""
+        mock_vault = MagicMock()
+        mock_vault.list_backups.return_value = ["/backup/new.enc", "/backup/old.enc"]
+        mock_vault_cls.return_value = mock_vault
+
+        result = cmd_vault_backups(argparse.Namespace())
+
+        assert result == EXIT_SUCCESS
+        output = capsys.readouterr().out
+        assert "[0] /backup/new.enc" in output
+        assert "[1] /backup/old.enc" in output
+
+    @patch("secure_string_cipher.cli_args.PassphraseVault")
+    def test_restore_success(self, mock_vault_cls):
+        """Should restore a selected backup."""
+        mock_vault = MagicMock()
+        mock_vault.vault_path = "/vault.enc"
+        mock_vault_cls.return_value = mock_vault
+
+        result = cmd_vault_restore(argparse.Namespace(index=2))
+
+        assert result == EXIT_SUCCESS
+        mock_vault.restore_from_backup.assert_called_once_with(2)
+
+    @patch("secure_string_cipher.cli_args.PassphraseVault")
+    def test_restore_value_error(self, mock_vault_cls):
+        """Should map restore validation failures to vault errors."""
+        mock_vault = MagicMock()
+        mock_vault.restore_from_backup.side_effect = ValueError("no backups")
+        mock_vault_cls.return_value = mock_vault
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_vault_restore(argparse.Namespace(index=0))
+        assert exc_info.value.code == EXIT_VAULT_ERROR
+
+    @patch("secure_string_cipher.cli_args.PassphraseVault")
+    def test_restore_os_error(self, mock_vault_cls):
+        """Should map filesystem restore failures to file errors."""
+        mock_vault = MagicMock()
+        mock_vault.restore_from_backup.side_effect = OSError("denied")
+        mock_vault_cls.return_value = mock_vault
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_vault_restore(argparse.Namespace(index=0))
+        assert exc_info.value.code == EXIT_FILE_ERROR
 
 
 # =============================================================================
