@@ -161,9 +161,21 @@ def _validated_backend(value: object) -> str:
     return backend
 
 
+def _default_vault_backend() -> str:
+    """Return the safest available default vault backend."""
+    try:
+        from .keychain_backend import is_keychain_available
+
+        if is_keychain_available():
+            return VAULT_BACKEND_KEYCHAIN
+    except Exception:
+        pass
+    return VAULT_BACKEND_FILE
+
+
 def _settings_from_mapping(data: dict[str, Any]) -> VaultSettings:
     """Build vault settings from persisted JSON data."""
-    settings = VaultSettings()
+    settings = VaultSettings(vault_backend=_default_vault_backend())
     if "vault_backend" in data and data["vault_backend"] is not None:
         settings.vault_backend = _validated_backend(data["vault_backend"])
     if "vault_path" in data and data["vault_path"]:
@@ -180,7 +192,7 @@ def load_vault_settings(*, apply_env: bool = True) -> VaultSettings:
     control vault placement without mutating the user's config file.
     """
     settings = VaultSettings(
-        vault_backend=VAULT_BACKEND_FILE,
+        vault_backend=_default_vault_backend(),
         vault_path=str(get_default_vault_path()),
         backup_dir=str(get_default_backup_dir()),
     )

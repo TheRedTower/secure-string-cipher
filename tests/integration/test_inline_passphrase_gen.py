@@ -9,14 +9,18 @@ from secure_string_cipher.cli import main
 class TestInlinePassphraseGeneration:
     """Test the /gen inline command during password entry."""
 
-    def test_gen_command_alphanumeric_no_vault(self):
+    def test_gen_command_alphanumeric_stores_without_printing(
+        self, tmp_path, monkeypatch
+    ):
         """Test /gen auto-generates alphanumeric passphrase."""
+        monkeypatch.setenv("HOME", str(tmp_path))
         input_data = "\n".join(
             [
                 "1",  # Encrypt text
                 "Hello World",  # Message
                 "/gen",  # Generate passphrase inline
-                "n",  # Don't store in vault
+                "hello-world",  # Vault label
+                "ValidMasterPass123!",  # Master password
                 "n",  # Don't continue
             ]
         )
@@ -32,23 +36,26 @@ class TestInlinePassphraseGeneration:
             output = mock_out.getvalue()
 
         # Verify the inline generation flow
-        assert "💡 Tip: Type '/gen'" in output
+        assert "/gen generates+stores" in output
         assert "Auto-Generating Secure Passphrase" in output
-        assert "Generated Passphrase:" in output
+        assert "Generated Passphrase:" not in output
+        assert "Generated secure passphrase (hidden)" in output
         assert "Entropy:" in output
-        assert "Store this passphrase in vault?" in output
-        assert "Using this passphrase for current operation" in output
+        assert "Save generated passphrase to vault" in output
+        assert "Using stored passphrase for current operation" in output
         assert "Encrypted" in output
         assert result == 0
 
-    def test_gen_command_with_test_message(self):
+    def test_gen_command_with_test_message(self, tmp_path, monkeypatch):
         """Test /gen with a different test message."""
+        monkeypatch.setenv("HOME", str(tmp_path))
         input_data = "\n".join(
             [
                 "1",
                 "Test message",
                 "/gen",
-                "n",
+                "test-message",
+                "ValidMasterPass123!",
                 "n",
             ]
         )
@@ -65,17 +72,17 @@ class TestInlinePassphraseGeneration:
             output = mock_out.getvalue()
 
         assert "Auto-Generating Secure Passphrase" in output
-        assert "Generated Passphrase:" in output
+        assert "Generated Passphrase:" not in output
         assert result == 0
 
     def test_gen_command_with_vault_storage(self, tmp_path, monkeypatch):
         """Test /gen with vault storage."""
+        monkeypatch.setenv("HOME", str(tmp_path))
         input_data = "\n".join(
             [
                 "1",  # Encrypt text
                 "Test message",
                 "/gen",  # Generate passphrase inline
-                "y",  # Store in vault
                 "test-label",  # Label
                 "ValidMasterPass123!",  # Master password
                 "n",  # Don't continue
@@ -89,30 +96,29 @@ class TestInlinePassphraseGeneration:
             mock_in.write(input_data + "\n")
             mock_in.seek(0)
 
-            # Use monkeypatch for proper cleanup and worker isolation
-            monkeypatch.setenv("HOME", str(tmp_path))
-
             result = main(exit_on_completion=False)
 
             output = mock_out.getvalue()
 
         assert "Auto-Generating Secure Passphrase" in output
-        assert "Store this passphrase in vault?" in output
+        assert "Save generated passphrase to vault" in output
         assert "Passphrase 'test-label' stored in vault!" in output
         assert "Vault location:" in output
-        assert "Using this passphrase for current operation" in output
+        assert "Using stored passphrase for current operation" in output
         assert "Encrypted" in output
         assert result == 0
 
-    def test_gen_command_aliases(self):
+    def test_gen_command_aliases(self, tmp_path, monkeypatch):
         """Test that /generate and /g also work."""
-        for alias in ["/generate", "/g"]:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        for index, alias in enumerate(["/generate", "/g"], 1):
             input_data = "\n".join(
                 [
                     "1",
                     "Test message",
                     alias,  # Alternative command
-                    "n",
+                    f"alias-{index}",
+                    "ValidMasterPass123!",
                     "n",
                 ]
             )
@@ -133,15 +139,17 @@ class TestInlinePassphraseGeneration:
             )
             assert result == 0
 
-    def test_gen_no_confirmation_required(self):
+    def test_gen_no_confirmation_required(self, tmp_path, monkeypatch):
         """Test that generated passwords skip confirmation prompt."""
         # This test ensures that after /gen, there's no "Confirm passphrase:" prompt
+        monkeypatch.setenv("HOME", str(tmp_path))
         input_data = "\n".join(
             [
                 "1",
                 "Test message",
                 "/gen",
-                "n",
+                "no-confirm",
+                "ValidMasterPass123!",
                 "n",
             ]
         )

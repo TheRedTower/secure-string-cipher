@@ -6,13 +6,13 @@ When stdin is piped or redirected (tests, scripts), visible input is used.
 """
 
 import getpass as getpass_module
-import os
 import sys
 from collections.abc import Callable
 from hashlib import sha256
 from pathlib import Path
 from typing import TextIO, cast
 
+from .config import MAX_FILE_SIZE
 from .core import (
     _ensure_no_symlink,
     decrypt_file,
@@ -250,18 +250,31 @@ def _get_input(mode: int, in_stream: TextIO, out_stream: TextIO) -> str:
 
 
 def _offer_vault_storage(
-    passphrase: str, in_stream: TextIO, out_stream: TextIO
-) -> None:
-    """Prompt the user to store a generated passphrase in the vault."""
+    passphrase: str,
+    in_stream: TextIO,
+    out_stream: TextIO,
+    *,
+    require_storage: bool = False,
+) -> bool:
+    """Store a generated passphrase in the vault without displaying it."""
 
-    out_stream.write("\n💾 Store this passphrase in vault? (y/n) [n]: ")
-    out_stream.flush()
-    store_choice = in_stream.readline().rstrip("\n").lower()
+    if require_storage:
+        out_stream.write("\n💾 Save generated passphrase to vault\n")
+        out_stream.flush()
+    else:
+        out_stream.write("\n💾 Store this passphrase in vault? (y/n) [n]: ")
+        out_stream.flush()
+        store_choice = in_stream.readline().rstrip("\n").lower()
 
-    if store_choice not in {"y", "yes"}:
-        return
+        if store_choice not in {"y", "yes"}:
+            return False
 
-    vault = PassphraseVault()
+    try:
+        vault = PassphraseVault()
+    except Exception as e:
+        out_stream.write(f"⚠️  Could not open vault: {e}\n")
+        out_stream.flush()
+        return False
 
     out_stream.write("Enter a label for this passphrase (e.g., 'project-x'): ")
     out_stream.flush()
@@ -272,7 +285,7 @@ def _offer_vault_storage(
             "⚠️  Label is required to store passphrase. Skipping vault save.\n"
         )
         out_stream.flush()
-        return
+        return False
 
     master_pw = _read_password(
         "Enter master password to encrypt vault: ", in_stream, out_stream
@@ -283,7 +296,7 @@ def _offer_vault_storage(
             "⚠️  Master password is required to store passphrase. Skipping vault save.\n"
         )
         out_stream.flush()
-        return
+        return False
 
     try:
         vault.store_passphrase(label, passphrase, master_pw)
@@ -292,15 +305,145 @@ def _offer_vault_storage(
         )
         out_stream.write(f"Vault location: {vault.get_vault_path()}\n")
         out_stream.flush()
+        return True
     except Exception as e:
         out_stream.write(f"⚠️  Could not store in vault: {e}\n")
         out_stream.flush()
+        return False
+
+
+def _resolve_vault_label(selection: str, labels: list[str]) -> str | None:
+    """Resolve a typed vault label or one-based list number."""
+    value = selection.strip()
+    if value.isdigit():
+        index = int(value) - 1
+        if 0 <= index < len(labels):
+            return labels[index]
+    return value or None
+
+
+def _load_passphrase_from_vault(
+    in_stream: TextIO, out_stream: TextIO, *, for_operation: bool = True
+) -> str | None:
+    """Load a passphrase from the vault without printing the secret."""
+    try:
+        vault = PassphraseVault()
+    except Exception as e:
+        out_stream.write(f"Error opening vault: {e}\n")
+        out_stream.flush()
+        return None
+
+    if not vault.vault_exists():
+        out_stream.write(
+            "Error: No vault found. Create one by storing a passphrase first (option 6).\n"
+        )
+        out_stream.flush()
+        return None
+
+    out_stream.write(colorize("\n🔓 Retrieve Passphrase from Vault", "cyan") + "\n")
+    master_pw = _read_password("\nEnter master password: ", in_stream, out_stream)
+
+    if not master_pw:
+        out_stream.write("Error: Master password cannot be empty\n")
+        out_stream.flush()
+        return None
+
+    try:
+        labels = vault.list_labels(master_pw)
+        if not labels:
+            out_stream.write("Vault is empty. No passphrases stored yet.\n")
+            out_stream.flush()
+            return None
+
+        out_stream.write("\nAvailable passphrases:\n")
+        for i, lbl in enumerate(labels, 1):
+            out_stream.write(f"  {i}. {lbl}\n")
+
+        out_stream.write("\nEnter label or number to retrieve: ")
+        out_stream.flush()
+        selection = in_stream.readline().rstrip("\n")
+        label = _resolve_vault_label(selection, labels)
+
+        if not label:
+            out_stream.write("Error: Label cannot be empty\n")
+            out_stream.flush()
+            return None
+
+        passphrase = vault.retrieve_passphrase(label, master_pw)
+        if for_operation:
+            out_stream.write(
+                colorize(
+                    f"\n✅ Loaded passphrase '{label}' from vault for current operation.\n",
+                    "green",
+                )
+            )
+        else:
+            out_stream.write(
+                colorize(
+                    f"\n✅ Passphrase '{label}' retrieved and kept hidden.\n", "green"
+                )
+            )
+            out_stream.write(
+                "Use /vault at an encrypt/decrypt passphrase prompt to inject it.\n"
+            )
+        out_stream.flush()
+        return passphrase
+    except Exception as e:
+        out_stream.write(f"Error retrieving passphrase: {e}\n")
+        out_stream.flush()
+        return None
+
+
+def _derive_passphrase_from_key_file(key_file_path: str) -> str:
+    """Derive the operation passphrase from a key file."""
+    key_path = Path(key_file_path).expanduser()
+    _ensure_no_symlink(key_path, "key file")
+
+    if not key_path.exists():
+        raise ValueError(f"Key file not found: {key_file_path}")
+    if not key_path.is_file():
+        raise ValueError(f"Key file is not a regular file: {key_file_path}")
+
+    key_size = key_path.stat().st_size
+    if key_size == 0:
+        raise ValueError(f"Key file is empty: {key_file_path}")
+    if key_size > MAX_FILE_SIZE:
+        raise ValueError(f"Key file is too large: {key_file_path} ({key_size} bytes)")
+
+    return sha256(key_path.read_bytes()).hexdigest()
+
+
+def _load_passphrase_from_key_file(in_stream: TextIO, out_stream: TextIO) -> str | None:
+    """Prompt for a key file and return its derived passphrase."""
+    out_stream.write("\nEnter key file path: ")
+    out_stream.flush()
+    key_file_path = in_stream.readline().rstrip("\n")
+
+    if not key_file_path:
+        out_stream.write("Error: Key file path cannot be empty\n")
+        out_stream.flush()
+        return None
+
+    try:
+        password = _derive_passphrase_from_key_file(key_file_path)
+    except Exception as e:
+        out_stream.write(f"Error: {e}\n")
+        out_stream.flush()
+        return None
+
+    out_stream.write(
+        colorize(
+            "\n✅ Loaded passphrase from key file for current operation.\n", "green"
+        )
+    )
+    out_stream.flush()
+    return password
 
 
 def _handle_generate_passphrase_inline(
     in_stream: TextIO, out_stream: TextIO
 ) -> str | None:
-    """Generate a passphrase inline during password entry with optional vault storage.
+    """Generate, store, and inject a passphrase during password entry.
 
     Args:
         in_stream: Input stream
@@ -318,15 +461,24 @@ def _handle_generate_passphrase_inline(
 
     try:
         passphrase, entropy = generate_passphrase(strategy)
-        out_stream.write(colorize("\n✅ Generated Passphrase:", "green") + "\n")
-        out_stream.write(f"{passphrase}\n\n")
+        out_stream.write(
+            colorize("\n✅ Generated secure passphrase (hidden)", "green") + "\n"
+        )
         out_stream.write(f"Entropy: {entropy:.1f} bits\n")
         out_stream.flush()
 
-        _offer_vault_storage(passphrase, in_stream, out_stream)
+        stored = _offer_vault_storage(
+            passphrase, in_stream, out_stream, require_storage=True
+        )
+        if not stored:
+            out_stream.write(
+                "⚠️  Generated passphrase was not stored. Current operation cancelled.\n"
+            )
+            out_stream.flush()
+            return None
 
         out_stream.write(
-            colorize("\n✅ Using this passphrase for current operation...\n", "green")
+            colorize("\n✅ Using stored passphrase for current operation...\n", "green")
         )
         out_stream.flush()
         return passphrase
@@ -343,6 +495,7 @@ def _get_password(
     in_stream: TextIO | None = None,
     out_stream: TextIO | None = None,
     max_retries: int = MAX_PASSWORD_RETRIES,
+    validate_strength: bool = True,
 ) -> str:
     """Get and validate password with retry logic.
 
@@ -352,6 +505,7 @@ def _get_password(
         in_stream: Input stream
         out_stream: Output stream
         max_retries: Maximum number of retry attempts (default: 5)
+        validate_strength: Whether to enforce new-password strength rules
 
     Returns:
         Valid password string
@@ -367,14 +521,17 @@ def _get_password(
     while attempts < max_retries:
         attempts += 1
 
-        # Show requirements with helper command hint
         ostream.write("\n🔑 Password Entry\n")
-        ostream.write(
-            "Password must be at least 12 chars, include upper/lower/digits/symbols\n"
-        )
+        if validate_strength:
+            ostream.write(
+                "Password must be at least 12 chars, include upper/lower/digits/symbols\n"
+            )
+        else:
+            ostream.write("Enter the passphrase used for this encrypted data\n")
         ostream.write(
             colorize(
-                "💡 Tip: Type '/gen' to auto-generate a secure passphrase\n", "cyan"
+                "💡 Tip: /gen generates+stores, /vault or 7 loads vault, /keyfile or 11 uses a key file\n",
+                "cyan",
             )
         )
 
@@ -384,23 +541,47 @@ def _get_password(
             ostream.flush()
             sys.exit(1)
 
-        # Check for special commands to generate passphrase
-        if pw.lower() in ("/gen", "/generate", "/g"):
+        command = pw.lower()
+        confirm_current = confirm
+        validate_current = validate_strength
+
+        if command in ("/gen", "/generate", "/g"):
             generated_pw = _handle_generate_passphrase_inline(istream, ostream)
             if generated_pw:
                 pw = generated_pw
-                # Skip confirmation for generated passwords since user already saw it
-                confirm = False
+                confirm_current = False
+                validate_current = False
             else:
-                # Generation was cancelled, retry
                 ostream.write(
                     "⚠️  Passphrase generation cancelled. Please try again.\n\n"
                 )
                 ostream.flush()
                 continue
+        elif command in ("/vault", "/v", "7"):
+            vault_pw = _load_passphrase_from_vault(istream, ostream)
+            if vault_pw:
+                pw = vault_pw
+                confirm_current = False
+                validate_current = False
+            else:
+                ostream.write("⚠️  Vault retrieval cancelled. Please try again.\n\n")
+                ostream.flush()
+                continue
+        elif command in ("/keyfile", "/key-file", "/key", "11"):
+            key_file_pw = _load_passphrase_from_key_file(istream, ostream)
+            if key_file_pw:
+                pw = key_file_pw
+                confirm_current = False
+                validate_current = False
+            else:
+                ostream.write("⚠️  Key file loading cancelled. Please try again.\n\n")
+                ostream.flush()
+                continue
 
-        # Validate password strength
-        valid, msg = check_password_strength(pw)
+        if validate_current:
+            valid, msg = check_password_strength(pw)
+        else:
+            valid, msg = True, ""
         if not valid:
             remaining = max_retries - attempts
             if remaining > 0:
@@ -420,7 +601,7 @@ def _get_password(
                 sys.exit(1)
 
         # If confirmation required, validate match
-        if confirm:
+        if confirm_current:
             confirm_pw = _read_password("Confirm passphrase: ", istream, ostream)
 
             if confirm_pw == "":
@@ -516,11 +697,19 @@ def _handle_generate_passphrase(in_stream: TextIO, out_stream: TextIO) -> None:
 
     try:
         passphrase, entropy = generate_passphrase(strategy)
-        out_stream.write(colorize("\n✅ Generated Passphrase:", "green") + "\n")
-        out_stream.write(f"{passphrase}\n\n")
+        out_stream.write(
+            colorize("\n✅ Generated secure passphrase (hidden)", "green") + "\n"
+        )
         out_stream.write(f"Entropy: {entropy:.1f} bits\n")
-        _offer_vault_storage(passphrase, in_stream, out_stream)
-        out_stream.write("\n⚠️  Please save this passphrase securely!\n")
+        stored = _offer_vault_storage(
+            passphrase, in_stream, out_stream, require_storage=True
+        )
+        if stored:
+            out_stream.write("\nStored passphrase is available from the vault.\n")
+        else:
+            out_stream.write(
+                "\nGenerated passphrase discarded because it was not stored.\n"
+            )
         out_stream.flush()
     except Exception as e:
         out_stream.write(f"Error generating passphrase: {e}\n")
@@ -574,52 +763,8 @@ def _handle_store_passphrase(in_stream: TextIO, out_stream: TextIO) -> None:
 
 
 def _handle_retrieve_passphrase(in_stream: TextIO, out_stream: TextIO) -> None:
-    """Handle retrieving a passphrase from the vault."""
-    vault = PassphraseVault()
-
-    if not vault.vault_exists():
-        out_stream.write(
-            "Error: No vault found. Create one by storing a passphrase first (option 6).\n"
-        )
-        out_stream.flush()
-        return
-
-    out_stream.write(colorize("\n🔓 Retrieve Passphrase from Vault", "cyan") + "\n")
-    master_pw = _read_password("\nEnter master password: ", in_stream, out_stream)
-
-    if not master_pw:
-        out_stream.write("Error: Master password cannot be empty\n")
-        out_stream.flush()
-        return
-
-    try:
-        labels = vault.list_labels(master_pw)
-        if not labels:
-            out_stream.write("Vault is empty. No passphrases stored yet.\n")
-            out_stream.flush()
-            return
-
-        out_stream.write("\nAvailable passphrases:\n")
-        for i, lbl in enumerate(labels, 1):
-            out_stream.write(f"  {i}. {lbl}\n")
-
-        out_stream.write("\nEnter label to retrieve: ")
-        out_stream.flush()
-        label = in_stream.readline().rstrip("\n")
-
-        if not label:
-            out_stream.write("Error: Label cannot be empty\n")
-            out_stream.flush()
-            return
-
-        passphrase = vault.retrieve_passphrase(label, master_pw)
-        out_stream.write(colorize(f"\n✅ Passphrase for '{label}':", "green") + "\n")
-        out_stream.write(f"{passphrase}\n")
-        out_stream.flush()
-
-    except Exception as e:
-        out_stream.write(f"Error retrieving passphrase: {e}\n")
-        out_stream.flush()
+    """Handle retrieving a passphrase from the vault without displaying it."""
+    _load_passphrase_from_vault(in_stream, out_stream, for_operation=False)
 
 
 def _handle_list_vault(in_stream: TextIO, out_stream: TextIO) -> None:
@@ -693,7 +838,11 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
             return
         try:
             vault.list_labels(master_pw)  # Verify password
-            content = vault.vault_path.read_text()
+            content = vault.read_raw_vault()
+            if content is None:
+                out_stream.write("Error: No vault found.\n")
+                out_stream.flush()
+                return
             out_stream.write(colorize("\n✅ Vault exported:", "green") + "\n")
             out_stream.write(content + "\n")
             out_stream.write("\n💡 Copy the above output to save as a backup file.\n")
@@ -733,9 +882,7 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
                     out_stream.write("Import cancelled.\n")
                     out_stream.flush()
                     return
-            vault.vault_path.parent.mkdir(parents=True, exist_ok=True)
-            vault.vault_path.write_text(content)
-            os.chmod(vault.vault_path, 0o600)
+            vault.write_raw_vault(content)
             out_stream.write(
                 colorize("\n✅ Vault imported successfully!", "green") + "\n"
             )
@@ -759,7 +906,7 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
             out_stream.flush()
             return
         try:
-            vault.vault_path.unlink()
+            vault.delete_vault_storage()
             out_stream.write(
                 colorize("\n✅ Vault reset. All passwords deleted.", "green") + "\n"
             )
@@ -911,37 +1058,9 @@ def _handle_key_file_operation(in_stream: TextIO, out_stream: TextIO) -> None:
 
     is_encrypt = choice == "1"
 
-    # Get key file path
-    out_stream.write("\nEnter key file path: ")
-    out_stream.flush()
-    key_file_path = in_stream.readline().rstrip("\n")
-
-    if not key_file_path:
-        out_stream.write("Error: Key file path cannot be empty\n")
-        out_stream.flush()
+    password = _load_passphrase_from_key_file(in_stream, out_stream)
+    if password is None:
         return
-
-    key_path = Path(key_file_path)
-    try:
-        _ensure_no_symlink(key_path, "key file")
-    except Exception as e:
-        out_stream.write(f"Error: {e}\n")
-        out_stream.flush()
-        return
-
-    if not key_path.exists():
-        out_stream.write(f"Error: Key file not found: {key_file_path}\n")
-        out_stream.flush()
-        return
-
-    key_data = key_path.read_bytes()
-    if len(key_data) == 0:
-        out_stream.write(f"Error: Key file is empty: {key_file_path}\n")
-        out_stream.flush()
-        return
-
-    # Derive password from key file
-    password = sha256(key_data).hexdigest()
 
     # Get target file
     if is_encrypt:
@@ -1039,7 +1158,10 @@ def main(
 
                     is_encrypt = mode in (1, 3)
                     password = _get_password(
-                        confirm=is_encrypt, in_stream=istream, out_stream=ostream
+                        confirm=is_encrypt,
+                        in_stream=istream,
+                        out_stream=ostream,
+                        validate_strength=is_encrypt,
                     )
 
                     match mode:

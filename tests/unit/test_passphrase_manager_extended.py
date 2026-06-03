@@ -150,6 +150,27 @@ class TestPassphraseVaultErrors:
         with pytest.raises((ValueError, Exception)):
             vault.retrieve_passphrase("test", "WrongPassword123!@#")
 
+    def test_keychain_store_rejects_wrong_master_without_overwrite(self, tmp_path):
+        """Should not overwrite an existing keychain vault on wrong master password."""
+        mock_keyring = _mock_keyring_with_storage()
+
+        with patch(
+            "secure_string_cipher.keychain_backend._get_keyring",
+            return_value=mock_keyring,
+        ):
+            vault = PassphraseVault(
+                vault_path=str(tmp_path / "vault.enc"), backend="keychain"
+            )
+            vault.store_passphrase("existing", "original", "CorrectMaster123!")
+
+            with pytest.raises(ValueError):
+                vault.store_passphrase("new", "replacement", "WrongMaster123!")
+
+            assert (
+                vault.retrieve_passphrase("existing", "CorrectMaster123!") == "original"
+            )
+            assert vault.list_labels("CorrectMaster123!") == ["existing"]
+
     @pytest.mark.parametrize(
         ("raw_contents", "message"),
         [

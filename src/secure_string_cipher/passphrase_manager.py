@@ -103,8 +103,9 @@ class PassphraseVault:
             backup_dir = str(get_default_backup_dir(self.vault_path))
         self.backup_dir = Path(backup_dir)
 
-        self.vault_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self.backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if backend == BACKEND_FILE:
+            self.vault_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            self.backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
         if backend == BACKEND_KEYCHAIN:
             from .keychain_backend import KeychainVaultBackend
@@ -297,14 +298,20 @@ class PassphraseVault:
         try:
             vault_data = self._load_vault(master_password)
         except ValueError:
-            # If vault doesn't exist or is empty, start fresh
-            if (
-                self._backend == BACKEND_FILE
-                and self.vault_path.exists()
-                and self.vault_path.stat().st_size > 0
-            ):
-                raise  # Re-raise if file exists but can't decrypt
-            vault_data = {}
+            # Only initialize a fresh vault when there is no existing storage.
+            # Wrong master passwords or corrupted existing vaults must never
+            # overwrite keychain/file contents.
+            if self.vault_exists():
+                if (
+                    self._backend == BACKEND_FILE
+                    and self.vault_path.exists()
+                    and self.vault_path.stat().st_size == 0
+                ):
+                    vault_data = {}
+                else:
+                    raise
+            else:
+                vault_data = {}
 
         if label in vault_data:
             raise ValueError(
@@ -491,6 +498,7 @@ class PassphraseVault:
             self._keychain = old_keychain
 
         # Write to file
+        self.vault_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         secure_atomic_write(self.vault_path, vault_contents.encode("utf-8"), mode=0o600)
 
     def list_backups(self) -> list[str]:

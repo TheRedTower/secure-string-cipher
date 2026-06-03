@@ -38,8 +38,22 @@ def test_set_vault_backend_persists_for_default_vault(monkeypatch, tmp_path):
     assert load_vault_settings().vault_backend == "file"
 
 
+def test_default_vault_prefers_keychain_when_available(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("CIPHER_VAULT_BACKEND", raising=False)
+
+    with patch(
+        "secure_string_cipher.keychain_backend.is_keychain_available",
+        return_value=True,
+    ):
+        settings = load_vault_settings()
+
+    assert settings.vault_backend == "keychain"
+
+
 def test_default_vault_uses_persisted_keychain_backend(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("CIPHER_VAULT_BACKEND", raising=False)
     set_vault_backend("keychain")
 
     mock_keyring = MagicMock()

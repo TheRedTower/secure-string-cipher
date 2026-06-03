@@ -147,10 +147,10 @@ class TestGetInput:
 class TestGetPassword:
     """Tests for _get_password function."""
 
-    def test_get_password_generate_command(self):
+    def test_get_password_generate_command(self, tmp_path, monkeypatch):
         """Should handle /gen command for passphrase generation."""
-        # Simulate: /gen -> generation -> no vault storage -> use passphrase
-        inputs = "/gen\nn\n"
+        monkeypatch.setenv("HOME", str(tmp_path))
+        inputs = "/gen\ninline-label\nValidMasterPass123!\n"
         in_stream = StringIO(inputs)
         out_stream = StringIO()
 
@@ -159,6 +159,7 @@ class TestGetPassword:
         assert result is not None
         assert len(result) > 0
         assert "Auto-Generating" in out_stream.getvalue()
+        assert "Generated Passphrase" not in out_stream.getvalue()
 
     def test_get_password_weak_password_retry(self):
         """Should prompt retry for weak passwords."""
@@ -213,51 +214,55 @@ class TestHandleClipboard:
 class TestHandleGeneratePassphrase:
     """Tests for _handle_generate_passphrase function."""
 
-    def test_handle_generate_word_strategy(self):
+    def test_handle_generate_word_strategy(self, tmp_path, monkeypatch):
         """Should generate word-based passphrase for option 1."""
-        in_stream = StringIO("1\nn\n")  # Word strategy, no vault
+        monkeypatch.setenv("HOME", str(tmp_path))
+        in_stream = StringIO("1\nword-label\nValidMasterPass123!\n")
         out_stream = StringIO()
 
         _handle_generate_passphrase(in_stream, out_stream)
 
         output = out_stream.getvalue()
-        assert "Generated Passphrase" in output
+        assert "Generated secure passphrase (hidden)" in output
         assert "Entropy" in output
 
-    def test_handle_generate_alphanumeric_strategy(self):
+    def test_handle_generate_alphanumeric_strategy(self, tmp_path, monkeypatch):
         """Should generate alphanumeric passphrase for option 2."""
-        in_stream = StringIO("2\nn\n")  # Alphanumeric, no vault
+        monkeypatch.setenv("HOME", str(tmp_path))
+        in_stream = StringIO("2\nalpha-label\nValidMasterPass123!\n")
         out_stream = StringIO()
 
         _handle_generate_passphrase(in_stream, out_stream)
 
         output = out_stream.getvalue()
-        assert "Generated Passphrase" in output
+        assert "Generated secure passphrase (hidden)" in output
 
-    def test_handle_generate_mixed_strategy(self):
+    def test_handle_generate_mixed_strategy(self, tmp_path, monkeypatch):
         """Should generate mixed passphrase for option 3."""
-        in_stream = StringIO("3\nn\n")  # Mixed, no vault
+        monkeypatch.setenv("HOME", str(tmp_path))
+        in_stream = StringIO("3\nmixed-label\nValidMasterPass123!\n")
         out_stream = StringIO()
 
         _handle_generate_passphrase(in_stream, out_stream)
 
         output = out_stream.getvalue()
-        assert "Generated Passphrase" in output
+        assert "Generated secure passphrase (hidden)" in output
 
 
 class TestHandleGeneratePassphraseInline:
     """Tests for _handle_generate_passphrase_inline function."""
 
-    def test_inline_generation_returns_passphrase(self):
+    def test_inline_generation_returns_passphrase(self, tmp_path, monkeypatch):
         """Should return generated passphrase."""
-        in_stream = StringIO("n\n")  # Decline vault storage
+        monkeypatch.setenv("HOME", str(tmp_path))
+        in_stream = StringIO("inline-label\nValidMasterPass123!\n")
         out_stream = StringIO()
 
         result = _handle_generate_passphrase_inline(in_stream, out_stream)
 
         assert result is not None
         assert len(result) > 0
-        assert "Using this passphrase" in out_stream.getvalue()
+        assert "Using stored passphrase" in out_stream.getvalue()
 
 
 class TestVaultOperations:
@@ -359,11 +364,10 @@ class TestMainFunction:
         assert result == 0
         assert "Exiting" in out_stream.getvalue()
 
-    def test_main_handles_mode_5_generate(self):
+    def test_main_handles_mode_5_generate(self, tmp_path, monkeypatch):
         """Should handle passphrase generation mode."""
-        in_stream = StringIO(
-            "5\n1\nn\nn\n"
-        )  # Mode 5, word strategy, no vault, no continue
+        monkeypatch.setenv("HOME", str(tmp_path))
+        in_stream = StringIO("5\n1\nmain-label\nValidMasterPass123!\nn\n")
         out_stream = StringIO()
 
         result = main(
@@ -372,12 +376,12 @@ class TestMainFunction:
 
         assert result == 0
         output = out_stream.getvalue()
-        assert "Generated Passphrase" in output
+        assert "Generated secure passphrase (hidden)" in output
 
-    def test_main_continue_loop_yes(self):
+    def test_main_continue_loop_yes(self, tmp_path, monkeypatch):
         """Should continue on 'y' response."""
-        # Generate passphrase, decline vault, continue yes, then exit
-        inputs = "5\n1\nn\ny\n0\n"
+        monkeypatch.setenv("HOME", str(tmp_path))
+        inputs = "5\n1\nloop-label\nValidMasterPass123!\ny\n0\n"
         in_stream = StringIO(inputs)
         out_stream = StringIO()
 
@@ -387,9 +391,10 @@ class TestMainFunction:
 
         assert result == 0
 
-    def test_main_continue_loop_no(self):
+    def test_main_continue_loop_no(self, tmp_path, monkeypatch):
         """Should exit on 'n' response."""
-        inputs = "5\n1\nn\nn\n"
+        monkeypatch.setenv("HOME", str(tmp_path))
+        inputs = "5\n1\nexit-label\nValidMasterPass123!\nn\n"
         in_stream = StringIO(inputs)
         out_stream = StringIO()
 

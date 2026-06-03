@@ -88,6 +88,7 @@ def reset_environment():
     """Reset environment state between tests."""
     # Store original environment
     original_env = os.environ.copy()
+    os.environ["CIPHER_VAULT_BACKEND"] = "file"
 
     yield
 

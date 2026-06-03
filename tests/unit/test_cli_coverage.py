@@ -100,18 +100,49 @@ class TestGetModeEdgeCases:
 class TestGetPasswordGen:
     """Test _get_password with /gen command and retry paths."""
 
+    @patch("secure_string_cipher.cli._offer_vault_storage", return_value=True)
     @patch("secure_string_cipher.cli.generate_passphrase")
-    def test_gen_command_generates_passphrase(self, mock_gen):
+    def test_gen_command_generates_passphrase(self, mock_gen, mock_offer):
         """Should generate passphrase with /gen command."""
         mock_gen.return_value = ("Abc123!@#defGHI456", 128.0)
-        # /gen, then vault storage decline
-        in_stream = StringIO("/gen\nn\n")
+        in_stream = StringIO("/gen\n")
         out_stream = StringIO()
 
         result = _get_password(confirm=True, in_stream=in_stream, out_stream=out_stream)
 
         assert result == "Abc123!@#defGHI456"
         mock_gen.assert_called_once()
+        mock_offer.assert_called_once()
+        assert mock_offer.call_args.kwargs["require_storage"] is True
+        assert "Generated Passphrase" not in out_stream.getvalue()
+
+    @patch(
+        "secure_string_cipher.cli._load_passphrase_from_vault", return_value="stored"
+    )
+    def test_vault_command_injects_passphrase(self, mock_load):
+        """Should inject a vault passphrase without confirmation."""
+        in_stream = StringIO("7\n")
+        out_stream = StringIO()
+
+        result = _get_password(confirm=True, in_stream=in_stream, out_stream=out_stream)
+
+        assert result == "stored"
+        mock_load.assert_called_once()
+        assert "Confirm passphrase" not in out_stream.getvalue()
+
+    @patch(
+        "secure_string_cipher.cli._load_passphrase_from_key_file", return_value="key"
+    )
+    def test_key_file_command_injects_passphrase(self, mock_load):
+        """Should inject a key-file passphrase without confirmation."""
+        in_stream = StringIO("11\n")
+        out_stream = StringIO()
+
+        result = _get_password(confirm=True, in_stream=in_stream, out_stream=out_stream)
+
+        assert result == "key"
+        mock_load.assert_called_once()
+        assert "Confirm passphrase" not in out_stream.getvalue()
 
     @patch("secure_string_cipher.cli.generate_passphrase")
     def test_gen_command_failure_retries(self, mock_gen):
@@ -282,6 +313,19 @@ class TestHandleRetrievePassphrase:
 
         assert "No vault found" in out_stream.getvalue()
 
+    @patch(
+        "secure_string_cipher.cli.PassphraseVault", side_effect=Exception("no keychain")
+    )
+    def test_vault_open_error(self, mock_vault_cls):
+        """Should handle unavailable vault backend without printing a secret."""
+        in_stream = StringIO("")
+        out_stream = StringIO()
+
+        _handle_retrieve_passphrase(in_stream, out_stream)
+
+        assert "Error opening vault" in out_stream.getvalue()
+        mock_vault_cls.assert_called_once()
+
     @patch("secure_string_cipher.cli.PassphraseVault")
     def test_empty_master_password(self, mock_vault_cls):
         """Should error on empty master password."""
@@ -325,7 +369,10 @@ class TestHandleRetrievePassphrase:
 
         _handle_retrieve_passphrase(in_stream, out_stream)
 
-        assert "mysecret" in out_stream.getvalue()
+        output = out_stream.getvalue()
+        assert "mysecret" not in output
+        assert "kept hidden" in output
+        mock_vault.retrieve_passphrase.assert_called_once_with("label1", "masterpass")
 
     @patch("secure_string_cipher.cli.PassphraseVault")
     def test_retrieve_empty_label(self, mock_vault_cls):
@@ -496,8 +543,7 @@ class TestHandleManageVault:
         mock_vault_cls.return_value = mock_vault
         mock_vault.vault_exists.return_value = True
         mock_vault.list_labels.return_value = ["label1"]
-        mock_vault.vault_path = MagicMock()
-        mock_vault.vault_path.read_text.return_value = "SSCVAULT\ndata..."
+        mock_vault.read_raw_vault.return_value = "SSCVAULT\ndata..."
 
         in_stream = StringIO("3\nmasterpass\n")
         out_stream = StringIO()
@@ -506,6 +552,7 @@ class TestHandleManageVault:
 
         output = out_stream.getvalue()
         assert "exported" in output.lower() or "SSCVAULT" in output
+        mock_vault.read_raw_vault.assert_called_once()
 
     @patch("secure_string_cipher.cli.PassphraseVault")
     def test_import_empty_path(self, mock_vault_cls):
@@ -555,8 +602,6 @@ class TestHandleManageVault:
         mock_vault = MagicMock()
         mock_vault_cls.return_value = mock_vault
         mock_vault.vault_exists.return_value = False
-        vault_path = tmp_path / "vault.dat"
-        mock_vault.vault_path = vault_path
 
         import_file = tmp_path / "import.dat"
         import_file.write_text("SSCVAULT\ndata\nmore_data")
@@ -567,6 +612,7 @@ class TestHandleManageVault:
         _handle_manage_vault(in_stream, out_stream)
 
         assert "imported" in out_stream.getvalue().lower()
+        mock_vault.write_raw_vault.assert_called_once()
 
     @patch("secure_string_cipher.cli.PassphraseVault")
     def test_import_cancelled(self, mock_vault_cls, tmp_path):
@@ -625,9 +671,6 @@ class TestHandleManageVault:
         mock_vault = MagicMock()
         mock_vault_cls.return_value = mock_vault
         mock_vault.vault_exists.return_value = True
-        vault_path = tmp_path / "vault.dat"
-        vault_path.write_text("data")
-        mock_vault.vault_path = vault_path
 
         in_stream = StringIO("5\nRESET\n")
         out_stream = StringIO()
@@ -635,6 +678,7 @@ class TestHandleManageVault:
         _handle_manage_vault(in_stream, out_stream)
 
         assert "deleted" in out_stream.getvalue().lower()
+        mock_vault.delete_vault_storage.assert_called_once()
 
     @patch("secure_string_cipher.cli.PassphraseVault")
     def test_update_passphrase(self, mock_vault_cls):
@@ -1130,10 +1174,10 @@ class TestMainDispatch:
         assert result == 0
         assert "Error" in out_stream.getvalue()
 
-    def test_continue_yes_then_exit(self):
+    @patch("secure_string_cipher.cli._offer_vault_storage", return_value=True)
+    def test_continue_yes_then_exit(self, mock_offer):
         """Should continue loop on 'y' and exit on subsequent 'n'."""
-        # Use generate passphrase (mode 5) twice - simple, no password needed
-        inputs = "5\n1\nn\ny\n5\n1\nn\nn\n"
+        inputs = "5\n1\ny\n5\n1\nn\n"
         in_stream = StringIO(inputs)
         out_stream = StringIO()
 
@@ -1142,10 +1186,12 @@ class TestMainDispatch:
         )
 
         assert result == 0
+        assert mock_offer.call_count == 2
 
-    def test_continue_invalid_then_valid(self):
+    @patch("secure_string_cipher.cli._offer_vault_storage", return_value=True)
+    def test_continue_invalid_then_valid(self, mock_offer):
         """Should reprompt on invalid continue response."""
-        inputs = "5\n1\nn\nmaybe\nn\n"
+        inputs = "5\n1\nmaybe\nn\n"
         in_stream = StringIO(inputs)
         out_stream = StringIO()
 
@@ -1154,6 +1200,7 @@ class TestMainDispatch:
         )
 
         assert result == 0
+        mock_offer.assert_called_once()
         assert "enter 'y' or 'n'" in out_stream.getvalue().lower()
 
 
@@ -1234,3 +1281,17 @@ class TestOfferVaultStorageExtended:
         _offer_vault_storage("passphrase", in_stream, out_stream)
 
         assert "Could not store" in out_stream.getvalue()
+
+    @patch(
+        "secure_string_cipher.cli.PassphraseVault", side_effect=Exception("no keychain")
+    )
+    def test_offer_vault_open_exception(self, mock_vault_cls):
+        """Should handle unavailable vault backend during generated storage."""
+        in_stream = StringIO("y\n")
+        out_stream = StringIO()
+
+        result = _offer_vault_storage("passphrase", in_stream, out_stream)
+
+        assert result is False
+        assert "Could not open vault" in out_stream.getvalue()
+        mock_vault_cls.assert_called_once()

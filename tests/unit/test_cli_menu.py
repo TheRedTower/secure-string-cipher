@@ -412,11 +412,12 @@ class TestVaultStoragePrompt:
         in_stream = io.StringIO("y\nbackup\nMasterPassword!\n")
         out_stream = io.StringIO()
 
-        _offer_vault_storage("auto-generated-pass", in_stream, out_stream)
+        result = _offer_vault_storage("auto-generated-pass", in_stream, out_stream)
 
         assert dummy_vault.calls == [
             ("backup", "auto-generated-pass", "MasterPassword!")
         ]
+        assert result is True
 
         output = out_stream.getvalue()
         assert "stored in vault" in output
@@ -443,9 +444,10 @@ class TestVaultStoragePrompt:
         in_stream = io.StringIO("y\n\n")
         out_stream = io.StringIO()
 
-        _offer_vault_storage("pass", in_stream, out_stream)
+        result = _offer_vault_storage("pass", in_stream, out_stream)
 
         assert dummy_vault.calls == []
+        assert result is False
         output = out_stream.getvalue()
         assert "Label is required" in output
 
@@ -470,9 +472,10 @@ class TestVaultStoragePrompt:
         in_stream = io.StringIO("y\nproject\n\n")
         out_stream = io.StringIO()
 
-        _offer_vault_storage("pass", in_stream, out_stream)
+        result = _offer_vault_storage("pass", in_stream, out_stream)
 
         assert dummy_vault.calls == []
+        assert result is False
         output = out_stream.getvalue()
         assert "Master password is required" in output
 
@@ -487,9 +490,10 @@ class TestVaultStoragePrompt:
         in_stream = io.StringIO("n\n")
         out_stream = io.StringIO()
 
-        _offer_vault_storage("pass", in_stream, out_stream)
+        result = _offer_vault_storage("pass", in_stream, out_stream)
 
         output = out_stream.getvalue()
+        assert result is False
         assert "Store this passphrase" in output
 
 
@@ -505,9 +509,13 @@ class TestGeneratePassphraseHandlers:
             captured["strategy"] = strategy
             return "InlinePass", 150.0
 
-        def _fake_offer(passphrase: str, in_stream, out_stream) -> None:
+        def _fake_offer(
+            passphrase: str, in_stream, out_stream, *, require_storage: bool = False
+        ) -> bool:
             captured["offered"] = passphrase
+            captured["required"] = str(require_storage)
             out_stream.write("offer-called\n")
+            return True
 
         monkeypatch.setattr(cli, "generate_passphrase", _fake_generate)
         monkeypatch.setattr(cli, "_offer_vault_storage", _fake_offer)
@@ -520,6 +528,7 @@ class TestGeneratePassphraseHandlers:
         assert result == "InlinePass"
         assert captured["strategy"] == "alphanumeric"
         assert captured["offered"] == "InlinePass"
+        assert captured["required"] == "True"
         assert "offer-called" in out_stream.getvalue()
 
     def test_menu_generation_offers_vault_storage(self, monkeypatch):
@@ -531,9 +540,13 @@ class TestGeneratePassphraseHandlers:
             captured["strategy"] = strategy
             return "MenuPass", 128.0
 
-        def _fake_offer(passphrase: str, in_stream, out_stream) -> None:
+        def _fake_offer(
+            passphrase: str, in_stream, out_stream, *, require_storage: bool = False
+        ) -> bool:
             captured["offered"] = passphrase
+            captured["required"] = str(require_storage)
             out_stream.write("offer-called\n")
+            return True
 
         monkeypatch.setattr(cli, "generate_passphrase", _fake_generate)
         monkeypatch.setattr(cli, "_offer_vault_storage", _fake_offer)
@@ -545,4 +558,5 @@ class TestGeneratePassphraseHandlers:
 
         assert captured["strategy"] == "alphanumeric"
         assert captured["offered"] == "MenuPass"
+        assert captured["required"] == "True"
         assert "offer-called" in out_stream.getvalue()
