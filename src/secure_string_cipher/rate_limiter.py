@@ -9,6 +9,9 @@ Provides configurable rate limiting for sensitive operations like:
 Uses exponential backoff to slow down repeated failures.
 """
 
+import json
+import os
+import tempfile
 import threading
 import time
 from collections import defaultdict
@@ -22,6 +25,7 @@ from .config import (
     RATE_LIMIT_LOCKOUT_SECONDS,
     RATE_LIMIT_MAX_ATTEMPTS,
     RATE_LIMIT_WINDOW_SECONDS,
+    get_config_dir,
 )
 
 
@@ -179,6 +183,123 @@ class RateLimiter:
         """Reset all rate limiting records."""
         with self._lock:
             self._records.clear()
+
+
+class PersistentRateLimiter(RateLimiter):
+    """Rate limiter that persists attempts across CLI processes."""
+
+    def __init__(
+        self,
+        state_path: str | None = None,
+        max_attempts: int = RATE_LIMIT_MAX_ATTEMPTS,
+        window_seconds: float = RATE_LIMIT_WINDOW_SECONDS,
+        lockout_seconds: float = RATE_LIMIT_LOCKOUT_SECONDS,
+        backoff_multiplier: float = RATE_LIMIT_BACKOFF_MULTIPLIER,
+    ):
+        super().__init__(
+            max_attempts=max_attempts,
+            window_seconds=window_seconds,
+            lockout_seconds=lockout_seconds,
+            backoff_multiplier=backoff_multiplier,
+        )
+        if state_path is None:
+            state_path = str(get_config_dir() / "rate_limits.json")
+        self.state_path = state_path
+        self._load_state()
+
+    def _load_state(self) -> None:
+        """Load persisted rate-limit state."""
+        try:
+            with open(self.state_path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return
+
+        if not isinstance(data, dict):
+            return
+
+        with self._lock:
+            self._records.clear()
+            for key, value in data.items():
+                if not isinstance(key, str) or not isinstance(value, dict):
+                    continue
+                attempts = value.get("attempts", [])
+                if not isinstance(attempts, list):
+                    attempts = []
+                record = AttemptRecord(
+                    attempts=[float(t) for t in attempts if isinstance(t, int | float)],
+                    lockout_until=float(value.get("lockout_until", 0.0)),
+                    consecutive_failures=int(value.get("consecutive_failures", 0)),
+                )
+                self._records[key] = record
+
+    def _save_state(self) -> None:
+        """Persist rate-limit state atomically."""
+        state_file = os.path.abspath(self.state_path)
+        state_dir = os.path.dirname(state_file)
+        try:
+            os.makedirs(state_dir, mode=0o700, exist_ok=True)
+        except OSError:
+            return
+
+        with self._lock:
+            data = {
+                key: {
+                    "attempts": record.attempts,
+                    "lockout_until": record.lockout_until,
+                    "consecutive_failures": record.consecutive_failures,
+                }
+                for key, record in self._records.items()
+            }
+
+        try:
+            fd, temp_path = tempfile.mkstemp(
+                prefix=f".{os.path.basename(state_file)}.",
+                suffix=".tmp",
+                dir=state_dir,
+            )
+        except OSError:
+            return
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, separators=(",", ":"))
+                f.write("\n")
+            os.chmod(temp_path, 0o600)
+            os.replace(temp_path, state_file)
+        except Exception:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+            raise
+
+    def check_rate_limit(
+        self, operation: str, identifier: str = ""
+    ) -> tuple[bool, float]:
+        """Check if an operation is rate limited after loading persisted state."""
+        self._load_state()
+        result = super().check_rate_limit(operation, identifier)
+        self._save_state()
+        return result
+
+    def record_attempt(
+        self, operation: str, identifier: str = "", success: bool = False
+    ) -> None:
+        """Record and persist an attempt."""
+        self._load_state()
+        super().record_attempt(operation, identifier, success)
+        self._save_state()
+
+    def reset(self, operation: str, identifier: str = "") -> None:
+        """Reset and persist a specific operation/identifier."""
+        self._load_state()
+        super().reset(operation, identifier)
+        self._save_state()
+
+    def reset_all(self) -> None:
+        """Reset and persist all records."""
+        super().reset_all()
+        self._save_state()
 
 
 class RateLimitError(Exception):

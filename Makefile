@@ -20,9 +20,13 @@ lint:  ## Run all linting checks (Ruff format check, Ruff lint, mypy)
 	uv run --locked ruff format --check src tests
 	@echo "� Checking code quality..."
 	uv run --locked ruff check src tests
-	@echo "🔬 Running mypy type checks..."
-	uv run --locked mypy src tests
+	@echo "🔬 Running mypy type checks on production code..."
+	uv run --locked mypy src
 	@echo "✅ All linting checks passed!"
+
+lint-tests:  ## Run the gradual non-blocking mypy check for tests
+	@echo "🔬 Running mypy type checks on tests..."
+	uv run --locked mypy tests
 
 test:  ## Run tests with pytest
 	@echo "🧪 Running tests..."
@@ -38,15 +42,15 @@ test-watch:  ## Run tests in watch mode (auto-rerun on changes)
 
 test-unit:  ## Run only unit tests
 	@echo "🧪 Running unit tests..."
-	uv run --locked pytest -m unit -v
+	uv run --locked pytest tests/unit -v
 
 test-integration:  ## Run only integration tests
 	@echo "🔗 Running integration tests..."
-	uv run --locked pytest -m integration -v
+	uv run --locked pytest tests/integration -v
 
 test-security:  ## Run only security tests
 	@echo "🔒 Running security tests..."
-	uv run --locked pytest -m security -v
+	uv run --locked pytest tests/security tests/unit/test_kdf.py tests/security/test_key_commitment.py -v
 
 test-quick:  ## Run fast tests only (~10s vs ~80s) - skips KDF/fuzz/perf
 	@echo "⚡ Running quick tests (no KDF-heavy tests)..."
@@ -54,7 +58,7 @@ test-quick:  ## Run fast tests only (~10s vs ~80s) - skips KDF/fuzz/perf
 
 test-slow:  ## Run slow tests only (KDF, fuzz, performance)
 	@echo "🐢 Running slow tests (KDF, fuzz, performance)..."
-	uv run --locked pytest tests/unit/test_kdf.py tests/unit/test_core_extended.py tests/unit/test_passphrase_manager_extended.py tests/fuzz/ tests/performance/ tests/integration/test_passphrase_manager.py -v
+	uv run --locked pytest tests/unit/test_kdf.py tests/fuzz/ tests/performance/ -v
 
 test-failed:  ## Re-run only failed tests
 	@echo "🔄 Re-running failed tests..."

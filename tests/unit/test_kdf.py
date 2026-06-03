@@ -82,12 +82,12 @@ class TestArgon2idKDF:
 
 
 class TestFileMetadataFormat:
-    """Test FileMetadata format (v4)."""
+    """Test current FileMetadata format."""
 
-    def test_metadata_has_version_4(self):
-        """Test that FileMetadata uses version 4."""
+    def test_metadata_has_version_5(self):
+        """Test that FileMetadata uses version 5 by default."""
         metadata = FileMetadata(original_filename="test.txt")
-        assert metadata.version == 4
+        assert metadata.version == 5
 
     def test_metadata_has_key_commitment(self):
         """Test that FileMetadata includes key commitment field."""

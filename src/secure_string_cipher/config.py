@@ -1,6 +1,15 @@
 """
-Configuration settings for secure-string-cipher
+Configuration settings for secure-string-cipher.
 """
+
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
 
 # =============================================================================
 # Key Derivation Function (KDF) Settings
@@ -29,7 +38,7 @@ KEY_COMMITMENT_SIZE = 32  # HMAC-SHA256 output size
 KEY_COMMITMENT_CONTEXT = b"secure-string-cipher-v1-key-commitment"
 
 # File metadata format
-METADATA_VERSION = 4  # Version 4: Argon2id + key commitment
+METADATA_VERSION = 5  # Version 5: Argon2id + key commitment + authenticated metadata
 METADATA_MAGIC = b"SSCV2"  # Magic bytes to identify format
 FILENAME_MAX_LENGTH = 255  # Maximum stored filename length
 
@@ -96,3 +105,150 @@ AUDIT_LOG_MAX_SIZE = 10 * 1024 * 1024  # 10 MB
 
 # Number of backup log files to keep
 AUDIT_LOG_BACKUP_COUNT = 5
+
+# =============================================================================
+# Vault Settings
+# =============================================================================
+
+VAULT_BACKEND_FILE = "file"
+VAULT_BACKEND_KEYCHAIN = "keychain"
+VAULT_BACKENDS = {VAULT_BACKEND_FILE, VAULT_BACKEND_KEYCHAIN}
+
+ENV_VAULT_PATH = "CIPHER_VAULT_PATH"
+ENV_BACKUP_DIR = "CIPHER_BACKUP_DIR"
+ENV_VAULT_BACKEND = "CIPHER_VAULT_BACKEND"
+
+
+@dataclass
+class VaultSettings:
+    """Runtime settings for vault storage."""
+
+    vault_backend: str = VAULT_BACKEND_FILE
+    vault_path: str | None = None
+    backup_dir: str | None = None
+
+
+def get_config_dir() -> Path:
+    """Return the secure-string-cipher configuration directory."""
+    return Path.home() / ".secure-cipher"
+
+
+def get_config_path() -> Path:
+    """Return the persisted vault settings path."""
+    return get_config_dir() / "config.json"
+
+
+def get_default_vault_path() -> Path:
+    """Return the default file-backed vault path."""
+    return get_config_dir() / "passphrase_vault.enc"
+
+
+def get_default_backup_dir(vault_path: str | Path | None = None) -> Path:
+    """Return the default vault backup directory."""
+    if vault_path is None:
+        return get_config_dir() / "backups"
+    return Path(vault_path).parent / "backups"
+
+
+def _validated_backend(value: object) -> str:
+    """Validate and normalize a vault backend name."""
+    backend = str(value).strip().lower()
+    if backend not in VAULT_BACKENDS:
+        raise ValueError(
+            f"Unknown vault backend '{value}'. Use '{VAULT_BACKEND_FILE}' "
+            f"or '{VAULT_BACKEND_KEYCHAIN}'."
+        )
+    return backend
+
+
+def _settings_from_mapping(data: dict[str, Any]) -> VaultSettings:
+    """Build vault settings from persisted JSON data."""
+    settings = VaultSettings()
+    if "vault_backend" in data and data["vault_backend"] is not None:
+        settings.vault_backend = _validated_backend(data["vault_backend"])
+    if "vault_path" in data and data["vault_path"]:
+        settings.vault_path = str(data["vault_path"])
+    if "backup_dir" in data and data["backup_dir"]:
+        settings.backup_dir = str(data["backup_dir"])
+    return settings
+
+
+def load_vault_settings(*, apply_env: bool = True) -> VaultSettings:
+    """Load vault settings from defaults, config file, and environment.
+
+    Environment variables override persisted settings so Docker and scripts can
+    control vault placement without mutating the user's config file.
+    """
+    settings = VaultSettings(
+        vault_backend=VAULT_BACKEND_FILE,
+        vault_path=str(get_default_vault_path()),
+        backup_dir=str(get_default_backup_dir()),
+    )
+
+    config_path = get_config_path()
+    if config_path.exists():
+        try:
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                loaded = _settings_from_mapping(data)
+                settings.vault_backend = loaded.vault_backend
+                if loaded.vault_path is not None:
+                    settings.vault_path = loaded.vault_path
+                if loaded.backup_dir is not None:
+                    settings.backup_dir = loaded.backup_dir
+        except (OSError, json.JSONDecodeError, ValueError):
+            # Invalid config should not make the CLI unusable; callers can
+            # repair it by saving fresh settings.
+            pass
+
+    if apply_env:
+        env_backend = os.environ.get(ENV_VAULT_BACKEND)
+        if env_backend:
+            settings.vault_backend = _validated_backend(env_backend)
+
+        env_vault_path = os.environ.get(ENV_VAULT_PATH)
+        if env_vault_path:
+            settings.vault_path = env_vault_path
+
+        env_backup_dir = os.environ.get(ENV_BACKUP_DIR)
+        if env_backup_dir:
+            settings.backup_dir = env_backup_dir
+
+    if settings.backup_dir is None:
+        settings.backup_dir = str(get_default_backup_dir(settings.vault_path))
+
+    return settings
+
+
+def save_vault_settings(settings: VaultSettings) -> None:
+    """Persist vault settings to ``~/.secure-cipher/config.json``."""
+    settings.vault_backend = _validated_backend(settings.vault_backend)
+    config_dir = get_config_dir()
+    config_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+    config_path = get_config_path()
+    fd, temp_path = tempfile.mkstemp(
+        prefix=f".{config_path.name}.",
+        suffix=".tmp",
+        dir=config_dir,
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(asdict(settings), f, indent=2, sort_keys=True)
+            f.write("\n")
+        os.chmod(temp_path, 0o600)
+        os.replace(temp_path, config_path)
+    except Exception:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise
+
+
+def set_vault_backend(backend: str) -> VaultSettings:
+    """Persist and return the active vault backend setting."""
+    settings = load_vault_settings(apply_env=False)
+    settings.vault_backend = _validated_backend(backend)
+    save_vault_settings(settings)
+    return load_vault_settings()

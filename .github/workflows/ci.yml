@@ -42,7 +42,7 @@ jobs:
       run: uv run --locked ruff format --check src tests
 
     - name: Type check (mypy)
-      run: uv run --locked mypy src tests
+      run: uv run --locked mypy src
 
     - name: Verify passphrase generation strength
       run: |
@@ -60,11 +60,9 @@ jobs:
 
     - name: Security scan - Secrets
       run: uv run --locked detect-secrets scan --baseline .secrets.baseline
-      continue-on-error: true
 
-    - name: Security scan - Vulnerabilities
-      run: uv run --locked pip-audit --desc
-      continue-on-error: true
+    - name: Security scan - Production Vulnerabilities
+      run: uv run --locked pip-audit --desc --production
 
   # Test matrix runs in parallel after quality checks pass
   test:

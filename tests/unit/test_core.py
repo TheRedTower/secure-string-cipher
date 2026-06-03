@@ -10,6 +10,7 @@ Tests cover:
 """
 
 import contextlib
+import json
 import os
 import tempfile
 from typing import Final
@@ -22,9 +23,11 @@ from secure_string_cipher.core import (
     FileMetadata,
     StreamProcessor,
     compute_key_commitment,
+    decrypt_bytes,
     decrypt_file,
     decrypt_text,
     derive_key,
+    encrypt_bytes,
     encrypt_file,
     encrypt_text,
     verify_key_commitment,
@@ -41,6 +44,34 @@ TEST_PASSWORDS: Final = {
     "NO_SYMBOLS": "ABCDabcd1234",
     "COMMON_PATTERNS": ["Password123!@#", "Admin123!@#$", "Qwerty123!@#"],
 }
+
+
+def _tamper_metadata(
+    encrypted_file: str | os.PathLike[str], key: str, value: str
+) -> None:
+    """Modify metadata in an encrypted file without updating authentication data."""
+    path = os.fspath(encrypted_file)
+    with open(path, "rb") as f:
+        data = f.read()
+
+    meta_len_start = len(METADATA_MAGIC)
+    meta_len_end = meta_len_start + 2
+    meta_len = int.from_bytes(data[meta_len_start:meta_len_end], "big")
+    meta_start = meta_len_end
+    meta_end = meta_start + meta_len
+
+    metadata = json.loads(data[meta_start:meta_end].decode("utf-8"))
+    metadata[key] = value
+    meta_bytes = json.dumps(metadata, separators=(",", ":")).encode("utf-8")
+
+    tampered = (
+        data[:meta_len_start]
+        + len(meta_bytes).to_bytes(2, "big")
+        + meta_bytes
+        + data[meta_end:]
+    )
+    with open(path, "wb") as f:
+        f.write(tampered)
 
 
 @pytest.fixture
@@ -183,6 +214,17 @@ class TestTextEncryption:
         encrypted1 = encrypt_text(text, TEST_PASSWORDS["VALID"])
         encrypted2 = encrypt_text(text, TEST_PASSWORDS["VALID"])
         assert encrypted1 != encrypted2
+
+
+class TestBytesEncryption:
+    """Test binary-safe byte encryption/decryption."""
+
+    def test_bytes_roundtrip(self):
+        """Test if bytes can be encrypted and decrypted correctly."""
+        data = b"\x00\xffbinary\npayload"
+        encrypted = encrypt_bytes(data, TEST_PASSWORDS["VALID"])
+        decrypted = decrypt_bytes(encrypted, TEST_PASSWORDS["VALID"])
+        assert decrypted == data
 
 
 class TestStreamProcessor:
@@ -403,6 +445,67 @@ class TestFileEncryption:
         # Cleanup
         os.unlink(actual_path)
         os.unlink(enc_path)
+
+    def test_v5_metadata_tampering_fails_and_leaves_no_output(self, tmp_path):
+        """Test v5 metadata is authenticated and temp output is removed."""
+        input_file = tmp_path / "input.txt"
+        encrypted_file = tmp_path / "input.txt.enc"
+        output_file = tmp_path / "output.txt"
+        input_file.write_text("secret data")
+
+        encrypt_file(str(input_file), str(encrypted_file), TEST_PASSWORDS["VALID"])
+        _tamper_metadata(encrypted_file, "original_filename", "other.txt")
+
+        with pytest.raises(CryptoError):
+            decrypt_file(
+                str(encrypted_file),
+                str(output_file),
+                TEST_PASSWORDS["VALID"],
+            )
+
+        assert not output_file.exists()
+        assert list(tmp_path.glob(".output.txt.*.tmp")) == []
+
+    def test_v4_file_decryption_remains_compatible(self, tmp_path, monkeypatch):
+        """Test legacy v4 files remain readable without metadata AAD."""
+        from secure_string_cipher import core
+
+        input_file = tmp_path / "legacy.txt"
+        encrypted_file = tmp_path / "legacy.txt.enc"
+        output_file = tmp_path / "legacy.out"
+        input_file.write_text("legacy data")
+
+        monkeypatch.setattr(core, "METADATA_VERSION", 4)
+        encrypt_file(str(input_file), str(encrypted_file), TEST_PASSWORDS["VALID"])
+        _tamper_metadata(encrypted_file, "original_filename", "legacy2.txt")
+
+        actual_path, metadata = decrypt_file(
+            str(encrypted_file),
+            str(output_file),
+            TEST_PASSWORDS["VALID"],
+        )
+
+        assert actual_path == str(output_file)
+        assert output_file.read_text() == "legacy data"
+        assert metadata is not None
+        assert metadata.version == 4
+
+    def test_failed_decrypt_removes_temporary_plaintext(self, tmp_path):
+        """Test authentication failure removes temporary plaintext."""
+        input_file = tmp_path / "input.txt"
+        encrypted_file = tmp_path / "input.txt.enc"
+        output_file = tmp_path / "output.txt"
+        input_file.write_text("secret data")
+
+        encrypt_file(str(input_file), str(encrypted_file), TEST_PASSWORDS["VALID"])
+
+        with pytest.raises(CryptoError):
+            decrypt_file(
+                str(encrypted_file), str(output_file), TEST_PASSWORDS["NO_SYMBOLS"]
+            )
+
+        assert not output_file.exists()
+        assert list(tmp_path.glob(".output.txt.*.tmp")) == []
 
 
 class TestErrorHandling:

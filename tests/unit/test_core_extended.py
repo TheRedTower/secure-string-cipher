@@ -67,7 +67,7 @@ class TestFileMetadata:
         metadata = FileMetadata()
 
         assert metadata.original_filename is None
-        assert metadata.version == 4
+        assert metadata.version == 5
         assert metadata.key_commitment is None
 
 

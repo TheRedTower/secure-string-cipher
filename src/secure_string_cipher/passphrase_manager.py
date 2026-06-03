@@ -33,6 +33,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import cast
 
+from .config import (
+    VAULT_BACKEND_FILE,
+    VAULT_BACKEND_KEYCHAIN,
+    get_default_backup_dir,
+    load_vault_settings,
+)
 from .core import decrypt_text, derive_key, encrypt_text
 from .security import secure_atomic_write
 
@@ -41,8 +47,8 @@ _VAULT_HEADER = "SSCVAULT"
 _HMAC_SALT_SIZE = 32  # 256 bits
 
 # Backend type literals
-BACKEND_FILE = "file"
-BACKEND_KEYCHAIN = "keychain"
+BACKEND_FILE = VAULT_BACKEND_FILE
+BACKEND_KEYCHAIN = VAULT_BACKEND_KEYCHAIN
 
 
 class PassphraseVault:
@@ -53,17 +59,23 @@ class PassphraseVault:
     - "keychain": OS keychain via the keyring library
     """
 
-    def __init__(self, vault_path: str | None = None, backend: str = BACKEND_FILE):
+    def __init__(self, vault_path: str | None = None, backend: str | None = None):
         """Initialize the passphrase vault.
 
         Args:
-            vault_path: Path to the vault file. If None, uses default location.
-                Ignored when backend is "keychain".
-            backend: Storage backend - "file" (default) or "keychain".
+            vault_path: Path to the vault file. If None, uses configured/default
+                location. Used for file storage and file/keychain migration.
+            backend: Storage backend - "file", "keychain", or None to use
+                configured/default backend.
 
         Raises:
             ValueError: If backend is not recognized.
         """
+        settings = load_vault_settings()
+        explicit_vault_path = vault_path is not None
+        if backend is None:
+            backend = settings.vault_backend
+
         if backend not in (BACKEND_FILE, BACKEND_KEYCHAIN):
             raise ValueError(
                 f"Unknown backend '{backend}'. Use '{BACKEND_FILE}' or '{BACKEND_KEYCHAIN}'."
@@ -72,27 +84,32 @@ class PassphraseVault:
         self._backend = backend
         self._keychain = None
 
+        if vault_path is None:
+            vault_path = settings.vault_path
+        if vault_path is None:
+            vault_path = str(load_vault_settings().vault_path)
+
+        self.vault_path = Path(vault_path)
+
+        backup_dir: str | None
+        backup_dir_env = os.environ.get("CIPHER_BACKUP_DIR")
+        if backup_dir_env:
+            backup_dir = backup_dir_env
+        elif explicit_vault_path:
+            backup_dir = str(get_default_backup_dir(self.vault_path))
+        else:
+            backup_dir = settings.backup_dir
+        if backup_dir is None:
+            backup_dir = str(get_default_backup_dir(self.vault_path))
+        self.backup_dir = Path(backup_dir)
+
+        self.vault_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+
         if backend == BACKEND_KEYCHAIN:
             from .keychain_backend import KeychainVaultBackend
 
             self._keychain = KeychainVaultBackend()
-
-        if vault_path is None:
-            # Default to user's home directory
-            home = Path.home()
-            vault_dir = home / ".secure-cipher"
-            vault_dir.mkdir(exist_ok=True, mode=0o700)
-            self.vault_path = vault_dir / "passphrase_vault.enc"
-            self.backup_dir = vault_dir / "backups"
-            self.backup_dir.mkdir(exist_ok=True, mode=0o700)
-        else:
-            self.vault_path = Path(vault_path)
-            backup_dir_env = os.environ.get("CIPHER_BACKUP_DIR")
-            if backup_dir_env:
-                self.backup_dir = Path(backup_dir_env)
-            else:
-                self.backup_dir = self.vault_path.parent / "backups"
-            self.backup_dir.mkdir(exist_ok=True, mode=0o700)
 
     @property
     def backend(self) -> str:
@@ -121,7 +138,7 @@ class PassphraseVault:
 
         Keeps last 5 backups and removes older ones.
         """
-        if not self.vault_path.exists():
+        if self._backend != BACKEND_FILE or not self.vault_path.exists():
             return
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -281,7 +298,11 @@ class PassphraseVault:
             vault_data = self._load_vault(master_password)
         except ValueError:
             # If vault doesn't exist or is empty, start fresh
-            if self.vault_path.exists() and self.vault_path.stat().st_size > 0:
+            if (
+                self._backend == BACKEND_FILE
+                and self.vault_path.exists()
+                and self.vault_path.stat().st_size > 0
+            ):
                 raise  # Re-raise if file exists but can't decrypt
             vault_data = {}
 
@@ -385,6 +406,32 @@ class PassphraseVault:
         if self._backend == BACKEND_KEYCHAIN:
             return "OS Keychain"
         return str(self.vault_path)
+
+    def read_raw_vault(self) -> str | None:
+        """Read raw encrypted vault contents from the active backend."""
+        if self._backend == BACKEND_KEYCHAIN:
+            assert self._keychain is not None
+            return self._keychain.load_vault()
+        if not self.vault_path.exists():
+            return None
+        return self.vault_path.read_text()
+
+    def write_raw_vault(self, vault_contents: str) -> None:
+        """Write raw encrypted vault contents to the active backend."""
+        if self._backend == BACKEND_KEYCHAIN:
+            assert self._keychain is not None
+            self._keychain.store_vault(vault_contents)
+            return
+        secure_atomic_write(self.vault_path, vault_contents.encode("utf-8"), mode=0o600)
+
+    def delete_vault_storage(self) -> None:
+        """Delete vault data from the active backend."""
+        if self._backend == BACKEND_KEYCHAIN:
+            assert self._keychain is not None
+            self._keychain.delete_vault()
+            return
+        if self.vault_path.exists():
+            self.vault_path.unlink()
 
     def migrate_to_keychain(self, master_password: str) -> None:
         """Migrate vault data from file backend to keychain.

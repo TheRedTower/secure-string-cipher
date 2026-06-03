@@ -703,6 +703,7 @@ class TestCmdVaultImport:
         mock_vault_cls.return_value = mock_vault
         vault_path = tmp_path / "vault.dat"
         mock_vault.vault_path = vault_path
+        mock_vault.vault_exists.return_value = False
 
         import_file = tmp_path / "backup.vault"
         import_file.write_text(
@@ -713,6 +714,7 @@ class TestCmdVaultImport:
         result = cmd_vault_import(args)
 
         assert result == EXIT_SUCCESS
+        mock_vault.write_raw_vault.assert_called_once()
 
 
 # =============================================================================
@@ -728,8 +730,7 @@ class TestCmdVaultReset:
         """Should exit when vault doesn't exist."""
         mock_vault = MagicMock()
         mock_vault_cls.return_value = mock_vault
-        mock_vault.vault_path = MagicMock()
-        mock_vault.vault_path.exists.return_value = False
+        mock_vault.vault_exists.return_value = False
 
         args = argparse.Namespace()
         with pytest.raises(SystemExit) as exc_info:
@@ -742,8 +743,7 @@ class TestCmdVaultReset:
         """Should exit when user doesn't type RESET."""
         mock_vault = MagicMock()
         mock_vault_cls.return_value = mock_vault
-        mock_vault.vault_path = MagicMock()
-        mock_vault.vault_path.exists.return_value = True
+        mock_vault.vault_exists.return_value = True
 
         args = argparse.Namespace()
         with pytest.raises(SystemExit) as exc_info:
@@ -756,14 +756,13 @@ class TestCmdVaultReset:
         """Should delete vault on RESET confirmation."""
         mock_vault = MagicMock()
         mock_vault_cls.return_value = mock_vault
-        mock_vault.vault_path = MagicMock()
-        mock_vault.vault_path.exists.return_value = True
+        mock_vault.vault_exists.return_value = True
 
         args = argparse.Namespace()
         result = cmd_vault_reset(args)
 
         assert result == EXIT_SUCCESS
-        mock_vault.vault_path.unlink.assert_called_once()
+        mock_vault.delete_vault_storage.assert_called_once()
 
 
 # =============================================================================
@@ -774,9 +773,12 @@ class TestCmdVaultReset:
 class TestCmdVaultMigrate:
     """Tests for cmd_vault_migrate."""
 
+    @patch("secure_string_cipher.cli_args.set_vault_backend")
     @patch("secure_string_cipher.cli_args._prompt_master_password")
     @patch("secure_string_cipher.cli_args.PassphraseVault")
-    def test_migrate_to_file(self, mock_vault_cls, mock_prompt_master):
+    def test_migrate_to_file(
+        self, mock_vault_cls, mock_prompt_master, mock_set_backend
+    ):
         """Should migrate to file backend."""
         mock_vault = MagicMock()
         mock_vault_cls.return_value = mock_vault
@@ -788,10 +790,14 @@ class TestCmdVaultMigrate:
 
         assert result == EXIT_SUCCESS
         mock_vault.migrate_to_file.assert_called_once()
+        mock_set_backend.assert_called_once_with("file")
 
+    @patch("secure_string_cipher.cli_args.set_vault_backend")
     @patch("secure_string_cipher.cli_args._prompt_master_password")
     @patch("secure_string_cipher.cli_args.PassphraseVault")
-    def test_migrate_to_keychain(self, mock_vault_cls, mock_prompt_master):
+    def test_migrate_to_keychain(
+        self, mock_vault_cls, mock_prompt_master, mock_set_backend
+    ):
         """Should migrate to keychain backend."""
         mock_vault = MagicMock()
         mock_vault_cls.return_value = mock_vault
@@ -802,6 +808,7 @@ class TestCmdVaultMigrate:
 
         assert result == EXIT_SUCCESS
         mock_vault.migrate_to_keychain.assert_called_once()
+        mock_set_backend.assert_called_once_with("keychain")
 
     @patch("secure_string_cipher.cli_args._prompt_master_password")
     @patch("secure_string_cipher.cli_args.PassphraseVault")

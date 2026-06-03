@@ -171,7 +171,7 @@ class TestFileEncryptionKeyCommitment:
             parsed = json.loads(meta_bytes.decode("utf-8"))
 
             assert "key_commitment" in parsed
-            assert parsed["version"] == 4
+            assert parsed["version"] == 5
             # Verify it's valid base64
             commitment = base64.b64decode(parsed["key_commitment"])
             assert len(commitment) == KEY_COMMITMENT_SIZE

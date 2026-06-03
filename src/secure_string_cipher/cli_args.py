@@ -11,32 +11,34 @@ from __future__ import annotations
 
 import argparse
 import getpass
-import os
 import sys
 from pathlib import Path
 from typing import NoReturn
 
 from . import __version__
+from .audit_log import AuditEvent, get_audit_logger
 from .cli import main as run_interactive_menu
-from .config import METADATA_MAGIC
+from .config import METADATA_MAGIC, load_vault_settings, set_vault_backend
 from .core import (
     CryptoError,
     FileMetadata,
     _ensure_no_symlink,
+    decrypt_bytes,
     decrypt_file,
     decrypt_text,
+    encrypt_bytes,
     encrypt_file,
     encrypt_text,
 )
 from .passphrase_generator import generate_passphrase
 from .passphrase_manager import PassphraseVault
-from .rate_limiter import RateLimiter
+from .rate_limiter import PersistentRateLimiter
 from .security import sanitize_filename
 from .timing_safe import check_password_strength
 from .utils import colorize, secure_overwrite
 
 # Global rate limiter for CLI authentication attempts
-_cli_limiter = RateLimiter()
+_cli_limiter = PersistentRateLimiter()
 
 # =============================================================================
 # Exit Codes
@@ -86,6 +88,42 @@ def _exit_error(code: int, message: str) -> NoReturn:
     """Print error and exit with code."""
     _print_error(message)
     sys.exit(code)
+
+
+def _audit_encryption(
+    event: AuditEvent,
+    success: bool,
+    *,
+    file_path: str | None = None,
+    error: str | None = None,
+) -> None:
+    """Log encryption/decryption activity without exposing plaintext or keys."""
+    get_audit_logger().log_encryption(
+        event, success=success, file_path=file_path, error=error
+    )
+
+
+def _audit_vault(
+    event: AuditEvent,
+    success: bool,
+    vault: PassphraseVault,
+    *,
+    label: str | None = None,
+    error: str | None = None,
+) -> None:
+    """Log vault activity without exposing stored secrets."""
+    get_audit_logger().log_vault_operation(
+        event,
+        success=success,
+        vault_path=vault.get_vault_path(),
+        label=label,
+        error=error,
+    )
+
+
+def _audit_rate_limit(operation: str, wait: float, identifier: str = "") -> None:
+    """Log rate-limit triggers."""
+    get_audit_logger().log_rate_limit(operation, wait, identifier or None)
 
 
 # =============================================================================
@@ -150,7 +188,7 @@ def _get_vault() -> PassphraseVault:
     vault = PassphraseVault()
 
     # Check if vault exists
-    if not vault.vault_path.exists():
+    if not vault.vault_exists():
         print("Vault not initialized. Initialize now? (y/n): ", end="", flush=True)
         response = input().strip().lower()
         if response != "y":
@@ -183,6 +221,7 @@ def _get_password_from_vault(label: str) -> str:
     # Check rate limit before prompting for password
     allowed, wait = _cli_limiter.check_rate_limit("vault_unlock", vault_id)
     if not allowed:
+        _audit_rate_limit("vault_unlock", wait, vault_id)
         _exit_error(
             EXIT_AUTH_ERROR,
             f"Too many failed attempts. Please wait {wait:.0f} seconds.",
@@ -193,11 +232,24 @@ def _get_password_from_vault(label: str) -> str:
     try:
         result = vault.retrieve_passphrase(label, master)
         _cli_limiter.record_attempt("vault_unlock", vault_id, success=True)
+        _audit_vault(AuditEvent.VAULT_RETRIEVE, True, vault, label=label)
         return result
-    except KeyError:
-        _exit_error(EXIT_VAULT_ERROR, f"Label '{label}' not found in vault.")
-    except (CryptoError, ValueError):
+    except ValueError as e:
         _cli_limiter.record_attempt("vault_unlock", vault_id, success=False)
+        if "not found" in str(e):
+            _audit_vault(
+                AuditEvent.VAULT_RETRIEVE, False, vault, label=label, error=str(e)
+            )
+            _exit_error(EXIT_VAULT_ERROR, f"Label '{label}' not found in vault.")
+        _audit_vault(
+            AuditEvent.VAULT_UNLOCK, False, vault, label=label, error="auth_failed"
+        )
+        _exit_error(EXIT_AUTH_ERROR, "Wrong master password.")
+    except CryptoError:
+        _cli_limiter.record_attempt("vault_unlock", vault_id, success=False)
+        _audit_vault(
+            AuditEvent.VAULT_UNLOCK, False, vault, label=label, error="auth_failed"
+        )
         _exit_error(EXIT_AUTH_ERROR, "Wrong master password.")
 
 
@@ -361,9 +413,11 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
         try:
             ciphertext = encrypt_text(args.text, password)
             print(ciphertext)
+            _audit_encryption(AuditEvent.ENCRYPT_TEXT, True)
             _print_info("✓ Encrypted successfully")
             return EXIT_SUCCESS
         except CryptoError as e:
+            _audit_encryption(AuditEvent.ENCRYPT_TEXT, False, error=str(e))
             _exit_error(EXIT_AUTH_ERROR, f"Encryption failed: {e}")
 
     # Encrypt file
@@ -374,13 +428,15 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
         if filepath == "-":
             try:
                 data = sys.stdin.buffer.read()
-                ciphertext = encrypt_text(
-                    data.decode("utf-8", errors="replace"), password
-                )
-                sys.stdout.buffer.write((ciphertext + "\n").encode("utf-8"))
+                ciphertext_bytes = encrypt_bytes(data, password)
+                sys.stdout.buffer.write(ciphertext_bytes + b"\n")
+                _audit_encryption(AuditEvent.ENCRYPT_FILE, True, file_path="stdin")
                 _print_info("✓ Encrypted stdin to stdout")
                 return EXIT_SUCCESS
             except CryptoError as e:
+                _audit_encryption(
+                    AuditEvent.ENCRYPT_FILE, False, file_path="stdin", error=str(e)
+                )
                 _exit_error(EXIT_AUTH_ERROR, f"Encryption failed: {e}")
             except Exception as e:
                 _exit_error(EXIT_FILE_ERROR, f"Error: {e}")
@@ -394,9 +450,18 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
 
         try:
             encrypt_file(str(filepath_obj), str(output_path), password)
+            _audit_encryption(
+                AuditEvent.ENCRYPT_FILE, True, file_path=str(filepath_obj)
+            )
             _print_info(f"✓ Encrypted to {output_path}")
             return EXIT_SUCCESS
         except CryptoError as e:
+            _audit_encryption(
+                AuditEvent.ENCRYPT_FILE,
+                False,
+                file_path=str(filepath_obj),
+                error=str(e),
+            )
             _exit_error(EXIT_AUTH_ERROR, f"Encryption failed: {e}")
         except PermissionError:
             _exit_error(EXIT_FILE_ERROR, f"Permission denied: {args.file}")
@@ -454,6 +519,16 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
                 f"{output_path} already exists.\nRun again with --force to overwrite.",
             )
 
+    rate_operation = "decrypt_text" if args.text else "decrypt_file"
+    rate_identifier = str(args.file) if args.file else ""
+    allowed, wait = _cli_limiter.check_rate_limit(rate_operation, rate_identifier)
+    if not allowed:
+        _audit_rate_limit(rate_operation, wait, rate_identifier)
+        _exit_error(
+            EXIT_AUTH_ERROR,
+            f"Too many failed attempts. Please wait {wait:.0f} seconds.",
+        )
+
     # Get password/key
     password: str
     if args.vault:
@@ -470,21 +545,16 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
 
     # Decrypt text
     if args.text:
-        # Rate limit text decryption attempts
-        allowed, wait = _cli_limiter.check_rate_limit("decrypt_text", "")
-        if not allowed:
-            _exit_error(
-                EXIT_AUTH_ERROR,
-                f"Too many failed attempts. Please wait {wait:.0f} seconds.",
-            )
         try:
             plaintext = decrypt_text(args.text, password)
             _cli_limiter.record_attempt("decrypt_text", "", success=True)
             print(plaintext)
+            _audit_encryption(AuditEvent.DECRYPT_TEXT, True)
             _print_info("✓ Decrypted successfully")
             return EXIT_SUCCESS
-        except CryptoError:
+        except CryptoError as e:
             _cli_limiter.record_attempt("decrypt_text", "", success=False)
+            _audit_encryption(AuditEvent.DECRYPT_TEXT, False, error=str(e))
             _exit_error(
                 EXIT_AUTH_ERROR, "Decryption failed. Wrong password or corrupted data."
             )
@@ -497,12 +567,18 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
         if filepath == "-":
             # Read from stdin, decrypt, write to stdout
             try:
-                data = sys.stdin.buffer.read().decode("utf-8").strip()
-                plaintext = decrypt_text(data, password)
-                sys.stdout.buffer.write(plaintext.encode("utf-8"))
+                data = sys.stdin.buffer.read().strip()
+                plaintext_bytes = decrypt_bytes(data, password)
+                sys.stdout.buffer.write(plaintext_bytes)
+                _cli_limiter.record_attempt("decrypt_file", "-", success=True)
+                _audit_encryption(AuditEvent.DECRYPT_FILE, True, file_path="stdin")
                 _print_info("✓ Decrypted stdin to stdout")
                 return EXIT_SUCCESS
             except CryptoError as e:
+                _cli_limiter.record_attempt("decrypt_file", "-", success=False)
+                _audit_encryption(
+                    AuditEvent.DECRYPT_FILE, False, file_path="stdin", error=str(e)
+                )
                 _exit_error(EXIT_AUTH_ERROR, f"Decryption failed: {e}")
             except Exception as e:
                 _exit_error(EXIT_FILE_ERROR, f"Error: {e}")
@@ -540,11 +616,20 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
                 restore_filename=restore_filename,
             )
             _cli_limiter.record_attempt("decrypt_file", str(filepath_obj), success=True)
+            _audit_encryption(
+                AuditEvent.DECRYPT_FILE, True, file_path=str(filepath_obj)
+            )
             _print_info(f"✓ Decrypted to {actual_output}")
             return EXIT_SUCCESS
-        except CryptoError:
+        except CryptoError as e:
             _cli_limiter.record_attempt(
                 "decrypt_file", str(filepath_obj), success=False
+            )
+            _audit_encryption(
+                AuditEvent.DECRYPT_FILE,
+                False,
+                file_path=str(filepath_obj),
+                error=str(e),
             )
             _exit_error(
                 EXIT_AUTH_ERROR, "Decryption failed. Wrong password or corrupted data."
@@ -578,13 +663,20 @@ def cmd_store(args: argparse.Namespace) -> int:
     # Store in vault
     try:
         vault.store_passphrase(args.label, password, master)
+        _audit_vault(AuditEvent.VAULT_STORE, True, vault, label=args.label)
         _print_info(
             f"✓ {'Generated and stored' if args.generate else 'Stored'} as: {args.label}"
         )
         return EXIT_SUCCESS
     except CryptoError:
+        _audit_vault(
+            AuditEvent.VAULT_STORE, False, vault, label=args.label, error="auth_failed"
+        )
         _exit_error(EXIT_AUTH_ERROR, "Wrong master password.")
     except Exception as e:
+        _audit_vault(
+            AuditEvent.VAULT_STORE, False, vault, label=args.label, error=str(e)
+        )
         _exit_error(EXIT_VAULT_ERROR, f"Failed to store: {e}")
 
 
@@ -606,9 +698,14 @@ def cmd_vault_list(args: argparse.Namespace) -> int:
             print("Stored labels:")
             for label in sorted(labels):
                 print(f"  - {label}")
+        _audit_vault(AuditEvent.VAULT_LIST, True, vault)
         return EXIT_SUCCESS
     except CryptoError:
+        _audit_vault(AuditEvent.VAULT_LIST, False, vault, error="auth_failed")
         _exit_error(EXIT_AUTH_ERROR, "Wrong master password.")
+    except ValueError as e:
+        _audit_vault(AuditEvent.VAULT_LIST, False, vault, error=str(e))
+        _exit_error(EXIT_AUTH_ERROR, str(e))
 
 
 def cmd_vault_delete(args: argparse.Namespace) -> int:
@@ -618,11 +715,29 @@ def cmd_vault_delete(args: argparse.Namespace) -> int:
 
     try:
         vault.delete_passphrase(args.label, master)
+        _audit_vault(AuditEvent.VAULT_DELETE, True, vault, label=args.label)
         _print_info(f"✓ Deleted: {args.label}")
         return EXIT_SUCCESS
+    except ValueError as e:
+        _audit_vault(
+            AuditEvent.VAULT_DELETE, False, vault, label=args.label, error=str(e)
+        )
+        if "not found" in str(e):
+            _exit_error(EXIT_VAULT_ERROR, f"Label '{args.label}' not found.")
+        _exit_error(EXIT_AUTH_ERROR, str(e))
     except KeyError:
+        _audit_vault(
+            AuditEvent.VAULT_DELETE,
+            False,
+            vault,
+            label=args.label,
+            error="not_found",
+        )
         _exit_error(EXIT_VAULT_ERROR, f"Label '{args.label}' not found.")
     except CryptoError:
+        _audit_vault(
+            AuditEvent.VAULT_DELETE, False, vault, label=args.label, error="auth_failed"
+        )
         _exit_error(EXIT_AUTH_ERROR, "Wrong master password.")
 
 
@@ -635,15 +750,18 @@ def cmd_vault_export(args: argparse.Namespace) -> int:
         # Verify master password by listing labels
         vault.list_labels(master)
 
-        # Read raw vault file
-        if vault.vault_path.exists():
+        content = vault.read_raw_vault()
+        if not isinstance(content, str) and vault.vault_path.exists():
             content = vault.vault_path.read_text()
+        if content is not None:
             print(content)
+            _audit_vault(AuditEvent.VAULT_LIST, True, vault)
             _print_info("✓ Vault exported (pipe to file to save)")
             return EXIT_SUCCESS
-        else:
-            _exit_error(EXIT_VAULT_ERROR, "Vault file not found.")
+        _audit_vault(AuditEvent.VAULT_LIST, False, vault, error="vault_not_found")
+        _exit_error(EXIT_VAULT_ERROR, "Vault not found.")
     except CryptoError:
+        _audit_vault(AuditEvent.VAULT_LIST, False, vault, error="auth_failed")
         _exit_error(EXIT_AUTH_ERROR, "Wrong master password.")
 
 
@@ -692,27 +810,30 @@ def cmd_vault_import(args: argparse.Namespace) -> int:
         )
 
     # Confirm if vault exists
-    if vault.vault_path.exists():
+    if vault.vault_exists():
         print("Existing vault will be replaced. Continue? (y/n): ", end="", flush=True)
         response = input().strip().lower()
         if response != "y":
             _exit_error(EXIT_INPUT_ERROR, "Import cancelled.")
 
     try:
-        vault.vault_path.parent.mkdir(parents=True, exist_ok=True)
-        vault.vault_path.write_text(content)
-        os.chmod(vault.vault_path, 0o600)
+        vault.write_raw_vault(content)
+        _audit_vault(AuditEvent.VAULT_STORE, True, vault)
         _print_info("✓ Vault imported successfully")
         return EXIT_SUCCESS
     except OSError as e:
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=str(e))
         _exit_error(EXIT_FILE_ERROR, f"Import failed: {e}")
+    except Exception as e:
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=str(e))
+        _exit_error(EXIT_VAULT_ERROR, f"Import failed: {e}")
 
 
 def cmd_vault_reset(args: argparse.Namespace) -> int:
     """Reset (wipe) vault."""
     vault = PassphraseVault()
 
-    if not vault.vault_path.exists():
+    if not vault.vault_exists():
         _exit_error(EXIT_VAULT_ERROR, "Vault does not exist.")
 
     print("⚠️  This will PERMANENTLY DELETE all stored passwords.")
@@ -723,11 +844,16 @@ def cmd_vault_reset(args: argparse.Namespace) -> int:
         _exit_error(EXIT_INPUT_ERROR, "Reset cancelled.")
 
     try:
-        vault.vault_path.unlink()
+        vault.delete_vault_storage()
+        _audit_vault(AuditEvent.VAULT_DELETE, True, vault)
         _print_info("✓ Vault reset. All passwords deleted.")
         return EXIT_SUCCESS
     except OSError as e:
+        _audit_vault(AuditEvent.VAULT_DELETE, False, vault, error=str(e))
         _exit_error(EXIT_FILE_ERROR, f"Reset failed: {e}")
+    except Exception as e:
+        _audit_vault(AuditEvent.VAULT_DELETE, False, vault, error=str(e))
+        _exit_error(EXIT_VAULT_ERROR, f"Reset failed: {e}")
 
 
 def cmd_vault_migrate(args: argparse.Namespace) -> int:
@@ -742,6 +868,8 @@ def cmd_vault_migrate(args: argparse.Namespace) -> int:
     try:
         if target == "keychain":
             vault.migrate_to_keychain(master)
+            set_vault_backend("keychain")
+            _audit_vault(AuditEvent.VAULT_STORE, True, PassphraseVault())
             _print_info("✓ Vault migrated to OS keychain.")
             _print_info(
                 "  Your vault is now stored in the OS keychain. "
@@ -749,15 +877,80 @@ def cmd_vault_migrate(args: argparse.Namespace) -> int:
             )
         else:
             vault.migrate_to_file(master)
+            set_vault_backend("file")
+            _audit_vault(AuditEvent.VAULT_STORE, True, PassphraseVault())
             _print_info("✓ Vault migrated to file.")
             _print_info(f"  Vault location: {vault.vault_path}")
         return EXIT_SUCCESS
     except KeychainUnavailableError as e:
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=str(e))
         _exit_error(EXIT_VAULT_ERROR, str(e))
     except ValueError as e:
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=str(e))
         _exit_error(EXIT_AUTH_ERROR, str(e))
     except Exception as e:
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=str(e))
         _exit_error(EXIT_VAULT_ERROR, f"Migration failed: {e}")
+
+
+def cmd_vault_status(args: argparse.Namespace) -> int:
+    """Show active vault backend and locations."""
+    settings = load_vault_settings()
+    vault = PassphraseVault()
+
+    print(f"Backend: {vault.backend}")
+    print(f"Vault location: {vault.get_vault_path()}")
+    print(f"File vault path: {vault.vault_path}")
+    print(f"Backup directory: {vault.backup_dir}")
+    print(f"Config backend: {settings.vault_backend}")
+    print(f"Vault exists: {'yes' if vault.vault_exists() else 'no'}")
+    return EXIT_SUCCESS
+
+
+def cmd_vault_backend(args: argparse.Namespace) -> int:
+    """Show or set the active vault backend."""
+    if args.backend is None:
+        settings = load_vault_settings()
+        print(settings.vault_backend)
+        return EXIT_SUCCESS
+
+    try:
+        settings = set_vault_backend(args.backend)
+    except ValueError as e:
+        _exit_error(EXIT_INPUT_ERROR, str(e))
+
+    _print_info(f"✓ Active vault backend set to: {settings.vault_backend}")
+    return EXIT_SUCCESS
+
+
+def cmd_vault_backups(args: argparse.Namespace) -> int:
+    """List file-vault backups."""
+    vault = PassphraseVault(backend="file")
+    backups = vault.list_backups()
+    if not backups:
+        print("No backups available.")
+        return EXIT_SUCCESS
+
+    print("Available backups:")
+    for index, backup in enumerate(backups):
+        print(f"  [{index}] {backup}")
+    return EXIT_SUCCESS
+
+
+def cmd_vault_restore(args: argparse.Namespace) -> int:
+    """Restore a file-vault backup by index."""
+    vault = PassphraseVault(backend="file")
+    try:
+        vault.restore_from_backup(args.index)
+        _audit_vault(AuditEvent.VAULT_STORE, True, vault)
+        _print_info(f"✓ Restored backup [{args.index}] to {vault.vault_path}")
+        return EXIT_SUCCESS
+    except ValueError as e:
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=str(e))
+        _exit_error(EXIT_VAULT_ERROR, str(e))
+    except OSError as e:
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=str(e))
+        _exit_error(EXIT_FILE_ERROR, f"Restore failed: {e}")
 
 
 def cmd_vault(args: argparse.Namespace) -> int:
@@ -765,7 +958,8 @@ def cmd_vault(args: argparse.Namespace) -> int:
     # This shouldn't be called directly - subparsers handle routing
     _exit_error(
         EXIT_INPUT_ERROR,
-        "Must specify vault subcommand: list, delete, export, import, reset, migrate",
+        "Must specify vault subcommand: list, delete, export, import, reset, "
+        "migrate, status, backend, backups, restore",
     )
 
 
@@ -1051,6 +1245,47 @@ Examples:
     )
     vault_migrate_parser.set_defaults(func=cmd_vault_migrate)
 
+    # vault status
+    vault_status_parser = vault_subparsers.add_parser(
+        "status",
+        help="Show active vault backend and locations",
+    )
+    vault_status_parser.set_defaults(func=cmd_vault_status)
+
+    # vault backend
+    vault_backend_parser = vault_subparsers.add_parser(
+        "backend",
+        help="Show or set active vault backend",
+        description="Show or set the active vault backend.",
+    )
+    vault_backend_parser.add_argument(
+        "--set",
+        dest="backend",
+        choices=["file", "keychain"],
+        help="Persist active vault backend",
+    )
+    vault_backend_parser.set_defaults(func=cmd_vault_backend)
+
+    # vault backups
+    vault_backups_parser = vault_subparsers.add_parser(
+        "backups",
+        help="List file-vault backups",
+    )
+    vault_backups_parser.set_defaults(func=cmd_vault_backups)
+
+    # vault restore
+    vault_restore_parser = vault_subparsers.add_parser(
+        "restore",
+        help="Restore a file-vault backup by index",
+    )
+    vault_restore_parser.add_argument(
+        "index",
+        metavar="INDEX",
+        type=int,
+        help="Backup index from `ssc vault backups`",
+    )
+    vault_restore_parser.set_defaults(func=cmd_vault_restore)
+
     vault_parser.set_defaults(func=cmd_vault)
 
     # --- shred ---
@@ -1107,13 +1342,15 @@ def main() -> NoReturn:
     if args.command == "vault" and not hasattr(args, "func"):
         _exit_error(
             EXIT_INPUT_ERROR,
-            "Must specify vault subcommand: list, delete, export, import, reset, migrate",
+            "Must specify vault subcommand: list, delete, export, import, reset, "
+            "migrate, status, backend, backups, restore",
         )
 
     if args.command == "vault" and args.vault_command is None:
         _exit_error(
             EXIT_INPUT_ERROR,
-            "Must specify vault subcommand: list, delete, export, import, reset, migrate",
+            "Must specify vault subcommand: list, delete, export, import, reset, "
+            "migrate, status, backend, backups, restore",
         )
 
     # Run command

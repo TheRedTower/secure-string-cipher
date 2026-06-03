@@ -13,6 +13,7 @@ import base64
 import json
 import os
 import secrets
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
@@ -80,6 +81,8 @@ __all__ = [
     "compute_key_commitment",
     "verify_key_commitment",
     "generate_key_pair",
+    "encrypt_bytes",
+    "decrypt_bytes",
     "encrypt_text",
     "decrypt_text",
     "encrypt_file",
@@ -512,6 +515,56 @@ def encrypt_text(text: str, passphrase: str) -> str:
         raise CryptoError(f"Text encryption failed: {e}") from e
 
 
+def encrypt_bytes(data: bytes, passphrase: str) -> bytes:
+    """
+    Encrypt bytes using AES-256-GCM with Argon2id and key commitment.
+
+    Args:
+        data: Bytes to encrypt
+        passphrase: Encryption password
+
+    Returns:
+        Base64-encoded encrypted bytes
+
+    Raises:
+        CryptoError: If encryption fails
+    """
+    try:
+        encrypted = _encrypt_data(data, passphrase)
+        return base64.b64encode(encrypted)
+    except CryptoError:
+        raise
+    except Exception as e:
+        raise CryptoError(f"Bytes encryption failed: {e}") from e
+
+
+def decrypt_bytes(token: bytes, passphrase: str) -> bytes:
+    """
+    Decrypt bytes encrypted with ``encrypt_bytes``.
+
+    Args:
+        token: Base64-encoded encrypted bytes
+        passphrase: Decryption password
+
+    Returns:
+        Decrypted bytes
+
+    Raises:
+        CryptoError: If decryption fails
+    """
+    try:
+        encrypted = base64.b64decode(token)
+    except ValueError:
+        raise CryptoError("Bytes decryption failed: invalid base64") from None
+
+    try:
+        return _decrypt_data(encrypted, passphrase)
+    except CryptoError:
+        raise
+    except Exception as e:
+        raise CryptoError(f"Bytes decryption failed: {e}") from e
+
+
 def decrypt_text(token: str, passphrase: str) -> str:
     """
     Decrypt text using AES-256-GCM with Argon2id and key commitment verification.
@@ -613,6 +666,8 @@ def encrypt_file(
                     modes.GCM(nonce),
                     backend=default_backend(),
                 ).encryptor()
+                if metadata.version >= 5:
+                    encryptor.authenticate_additional_data(meta_bytes)
 
                 for chunk in iter(lambda: r.read(CHUNK_SIZE), b""):
                     w.write(encryptor.update(chunk))
@@ -699,6 +754,22 @@ def decrypt_file(
                 else:
                     output_path = input_path + ".dec"
 
+            output_path_obj = Path(output_path)
+            _ensure_no_symlink(output_path_obj, "output")
+            _ensure_no_symlink(output_path_obj.parent, "output parent")
+            if output_path_obj.exists():
+                raise CryptoError(
+                    f"Output file already exists: {output_path_obj}. "
+                    "Delete it first or choose a different path."
+                )
+            if not output_path_obj.parent.exists():
+                raise CryptoError(
+                    f"Output directory does not exist: {output_path_obj.parent}"
+                )
+
+            temp_fd: int | None = None
+            temp_path: str | None = None
+
             # Wrap key in SecureBytes to ensure it's wiped after use
             from .secure_memory import SecureBytes
 
@@ -725,31 +796,61 @@ def decrypt_file(
                     modes.GCM(nonce),
                     backend=default_backend(),
                 ).decryptor()
+                if metadata.version >= 5:
+                    decryptor.authenticate_additional_data(meta_bytes)
 
-                with StreamProcessor(output_path, "wb") as w:
+                try:
+                    temp_fd, temp_path = tempfile.mkstemp(
+                        prefix=f".{output_path_obj.name}.",
+                        suffix=".tmp",
+                        dir=output_path_obj.parent,
+                    )
+                    os.chmod(temp_path, 0o600)
                     buffer = bytearray()
+                    with os.fdopen(temp_fd, "wb") as w:
+                        temp_fd = None
 
-                    for chunk in iter(lambda: f.read(CHUNK_SIZE), b""):
-                        buffer.extend(chunk)
-                        if len(buffer) > TAG_SIZE:
-                            emit_len = len(buffer) - TAG_SIZE
-                            if emit_len:
-                                w.write(decryptor.update(memoryview(buffer)[:emit_len]))
-                                del buffer[:emit_len]
+                        for chunk in iter(lambda: f.read(CHUNK_SIZE), b""):
+                            buffer.extend(chunk)
+                            if len(buffer) > TAG_SIZE:
+                                emit_len = len(buffer) - TAG_SIZE
+                                if emit_len:
+                                    w.write(
+                                        decryptor.update(memoryview(buffer)[:emit_len])
+                                    )
+                                    del buffer[:emit_len]
 
-                    if len(buffer) < TAG_SIZE:
-                        raise CryptoError("File too short - not a valid encrypted file")
+                        if len(buffer) < TAG_SIZE:
+                            raise CryptoError(
+                                "File too short - not a valid encrypted file"
+                            )
 
-                    tail_view = memoryview(buffer)
-                    ciphertext_tail = tail_view[:-TAG_SIZE]
-                    tag = bytes(tail_view[-TAG_SIZE:])
+                        tail_view = memoryview(buffer)
+                        ciphertext_tail = tail_view[:-TAG_SIZE]
+                        tag = bytes(tail_view[-TAG_SIZE:])
 
-                    if ciphertext_tail:
-                        w.write(decryptor.update(ciphertext_tail))
+                        if ciphertext_tail:
+                            w.write(decryptor.update(ciphertext_tail))
 
-                    w.write(decryptor.finalize_with_tag(tag))
+                        w.write(decryptor.finalize_with_tag(tag))
+                        w.flush()
+                        os.fsync(w.fileno())
 
-        return output_path, metadata
+                    os.replace(temp_path, output_path_obj)
+                    temp_path = None
+                finally:
+                    if temp_fd is not None:
+                        try:
+                            os.close(temp_fd)
+                        except OSError:
+                            pass
+                    if temp_path is not None:
+                        try:
+                            os.unlink(temp_path)
+                        except OSError:
+                            pass
+
+        return str(output_path_obj), metadata
 
     except CryptoError:
         raise

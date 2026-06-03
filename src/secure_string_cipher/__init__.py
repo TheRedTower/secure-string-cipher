@@ -14,15 +14,23 @@ from .audit_log import (
     get_audit_logger,
 )
 from .cli import main
+from .config import (
+    VaultSettings,
+    load_vault_settings,
+    save_vault_settings,
+    set_vault_backend,
+)
 from .core import (
     CryptoError,
     FileMetadata,
     StreamProcessor,
     compute_key_commitment,
+    decrypt_bytes,
     decrypt_file,
     decrypt_text,
     derive_key,
     derive_key_from_key_file,
+    encrypt_bytes,
     encrypt_file,
     encrypt_text,
     generate_key_pair,
@@ -36,7 +44,13 @@ from .keychain_backend import (
 )
 from .passphrase_generator import generate_passphrase
 from .passphrase_manager import BACKEND_FILE, BACKEND_KEYCHAIN, PassphraseVault
-from .rate_limiter import RateLimiter, RateLimitError, get_global_limiter, rate_limited
+from .rate_limiter import (
+    PersistentRateLimiter,
+    RateLimiter,
+    RateLimitError,
+    get_global_limiter,
+    rate_limited,
+)
 from .secure_memory import SecureBytes, SecureString, has_secure_memory, secure_wipe
 from .security import SecurityError
 from .timing_safe import (
@@ -57,6 +71,8 @@ __all__ = [
     # Encryption
     "encrypt_text",
     "decrypt_text",
+    "encrypt_bytes",
+    "decrypt_bytes",
     "encrypt_file",
     "decrypt_file",
     "derive_key",
@@ -84,6 +100,10 @@ __all__ = [
     "PassphraseVault",
     "BACKEND_FILE",
     "BACKEND_KEYCHAIN",
+    "VaultSettings",
+    "load_vault_settings",
+    "save_vault_settings",
+    "set_vault_backend",
     # Keychain
     "KeychainVaultBackend",
     "KeychainError",
@@ -91,6 +111,7 @@ __all__ = [
     "is_keychain_available",
     # Rate limiting
     "RateLimiter",
+    "PersistentRateLimiter",
     "RateLimitError",
     "rate_limited",
     "get_global_limiter",

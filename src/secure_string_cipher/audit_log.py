@@ -118,11 +118,17 @@ class AuditLogger:
             # Default to user's home directory
             home = Path.home()
             log_dir = home / ".secure-cipher" / "logs"
-            log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             log_path = log_dir / "audit.log"
 
         self.log_path = Path(log_path)
-        self.log_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            self.log_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        except OSError as e:
+            self.enabled = False
+            self._logger = logging.getLogger("secure_string_cipher.audit")
+            self._logger.warning(f"Audit logging disabled: {e}")
+            self._initialized = True
+            return
 
         self.max_size = max_size if max_size is not None else AUDIT_LOG_MAX_SIZE
         self.backup_count = (
