@@ -62,7 +62,7 @@ jobs:
       run: uv run --locked detect-secrets scan --baseline .secrets.baseline
 
     - name: Security scan - Production Vulnerabilities
-      run: uv run --locked pip-audit --desc --production
+      run: uv run --locked pip-audit . --desc
 
   # Test matrix runs in parallel after quality checks pass
   test:
