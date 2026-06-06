@@ -32,7 +32,7 @@ The project should **not** jump straight to many ciphers, MFA, biometrics, and a
 
 ### P0.1 Threat model and scope document
 
-Create `docs/THREAT_MODEL.md`.
+Create `docs/THREAT_MODEL.md` (extract/expand from the existing Threat Model section in `.github/CRYPTOGRAPHY.md`).
 
 The document should define attacker models, protected assets, assumptions, and non-goals.
 
@@ -71,7 +71,7 @@ magic: SSC
 format_version: 2
 object_type: text | file | vault_entry | vault_export
 cipher_suite: aes-256-gcm | xchacha20poly1305-stream | future-suite
-kdf: argon2id | scrypt | pbkdf2-sha256
+kdf: argon2id | scrypt | pbkdf2-hmac-sha256
 kdf_params:
   salt
   memory_cost
