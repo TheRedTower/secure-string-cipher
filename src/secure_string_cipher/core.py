@@ -863,6 +863,33 @@ def decrypt_file(
 # =============================================================================
 
 
+def derive_passphrase_from_key_file(key_file_path: str | Path) -> str:
+    """Derive the deterministic passphrase string for a key file."""
+    try:
+        key_file = Path(key_file_path).expanduser()
+        _ensure_no_symlink(key_file, "key file")
+        if not key_file.exists():
+            raise CryptoError(f"Key file not found: {key_file_path}")
+        if not key_file.is_file():
+            raise CryptoError(f"Key file is not a regular file: {key_file_path}")
+        if key_file.stat().st_size > MAX_FILE_SIZE:
+            raise CryptoError(
+                f"Key file too large. Maximum size is {MAX_FILE_SIZE / (1024 * 1024):.1f} MB"
+            )
+
+        key_data = key_file.read_bytes()
+        if len(key_data) == 0:
+            raise CryptoError(f"Key file is empty: {key_file_path}")
+
+        from hashlib import sha256
+
+        return sha256(key_data).hexdigest()
+    except CryptoError:
+        raise
+    except Exception as e:
+        raise CryptoError(f"Key file processing failed: {e}") from e
+
+
 def derive_key_from_key_file(key_file_path: str | Path, salt: bytes) -> bytes:
     """
     Derive an encryption key from a key file using Argon2id.
@@ -881,28 +908,7 @@ def derive_key_from_key_file(key_file_path: str | Path, salt: bytes) -> bytes:
         CryptoError: If key file cannot be read or key derivation fails
     """
     try:
-        key_file = Path(key_file_path)
-        _ensure_no_symlink(key_file, "key file")
-        if not key_file.exists():
-            raise CryptoError(f"Key file not found: {key_file_path}")
-        if not key_file.is_file():
-            raise CryptoError(f"Key file is not a regular file: {key_file_path}")
-        if key_file.stat().st_size > MAX_FILE_SIZE:
-            raise CryptoError(
-                f"Key file too large. Maximum size is {MAX_FILE_SIZE / (1024 * 1024):.1f} MB"
-            )
-
-        # Read key file content
-        key_data = key_file.read_bytes()
-        if len(key_data) == 0:
-            raise CryptoError(f"Key file is empty: {key_file_path}")
-
-        # Use SHA-256 of key file as the "passphrase" for Argon2id
-        # This ensures consistent key derivation regardless of file format
-        from hashlib import sha256
-
-        key_hash = sha256(key_data).hexdigest()
-
+        key_hash = derive_passphrase_from_key_file(key_file_path)
         return derive_key(key_hash, salt)
     except CryptoError:
         raise

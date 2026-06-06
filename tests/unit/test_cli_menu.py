@@ -6,6 +6,7 @@ Tests for potential exploits, injection attacks, and edge cases.
 import io
 
 import pytest
+from wcwidth import wcswidth
 
 import secure_string_cipher.cli as cli
 from secure_string_cipher.cli import (
@@ -67,6 +68,23 @@ class TestMenuDisplay:
         assert "━" in output  # Horizontal line
         assert "┣" in output  # Left separator
         assert "┫" in output  # Right separator
+
+    def test_menu_right_border_alignment(self):
+        """All menu border lines should render to the same terminal width."""
+        in_stream = io.StringIO("0\n")
+        out_stream = io.StringIO()
+
+        _get_mode(in_stream, out_stream)
+
+        output = out_stream.getvalue()
+        border_lines = [
+            line
+            for line in output.splitlines()
+            if line.startswith(("┏", "┣", "┗", "┃"))
+        ]
+        assert {wcswidth(line) for line in border_lines} == {70}
+        assert "SECURITY TOOLS" in output
+        assert "🛡" not in output
 
     def test_menu_emojis_display(self):
         """Menu should display emojis correctly."""

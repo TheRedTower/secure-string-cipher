@@ -1009,10 +1009,10 @@ class TestHandleKeyFileOperation:
         # Should attempt to encrypt
         assert "Encrypted" in output or "Error" in output
 
-    @patch("secure_string_cipher.cli._ensure_no_symlink")
-    def test_symlink_rejected(self, mock_ensure, tmp_path):
+    @patch("secure_string_cipher.cli.derive_passphrase_from_key_file")
+    def test_symlink_rejected(self, mock_derive, tmp_path):
         """Should reject symlink key file."""
-        mock_ensure.side_effect = Exception("Symlink detected")
+        mock_derive.side_effect = Exception("Symlink detected")
 
         in_stream = StringIO(f"1\n{tmp_path / 'link.key'}\n")
         out_stream = StringIO()

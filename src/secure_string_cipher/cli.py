@@ -8,15 +8,13 @@ When stdin is piped or redirected (tests, scripts), visible input is used.
 import getpass as getpass_module
 import sys
 from collections.abc import Callable
-from hashlib import sha256
 from pathlib import Path
 from typing import TextIO, cast
 
-from .config import MAX_FILE_SIZE
 from .core import (
-    _ensure_no_symlink,
     decrypt_file,
     decrypt_text,
+    derive_passphrase_from_key_file,
     encrypt_file,
     encrypt_text,
 )
@@ -106,12 +104,10 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
     def _display_width(content: str) -> int:
         """Return the terminal display width of ``content``.
 
-        Emoji presentation characters (e.g. 🛡️) combine a base codepoint with
-        the U+FE0F variation selector. Terminals render these inconsistently:
-        some honour the requested emoji (2 columns) and some fall back to text
-        presentation (1 column), while ``wcswidth`` may disagree with either.
-        To keep the box borders aligned across terminals we strip the variation
-        selectors and force every emoji to a stable width of 2 columns.
+        Emoji presentation characters combine a base codepoint with the U+FE0F
+        variation selector. Terminals render these inconsistently, so menu
+        labels avoid ambiguous emoji and the width calculation strips variation
+        selectors before asking wcwidth for the visible width.
         """
         # Drop variation selectors (U+FE0F / U+FE0E) so width is deterministic.
         normalized = content.replace("\ufe0f", "").replace("\ufe0e", "")
@@ -119,10 +115,6 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
         if width < 0:
             # wcswidth returns -1 for unprintable sequences; fall back to len.
             width = len(normalized)
-        # Force emoji that wcswidth under-counts (base shield 🛡 == 1) to 2.
-        for ch in normalized:
-            if 0x1F000 <= ord(ch) <= 0x1FAFF and width_fn(ch) < 2:
-                width += 1
         return width
 
     def line(content: str = "") -> str:
@@ -164,7 +156,7 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
         line("   [9] Manage Vault         →  Update, delete, export, import"),
         line(),
         separator,
-        line("🛡  SECURITY TOOLS"),
+        line("SECURITY TOOLS"),
         line(),
         line("  [10] Secure Shred     →  Permanently delete a file"),
         line("  [11] Use Key File     →  Encrypt/decrypt with a key file"),
@@ -394,25 +386,6 @@ def _load_passphrase_from_vault(
         return None
 
 
-def _derive_passphrase_from_key_file(key_file_path: str) -> str:
-    """Derive the operation passphrase from a key file."""
-    key_path = Path(key_file_path).expanduser()
-    _ensure_no_symlink(key_path, "key file")
-
-    if not key_path.exists():
-        raise ValueError(f"Key file not found: {key_file_path}")
-    if not key_path.is_file():
-        raise ValueError(f"Key file is not a regular file: {key_file_path}")
-
-    key_size = key_path.stat().st_size
-    if key_size == 0:
-        raise ValueError(f"Key file is empty: {key_file_path}")
-    if key_size > MAX_FILE_SIZE:
-        raise ValueError(f"Key file is too large: {key_file_path} ({key_size} bytes)")
-
-    return sha256(key_path.read_bytes()).hexdigest()
-
-
 def _load_passphrase_from_key_file(in_stream: TextIO, out_stream: TextIO) -> str | None:
     """Prompt for a key file and return its derived passphrase."""
     out_stream.write("\nEnter key file path: ")
@@ -425,7 +398,7 @@ def _load_passphrase_from_key_file(in_stream: TextIO, out_stream: TextIO) -> str
         return None
 
     try:
-        password = _derive_passphrase_from_key_file(key_file_path)
+        password = derive_passphrase_from_key_file(key_file_path)
     except Exception as e:
         out_stream.write(f"Error: {e}\n")
         out_stream.flush()

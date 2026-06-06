@@ -147,6 +147,25 @@ class TestGetPasswordFromKeyFile:
             _get_password_from_key_file(str(key_file))
         assert exc_info.value.code == EXIT_FILE_ERROR
 
+    def test_key_file_directory_rejected(self, tmp_path):
+        """Should reject directories passed as key files."""
+        key_dir = tmp_path / "key-dir"
+        key_dir.mkdir()
+
+        with pytest.raises(SystemExit) as exc_info:
+            _get_password_from_key_file(str(key_dir))
+        assert exc_info.value.code == EXIT_FILE_ERROR
+
+    def test_key_file_too_large_rejected(self, tmp_path, monkeypatch):
+        """Should reject key files above the shared max-size limit."""
+        key_file = tmp_path / "large.key"
+        key_file.write_bytes(b"12345")
+        monkeypatch.setattr("secure_string_cipher.core.MAX_FILE_SIZE", 4)
+
+        with pytest.raises(SystemExit) as exc_info:
+            _get_password_from_key_file(str(key_file))
+        assert exc_info.value.code == EXIT_FILE_ERROR
+
 
 # =============================================================================
 # vault helper flows
@@ -898,20 +917,37 @@ class TestCmdVaultExport:
 
     @patch("secure_string_cipher.cli_args._prompt_master_password")
     @patch("secure_string_cipher.cli_args._get_vault")
-    def test_export_success(self, mock_get_vault, mock_prompt_master, tmp_path, capsys):
+    def test_export_success(self, mock_get_vault, mock_prompt_master, capsys):
         """Should export vault content."""
         mock_vault = MagicMock()
         mock_get_vault.return_value = mock_vault
         mock_prompt_master.return_value = "master"
         mock_vault.list_labels.return_value = ["label1"]
-        vault_file = tmp_path / "vault.dat"
-        vault_file.write_text("SSCVAULT\ndata")
-        mock_vault.vault_path = vault_file
+        mock_vault.read_raw_vault.return_value = "SSCVAULT\ndata"
 
         args = argparse.Namespace()
         result = cmd_vault_export(args)
 
         assert result == EXIT_SUCCESS
+        assert "SSCVAULT\ndata" in capsys.readouterr().out
+        mock_vault.read_raw_vault.assert_called_once()
+
+    @patch("secure_string_cipher.cli_args._prompt_master_password")
+    @patch("secure_string_cipher.cli_args._get_vault")
+    def test_export_missing_raw_vault(self, mock_get_vault, mock_prompt_master):
+        """Should not fall back to file paths when active raw vault is missing."""
+        mock_vault = MagicMock()
+        mock_get_vault.return_value = mock_vault
+        mock_prompt_master.return_value = "master"
+        mock_vault.list_labels.return_value = ["label1"]
+        mock_vault.read_raw_vault.return_value = None
+
+        args = argparse.Namespace()
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_vault_export(args)
+
+        assert exc_info.value.code == EXIT_VAULT_ERROR
+        mock_vault.read_raw_vault.assert_called_once()
 
     @patch("secure_string_cipher.cli_args._prompt_master_password")
     @patch("secure_string_cipher.cli_args._get_vault")

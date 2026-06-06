@@ -26,6 +26,7 @@ from .core import (
     decrypt_bytes,
     decrypt_file,
     decrypt_text,
+    derive_passphrase_from_key_file,
     encrypt_bytes,
     encrypt_file,
     encrypt_text,
@@ -268,16 +269,10 @@ def _get_password_from_key_file(key_file_path: str) -> str:
     Raises:
         CryptoError: If key file cannot be read or is invalid
     """
-    from hashlib import sha256
-
-    key_file = Path(key_file_path)
-    _ensure_no_symlink(key_file, "key file")
-    if not key_file.exists():
-        _exit_error(EXIT_FILE_ERROR, f"Key file not found: {key_file_path}")
-    key_data = key_file.read_bytes()
-    if len(key_data) == 0:
-        _exit_error(EXIT_FILE_ERROR, f"Key file is empty: {key_file_path}")
-    return sha256(key_data).hexdigest()
+    try:
+        return derive_passphrase_from_key_file(key_file_path)
+    except CryptoError as e:
+        _exit_error(EXIT_FILE_ERROR, str(e))
 
 
 def _load_file_metadata(input_path: Path) -> FileMetadata:
@@ -751,8 +746,6 @@ def cmd_vault_export(args: argparse.Namespace) -> int:
         vault.list_labels(master)
 
         content = vault.read_raw_vault()
-        if not isinstance(content, str) and vault.vault_path.exists():
-            content = vault.vault_path.read_text()
         if content is not None:
             print(content)
             _audit_vault(AuditEvent.VAULT_LIST, True, vault)
