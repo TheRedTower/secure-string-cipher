@@ -410,14 +410,14 @@ wheels = [
 
 [[package]]
 name = "hypothesis"
-version = "6.146.0"
+version = "6.155.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "sortedcontainers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/dd/77/5673c9ba8d34f2d808e566cbe7d98daa75ec5e9209c7d6672586cc34f57e/hypothesis-6.146.0.tar.gz", hash = "sha256:542b8a6b7c4ab15a3a259893cd646b4e324ac332b4d19901abd68a79790dd963", size = 468651, upload-time = "2025-11-05T06:02:18.187Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f5/04/64032a1dccd2233615c8a3f701bbb563558575ed017496a24b6d81762c91/hypothesis-6.155.2.tar.gz", hash = "sha256:ae36880287c9c5defe9f199d3d2b67d9947a4da2a46e6c57373cbdf2345b20e1", size = 477765, upload-time = "2026-06-05T16:32:23.63Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ea/ad/49568317b2282d14607cc72242aa595f57298aa49847ae045805cce6071b/hypothesis-6.146.0-py3-none-any.whl", hash = "sha256:aef4a9cd82cdb51173decfc37c16a71c8f89e4b60111bafe39615a4c19de5f57", size = 535602, upload-time = "2025-11-05T06:02:13.822Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/6e/e735f27ac1a530a4cd0a31cd970ec495a3a11830fdc5d281cc292593b330/hypothesis-6.155.2-py3-none-any.whl", hash = "sha256:c85ce6dcd630a90ce501f1d1dd1bc84b97f5649ca8a27e134c8cbf5aa480b1a5", size = 544213, upload-time = "2026-06-05T16:32:21.15Z" },
 ]
 
 [[package]]
@@ -1071,7 +1071,7 @@ requires-dist = [
     { name = "argon2-cffi", specifier = "==25.1.0" },
     { name = "cryptography", specifier = "==46.0.7" },
     { name = "detect-secrets", marker = "extra == 'dev'", specifier = "==1.5.0" },
-    { name = "hypothesis", marker = "extra == 'dev'", specifier = "==6.146.0" },
+    { name = "hypothesis", marker = "extra == 'dev'", specifier = "==6.155.2" },
     { name = "keyring", marker = "extra == 'dev'", specifier = ">=25.0.0" },
     { name = "keyring", marker = "extra == 'keychain'", specifier = ">=25.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = "==1.18.2" },
