@@ -48,7 +48,7 @@ dev = [
     "mypy==1.18.2",
     "ruff==0.14.3",
     "detect-secrets==1.5.0",      # Secret scanning
-    "pip-audit==2.9.0",           # Vulnerability scanning
+    "pip-audit==2.10.0",           # Vulnerability scanning
     "pre-commit>=4.5.0",
     "keyring>=25.0.0",            # For keychain backend tests
 ]
