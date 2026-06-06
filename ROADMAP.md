@@ -4,7 +4,7 @@ This roadmap turns the storage/encryption research analysis into an implementati
 
 ## Current position
 
-SSC is already past the toy-project stage. The current codebase has a working CLI, AES-GCM encryption, Argon2id-derived keys, key commitment, authenticated metadata, key-file support, OS keychain support, passphrase vault commands, persistent rate limiting, audit logging, and secure-memory best-effort helpers.
+SSC is already past the toy-project stage. The current codebase has a working CLI, AES-256-GCM encryption, Argon2id-derived keys, key commitment, authenticated metadata, key-file support, OS keychain support, passphrase vault commands, persistent rate limiting, audit logging, and secure-memory best-effort helpers.
 
 The project should **not** jump straight to many ciphers, MFA, biometrics, and a database. The next major milestone should be a stable internal architecture:
 
