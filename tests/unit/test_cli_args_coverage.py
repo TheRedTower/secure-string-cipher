@@ -799,6 +799,30 @@ class TestCmdStore:
             cmd_store(args)
         assert exc_info.value.code == EXIT_AUTH_ERROR
 
+    @patch("secure_string_cipher.cli_args._prompt_master_password")
+    @patch("secure_string_cipher.cli_args._get_vault")
+    def test_store_unexpected_error_does_not_include_secret(
+        self, mock_get_vault, mock_prompt_master, monkeypatch, capsys
+    ):
+        """Unexpected store errors should not print raw exception text."""
+        import secure_string_cipher.cli_args as cli_args
+
+        leaked_detail = "DO_NOT_PRINT_STORE_FAILURE_SECRET"  # pragma: allowlist secret
+        mock_vault = MagicMock()
+        mock_get_vault.return_value = mock_vault
+        mock_prompt_master.return_value = "MasterPw123!@#"
+        mock_vault.store_passphrase.side_effect = Exception(leaked_detail)
+        monkeypatch.setattr(cli_args, "_no_color", True)
+
+        args = argparse.Namespace(label="label", generate=True)
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_store(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == EXIT_VAULT_ERROR
+        assert leaked_detail not in captured.err
+        assert "Failed to store passphrase." in captured.err
+
 
 # =============================================================================
 # cmd_vault_list
@@ -1355,6 +1379,28 @@ class TestPromptPasswordWithValidation:
         ]
         result = _prompt_password_with_validation()
         assert result == "StrongPass1!@#ab"
+
+    @patch("getpass.getpass")
+    def test_weak_password_output_does_not_include_secret_or_detail(
+        self, mock_getpass, capsys
+    ):
+        """Weak-password validation should avoid password-derived output."""
+        from secure_string_cipher.cli_args import _prompt_password_with_validation
+
+        submitted_secret = "DO_NOT_PRINT_THIS_SECRET_123"  # pragma: allowlist secret
+        mock_getpass.side_effect = [
+            submitted_secret,
+            "StrongPass1!@#ab",
+            "StrongPass1!@#ab",
+        ]
+
+        result = _prompt_password_with_validation()
+
+        captured = capsys.readouterr()
+        assert result == "StrongPass1!@#ab"
+        assert submitted_secret not in captured.err
+        assert "Password must include:" not in captured.err
+        assert "Password requirements:" in captured.err
 
     @patch("getpass.getpass")
     def test_mismatch_then_match(self, mock_getpass):

@@ -263,8 +263,8 @@ def _offer_vault_storage(
 
     try:
         vault = PassphraseVault()
-    except Exception as e:
-        out_stream.write(f"⚠️  Could not open vault: {e}\n")
+    except Exception:
+        out_stream.write("⚠️  Could not open vault.\n")
         out_stream.flush()
         return False
 
@@ -298,8 +298,8 @@ def _offer_vault_storage(
         out_stream.write(f"Vault location: {vault.get_vault_path()}\n")
         out_stream.flush()
         return True
-    except Exception as e:
-        out_stream.write(f"⚠️  Could not store in vault: {e}\n")
+    except Exception:
+        out_stream.write("⚠️  Could not store in vault.\n")
         out_stream.flush()
         return False
 
@@ -320,8 +320,8 @@ def _load_passphrase_from_vault(
     """Load a passphrase from the vault without printing the secret."""
     try:
         vault = PassphraseVault()
-    except Exception as e:
-        out_stream.write(f"Error opening vault: {e}\n")
+    except Exception:
+        out_stream.write("Error opening vault.\n")
         out_stream.flush()
         return None
 
@@ -380,8 +380,8 @@ def _load_passphrase_from_vault(
             )
         out_stream.flush()
         return passphrase
-    except Exception as e:
-        out_stream.write(f"Error retrieving passphrase: {e}\n")
+    except Exception:
+        out_stream.write("Error retrieving passphrase.\n")
         out_stream.flush()
         return None
 
@@ -411,6 +411,30 @@ def _load_passphrase_from_key_file(in_stream: TextIO, out_stream: TextIO) -> str
     )
     out_stream.flush()
     return password
+
+
+def _write_password_policy(out_stream: TextIO) -> None:
+    """Write static password policy guidance without password-derived details."""
+    out_stream.write(
+        "Password requirements: at least 12 chars, uppercase, lowercase, digits, symbols\n"
+    )
+
+
+def _write_retry_status(
+    out_stream: TextIO, attempts: int, max_retries: int, remaining: int
+) -> None:
+    """Write retry status using only non-sensitive counters."""
+    out_stream.write(
+        f"⚠️  Attempt {attempts}/{max_retries}. {remaining} attempts remaining.\n"
+    )
+    out_stream.write("Please try again.\n\n")
+
+
+def _write_max_password_attempts(out_stream: TextIO, max_retries: int) -> None:
+    """Write the maximum-attempts failure using only non-sensitive counters."""
+    out_stream.write(
+        f"🚫 Maximum password attempts ({max_retries}) exceeded. Exiting for security.\n"
+    )
 
 
 def _handle_generate_passphrase_inline(
@@ -456,8 +480,8 @@ def _handle_generate_passphrase_inline(
         out_stream.flush()
         return passphrase
 
-    except Exception as e:
-        out_stream.write(f"⚠️  Error generating passphrase: {e}\n")
+    except Exception:
+        out_stream.write("⚠️  Error generating passphrase.\n")
         out_stream.flush()
         return None
 
@@ -552,24 +576,21 @@ def _get_password(
                 continue
 
         if validate_current:
-            valid, msg = check_password_strength(pw)
+            valid, _ = check_password_strength(pw)
         else:
-            valid, msg = True, ""
+            valid = True
         if not valid:
             remaining = max_retries - attempts
             if remaining > 0:
-                ostream.write(f"❌ {msg}\n")
-                ostream.write(
-                    f"⚠️  Attempt {attempts}/{max_retries}. {remaining} attempts remaining.\n"
-                )
-                ostream.write("Please try again.\n\n")
+                ostream.write("❌ Password does not meet security requirements.\n")
+                _write_password_policy(ostream)
+                _write_retry_status(ostream, attempts, max_retries, remaining)
                 ostream.flush()
                 continue
             else:
-                ostream.write(f"❌ {msg}\n")
-                ostream.write(
-                    f"🚫 Maximum password attempts ({max_retries}) exceeded. Exiting for security.\n"
-                )
+                ostream.write("❌ Password does not meet security requirements.\n")
+                _write_password_policy(ostream)
+                _write_max_password_attempts(ostream, max_retries)
                 ostream.flush()
                 sys.exit(1)
 
@@ -583,17 +604,12 @@ def _get_password(
                     ostream.write(
                         "❌ Passwords do not match (confirmation cancelled)\n"
                     )
-                    ostream.write(
-                        f"⚠️  Attempt {attempts}/{max_retries}. {remaining} attempts remaining.\n"
-                    )
-                    ostream.write("Please try again.\n\n")
+                    _write_retry_status(ostream, attempts, max_retries, remaining)
                     ostream.flush()
                     continue
                 else:
                     ostream.write("❌ Passwords do not match\n")
-                    ostream.write(
-                        f"🚫 Maximum password attempts ({max_retries}) exceeded. Exiting for security.\n"
-                    )
+                    _write_max_password_attempts(ostream, max_retries)
                     ostream.flush()
                     sys.exit(1)
 
@@ -601,17 +617,12 @@ def _get_password(
                 remaining = max_retries - attempts
                 if remaining > 0:
                     ostream.write("❌ Passwords do not match\n")
-                    ostream.write(
-                        f"⚠️  Attempt {attempts}/{max_retries}. {remaining} attempts remaining.\n"
-                    )
-                    ostream.write("Please try again.\n\n")
+                    _write_retry_status(ostream, attempts, max_retries, remaining)
                     ostream.flush()
                     continue
                 else:
                     ostream.write("❌ Passwords do not match\n")
-                    ostream.write(
-                        f"🚫 Maximum password attempts ({max_retries}) exceeded. Exiting for security.\n"
-                    )
+                    _write_max_password_attempts(ostream, max_retries)
                     ostream.flush()
                     sys.exit(1)
 
@@ -619,9 +630,7 @@ def _get_password(
         return pw
 
     # This shouldn't be reached, but just in case
-    ostream.write(
-        f"🚫 Maximum password attempts ({max_retries}) exceeded. Exiting for security.\n"
-    )
+    _write_max_password_attempts(ostream, max_retries)
     ostream.flush()
     sys.exit(1)
 
@@ -684,8 +693,8 @@ def _handle_generate_passphrase(in_stream: TextIO, out_stream: TextIO) -> None:
                 "\nGenerated passphrase discarded because it was not stored.\n"
             )
         out_stream.flush()
-    except Exception as e:
-        out_stream.write(f"Error generating passphrase: {e}\n")
+    except Exception:
+        out_stream.write("Error generating passphrase.\n")
         out_stream.flush()
 
 
@@ -730,8 +739,8 @@ def _handle_store_passphrase(in_stream: TextIO, out_stream: TextIO) -> None:
         )
         out_stream.write(f"Vault location: {vault.get_vault_path()}\n")
         out_stream.flush()
-    except Exception as e:
-        out_stream.write(f"Error storing passphrase: {e}\n")
+    except Exception:
+        out_stream.write("Error storing passphrase.\n")
         out_stream.flush()
 
 

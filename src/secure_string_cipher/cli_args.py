@@ -91,6 +91,15 @@ def _exit_error(code: int, message: str) -> NoReturn:
     sys.exit(code)
 
 
+def _print_password_policy() -> None:
+    """Print static password policy guidance without password-derived details."""
+    print(
+        "  Password requirements: at least 12 chars, uppercase, lowercase, digits, symbols",
+        file=sys.stderr,
+    )
+    print(file=sys.stderr)
+
+
 def _audit_encryption(
     event: AuditEvent,
     success: bool,
@@ -163,7 +172,7 @@ def _prompt_password_with_validation(prompt: str = "Password: ") -> str:
     """
     while True:
         password = getpass.getpass(prompt)
-        is_strong, issues = check_password_strength(password)
+        is_strong, _ = check_password_strength(password)
 
         if is_strong:
             # Confirm
@@ -174,9 +183,7 @@ def _prompt_password_with_validation(prompt: str = "Password: ") -> str:
             return password
 
         _print_error("Password does not meet security requirements:")
-        for issue in issues:
-            print(f"  ✗ {issue}", file=sys.stderr)
-        print(file=sys.stderr)
+        _print_password_policy()
 
 
 def _prompt_master_password() -> str:
@@ -668,11 +675,11 @@ def cmd_store(args: argparse.Namespace) -> int:
             AuditEvent.VAULT_STORE, False, vault, label=args.label, error="auth_failed"
         )
         _exit_error(EXIT_AUTH_ERROR, "Wrong master password.")
-    except Exception as e:
+    except Exception:
         _audit_vault(
-            AuditEvent.VAULT_STORE, False, vault, label=args.label, error=str(e)
+            AuditEvent.VAULT_STORE, False, vault, label=args.label, error="store_failed"
         )
-        _exit_error(EXIT_VAULT_ERROR, f"Failed to store: {e}")
+        _exit_error(EXIT_VAULT_ERROR, "Failed to store passphrase.")
 
 
 # =============================================================================

@@ -179,6 +179,25 @@ class TestGetPasswordGen:
 
         assert result == "StrongPass1!@#ab"
 
+    def test_weak_password_output_does_not_include_secret_or_detail(self):
+        """Weak-password validation should not print entered secret material."""
+        submitted_secret = "DO_NOT_PRINT_THIS_SECRET_123"  # pragma: allowlist secret
+        in_stream = StringIO(f"{submitted_secret}\n")
+        out_stream = StringIO()
+
+        with pytest.raises(SystemExit):
+            _get_password(
+                confirm=False,
+                in_stream=in_stream,
+                out_stream=out_stream,
+                max_retries=1,
+            )
+
+        output = out_stream.getvalue()
+        assert submitted_secret not in output
+        assert "Password must include:" not in output
+        assert "Password requirements:" in output
+
     def test_max_retries_exceeded(self):
         """Should exit when max retries exceeded."""
         # All weak passwords
@@ -362,7 +381,8 @@ class TestHandleRetrievePassphrase:
         mock_vault_cls.return_value = mock_vault
         mock_vault.vault_exists.return_value = True
         mock_vault.list_labels.return_value = ["label1", "label2"]
-        mock_vault.retrieve_passphrase.return_value = "mysecret"
+        retrieved_secret = "VAULT_DO_NOT_PRINT_SECRET_123!"  # pragma: allowlist secret
+        mock_vault.retrieve_passphrase.return_value = retrieved_secret
 
         in_stream = StringIO("masterpass\nlabel1\n")
         out_stream = StringIO()
@@ -370,7 +390,7 @@ class TestHandleRetrievePassphrase:
         _handle_retrieve_passphrase(in_stream, out_stream)
 
         output = out_stream.getvalue()
-        assert "mysecret" not in output
+        assert retrieved_secret not in output
         assert "kept hidden" in output
         mock_vault.retrieve_passphrase.assert_called_once_with("label1", "masterpass")
 

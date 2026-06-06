@@ -522,10 +522,11 @@ class TestGeneratePassphraseHandlers:
         """Inline helper should always offer to store the new passphrase."""
 
         captured: dict[str, str] = {}
+        generated_secret = "INLINE_DO_NOT_PRINT_SECRET_123!"  # pragma: allowlist secret
 
         def _fake_generate(strategy: str) -> tuple[str, float]:
             captured["strategy"] = strategy
-            return "InlinePass", 150.0
+            return generated_secret, 150.0
 
         def _fake_offer(
             passphrase: str, in_stream, out_stream, *, require_storage: bool = False
@@ -543,20 +544,23 @@ class TestGeneratePassphraseHandlers:
 
         result = _handle_generate_passphrase_inline(in_stream, out_stream)
 
-        assert result == "InlinePass"
+        output = out_stream.getvalue()
+        assert result == generated_secret
         assert captured["strategy"] == "alphanumeric"
-        assert captured["offered"] == "InlinePass"
+        assert captured["offered"] == generated_secret
         assert captured["required"] == "True"
-        assert "offer-called" in out_stream.getvalue()
+        assert "offer-called" in output
+        assert generated_secret not in output
 
     def test_menu_generation_offers_vault_storage(self, monkeypatch):
         """Full-screen generator reuses the inline vault prompt helper."""
 
         captured: dict[str, str] = {}
+        generated_secret = "MENU_DO_NOT_PRINT_SECRET_123!"  # pragma: allowlist secret
 
         def _fake_generate(strategy: str) -> tuple[str, float]:
             captured["strategy"] = strategy
-            return "MenuPass", 128.0
+            return generated_secret, 128.0
 
         def _fake_offer(
             passphrase: str, in_stream, out_stream, *, require_storage: bool = False
@@ -574,7 +578,9 @@ class TestGeneratePassphraseHandlers:
 
         _handle_generate_passphrase(in_stream, out_stream)
 
+        output = out_stream.getvalue()
         assert captured["strategy"] == "alphanumeric"
-        assert captured["offered"] == "MenuPass"
+        assert captured["offered"] == generated_secret
         assert captured["required"] == "True"
-        assert "offer-called" in out_stream.getvalue()
+        assert "offer-called" in output
+        assert generated_secret not in output
