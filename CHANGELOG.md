@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.3.0] - 2026-06-06
+
+### Added
+
+- **Keychain-first interactive vault flow**: `ssc start` now prefers the OS keychain backend when it is available, while preserving explicit file-vault behavior for users who select or migrate to the file backend.
+- **Persistent security hardening coverage**: added expanded tests for vault storage, file decryption, passphrase vault behavior, CLI argument handling, package metadata, and interactive menu flows.
+- **Packaging type marker**: added `py.typed` so downstream type checkers can consume package typing information.
+- **Dependabot configuration** for Python dependencies and GitHub Actions updates.
+
+### Changed
+
+- Interactive menu behavior now aligns with the non-interactive CLI for key-file workflows, vault backend selection, and generated-passphrase handling.
+- File decryption and vault paths now use stricter path, overwrite, and storage validation before reading or replacing sensitive files.
+- Docker labels and release build metadata were aligned with the release version flow.
+- CI hardening was tightened around mypy, production vulnerability scanning, secret scanning baselines, and memory-heavy fuzz test execution.
+- Keychain installation guidance was clarified across README and `docs/KEYCHAIN.md`.
+
+### Security
+
+- Hardened CLI secret output paths flagged by CodeQL so generated or supplied secrets are not echoed through unsafe output handling.
+- Hardened vault storage and file decryption behavior, including stricter validation around loaded vault data, vault replacement, file writes, and tampered metadata.
+- Removed the unused `urllib3` dependency from the lockfile/project dependency surface.
+- Added a CodeQL alert fix plan in `AUDITS/CODEQL_ALERTS_FIX_PLAN.md` documenting resolved and remaining hardening work.
+
+### Roadmap
+
+- This release establishes the v1.3.0 baseline for the security architecture roadmap PR (#21). The roadmap items themselves remain follow-up work, starting with the P0 foundation: threat model documentation, versioned encryption envelope, algorithm/KDF/key-source registries, vault storage abstraction, and migration fixtures.
+
 ## [1.2.10] - 2026-06-02
 
 ### Fixed

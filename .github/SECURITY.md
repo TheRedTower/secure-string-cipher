@@ -6,6 +6,7 @@ We actively support the following versions with security updates:
 
 | Version | Supported          | Python Requirements |
 | ------- | ------------------ | ------------------- |
+| 1.3.x   | :white_check_mark: | 3.12+              |
 | 1.2.x   | :white_check_mark: | 3.12+              |
 | 1.1.x   | :white_check_mark: | 3.12+              |
 | < 1.1.0 | :x:                | 3.10+              |
