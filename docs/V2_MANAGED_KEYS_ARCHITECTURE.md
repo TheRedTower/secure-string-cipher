@@ -1,7 +1,7 @@
 # SSC v2 Managed Keys Architecture
 
-Status: Approved design draft  
-Target release: v2.0.0  
+Status: Approved design draft
+Target release: v2.0.0
 Future direction: v3.0.0 vault-policy-first architecture
 
 This document records the approved architecture for Secure String Cipher (SSC) v2.0.0 managed-key support. It is intended to be detailed enough for implementation planning while preserving the current stable v1 core.
@@ -66,7 +66,8 @@ Rules:
 - Keep the current v1 crypto core intact.
 - Do not rewrite `core.py` as part of the first v2 implementation.
 - Do not dump all v2 logic into `passphrase_manager.py`.
-- Introduce v2 as a parallel path under `secure_string_cipher/v2/`.
+- Introduce v2 as a parallel implementation package at
+  `src/secure_string_cipher/v2/` (import path: `secure_string_cipher.v2`).
 - Keep v1 password encryption as the default initially.
 - Use v2 explicitly when the user selects v2 features.
 - Auto-detect v1/v2 during decryption.
@@ -154,7 +155,8 @@ The following decisions are locked for the v2 architecture:
 17. v2 encrypted objects use `access.policy = single-grant` and exactly one grant.
 18. The primary CLI uses intuitive `--with` syntax plus interactive mode.
 19. Decrypt auto-detects v1/v2; encrypt remains explicit for v2 initially.
-20. v2 code lives under `secure_string_cipher/v2/`.
+20. v2 code lives under `src/secure_string_cipher/v2/` (import path:
+    `secure_string_cipher.v2`).
 21. v2 vault integration uses a `V2VaultService` adapter around `PassphraseVault`.
 22. Headers are authenticated through split protected sections and canonical digests.
 23. v2 file chunks use explicit indexed binary frames with flags.
@@ -870,7 +872,8 @@ V2VaultService:
   future bridge toward SQLite or v3 policy vault
 ```
 
-v2 key-management logic must live in `secure_string_cipher/v2/`, not inside `PassphraseVault` directly.
+v2 key-management logic must live in the `secure_string_cipher.v2` package
+(`src/secure_string_cipher/v2/`), not inside `PassphraseVault` directly.
 
 ---
 
@@ -1135,16 +1138,22 @@ Avoid making audit logs into an oracle. Normal audit output should not reveal ov
 
 ## 24. Code organisation
 
-v2 code lives under:
+v2 code lives under this filesystem path:
 
 ```text
 src/secure_string_cipher/v2/
 ```
 
-Suggested module layout:
+The Python import package is:
 
 ```text
-secure_string_cipher/v2/
+secure_string_cipher.v2
+```
+
+Suggested filesystem module layout:
+
+```text
+src/secure_string_cipher/v2/
   envelope.py
     V2Header
     AccessBlock
@@ -1263,7 +1272,7 @@ PR 1 — docs/design
   No production code
 
 PR 2 — v2 module skeleton and dataclasses
-  Add secure_string_cipher/v2/
+  Add src/secure_string_cipher/v2/
   Add dataclasses/types only
   Add canonical JSON helper
   No encryption behaviour change

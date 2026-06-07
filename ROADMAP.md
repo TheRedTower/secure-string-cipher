@@ -11,7 +11,8 @@ SSC v2.0.0 will introduce a managed-key architecture without rewriting the exist
 High-level v2 goals:
 
 - Keep the current v1 password/keyfile encryption path intact.
-- Add a parallel `secure_string_cipher/v2/` implementation path.
+- Add a parallel implementation package at `src/secure_string_cipher/v2/`
+  (import path: `secure_string_cipher.v2`).
 - Add generated `.ssckey` files using a PEM-like ASCII-armoured format.
 - Add lifecycle-aware managed symmetric key identities.
 - Support initial key storage modes: `external-only` and `vault-copy`.
