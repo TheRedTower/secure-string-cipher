@@ -123,10 +123,10 @@ class AuditLogger:
         self.log_path = Path(log_path)
         try:
             self.log_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        except OSError as e:
+        except OSError:
             self.enabled = False
             self._logger = logging.getLogger("secure_string_cipher.audit")
-            self._logger.warning(f"Audit logging disabled: {e}")
+            self._logger.warning("Audit logging disabled.")
             self._initialized = True
             return
 
@@ -226,11 +226,31 @@ class AuditLogger:
             for k, v in details.items():
                 if any(s in k.lower() for s in sensitive_keys):
                     safe_details[k] = "[REDACTED]"
+                elif k.lower() == "error":
+                    safe_details[k] = self._redact_error_detail(v)
                 else:
                     safe_details[k] = v
             entry["details"] = safe_details  # type: ignore[assignment]
 
         return json.dumps(entry, default=str)
+
+    def _redact_error_detail(self, value: Any) -> Any:
+        """Redact error detail strings that appear to contain sensitive material."""
+        if not isinstance(value, str):
+            return value
+
+        sensitive_terms = {
+            "password",
+            "passphrase",
+            "secret",
+            "token",
+            "credential",
+            "plaintext",
+        }
+        lower_value = value.lower()
+        if any(term in lower_value for term in sensitive_terms):
+            return "[REDACTED]"
+        return value
 
     def log(
         self,
@@ -257,9 +277,9 @@ class AuditLogger:
                     f.write(entry + "\n")
                 # Set restrictive permissions
                 os.chmod(self.log_path, 0o600)
-            except OSError as e:
+            except OSError:
                 # Fallback to Python logger
-                self._logger.warning(f"Audit log write failed: {e}")
+                self._logger.warning("Audit log write failed.")
                 self._logger.info(entry)
 
     def log_auth_failure(

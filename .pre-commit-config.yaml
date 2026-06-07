@@ -32,3 +32,11 @@ repos:
       - id: check-merge-conflict
       - id: check-toml
       - id: mixed-line-ending
+
+  - repo: local
+    hooks:
+      - id: sensitive-output-guard
+        name: Sensitive output guard
+        entry: python3 tools/check_sensitive_output.py
+        language: system
+        pass_filenames: false

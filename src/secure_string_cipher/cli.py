@@ -400,7 +400,7 @@ def _load_passphrase_from_key_file(in_stream: TextIO, out_stream: TextIO) -> str
     try:
         password = derive_passphrase_from_key_file(key_file_path)
     except Exception as e:
-        out_stream.write(f"Error: {e}\n")
+        out_stream.write(_key_file_error_message(e) + "\n")
         out_stream.flush()
         return None
 
@@ -418,6 +418,20 @@ def _write_password_policy(out_stream: TextIO) -> None:
     out_stream.write(
         "Password requirements: at least 12 chars, uppercase, lowercase, digits, symbols\n"
     )
+
+
+def _key_file_error_message(error: Exception) -> str:
+    """Return a fixed key-file error message without echoing paths or internals."""
+    message = str(error)
+    if "Key file not found" in message:
+        return "Error: Key file not found."
+    if "Key file is empty" in message:
+        return "Error: Key file is empty."
+    if "Key file is not a regular file" in message:
+        return "Error: Key file is not a regular file."
+    if "Key file too large" in message:
+        return "Error: Key file too large."
+    return "Error loading key file."
 
 
 def _write_retry_status(
@@ -653,8 +667,8 @@ def _handle_clipboard(text: str, out_stream: TextIO | None = None) -> None:
     except ImportError:
         ostream.write("⚠️  Clipboard unavailable (pyperclip not installed)\n")
         ostream.flush()
-    except Exception as e:
-        ostream.write(f"⚠️  Could not copy to clipboard: {e}\n")
+    except Exception:
+        ostream.write("⚠️  Could not copy to clipboard.\n")
         ostream.flush()
 
 
@@ -778,8 +792,8 @@ def _handle_list_vault(in_stream: TextIO, out_stream: TextIO) -> None:
                 out_stream.write(f"  {i}. {lbl}\n")
         out_stream.flush()
 
-    except Exception as e:
-        out_stream.write(f"Error listing passphrases: {e}\n")
+    except Exception:
+        out_stream.write("Error listing passphrases.\n")
         out_stream.flush()
 
 
@@ -829,8 +843,8 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
             out_stream.write(content + "\n")
             out_stream.write("\n💡 Copy the above output to save as a backup file.\n")
             out_stream.flush()
-        except Exception as e:
-            out_stream.write(f"Error exporting vault: {e}\n")
+        except Exception:
+            out_stream.write("Error exporting vault.\n")
             out_stream.flush()
         return
 
@@ -869,8 +883,8 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
                 colorize("\n✅ Vault imported successfully!", "green") + "\n"
             )
             out_stream.flush()
-        except Exception as e:
-            out_stream.write(f"Error importing vault: {e}\n")
+        except Exception:
+            out_stream.write("Error importing vault.\n")
             out_stream.flush()
         return
 
@@ -893,8 +907,8 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
                 colorize("\n✅ Vault reset. All passwords deleted.", "green") + "\n"
             )
             out_stream.flush()
-        except Exception as e:
-            out_stream.write(f"Error resetting vault: {e}\n")
+        except Exception:
+            out_stream.write("Error resetting vault.\n")
             out_stream.flush()
         return
 
@@ -968,8 +982,8 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
                 out_stream.write("Delete cancelled.\n")
                 out_stream.flush()
 
-    except Exception as e:
-        out_stream.write(f"Error managing vault: {e}\n")
+    except Exception:
+        out_stream.write("Error managing vault.\n")
         out_stream.flush()
 
 
@@ -1014,8 +1028,8 @@ def _handle_secure_shred(in_stream: TextIO, out_stream: TextIO) -> None:
             colorize(f"\n✅ File '{filepath}' securely shredded!", "green") + "\n"
         )
         out_stream.flush()
-    except Exception as e:
-        out_stream.write(f"Error shredding file: {e}\n")
+    except Exception:
+        out_stream.write("Error shredding file.\n")
         out_stream.flush()
 
 
@@ -1084,8 +1098,8 @@ def _handle_key_file_operation(in_stream: TextIO, out_stream: TextIO) -> None:
                         f"(Filename sanitized: '{metadata.original_filename}' -> '{sanitized}')\n"
                     )
         out_stream.flush()
-    except Exception as e:
-        out_stream.write(f"Error: {e}\n")
+    except Exception:
+        out_stream.write("Error processing key-file operation.\n")
         out_stream.flush()
 
 
@@ -1224,8 +1238,8 @@ def main(
                                     )
                                     raise
 
-        except Exception as e:
-            ostream.write(f"Error: {e}\n")
+        except Exception:
+            ostream.write("Error: operation failed. Check inputs and try again.\n")
             ostream.flush()
 
         ostream.write("\n")

@@ -36,13 +36,16 @@ jobs:
       run: uv sync --extra dev --locked
 
     - name: Check code quality (Ruff)
-      run: uv run --locked ruff check src tests
+      run: uv run --locked ruff check src tests tools
 
     - name: Check formatting (Ruff)
-      run: uv run --locked ruff format --check src tests
+      run: uv run --locked ruff format --check src tests tools
 
     - name: Type check (mypy)
       run: uv run --locked mypy src
+
+    - name: Guard sensitive CLI output
+      run: uv run --locked python tools/check_sensitive_output.py
 
     - name: Verify passphrase generation strength
       run: |

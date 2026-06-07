@@ -3,8 +3,8 @@
 **Date:** 2026-06-06
 **Repository:** TheRedTower/secure-string-cipher
 **GitHub alert source:** `gh api repos/TheRedTower/secure-string-cipher/code-scanning/alerts`
-**Local checkout:** `main` at `c8e0090`, ahead of `origin/main` by 2 commits
-**GitHub baseline inspected:** `origin/main` at `60440a3`
+**Local checkout:** `main` at `f7ff04c` with follow-up hardening in progress
+**GitHub baseline inspected:** Alert inventory below was captured from GitHub CodeQL on 2026-06-06 and should be re-queried after this fix is pushed.
 
 ## Executive Summary
 
@@ -42,12 +42,27 @@ The remaining started work focuses on password-validation and retry output:
 - `src/secure_string_cipher/cli_args.py` now avoids printing or auditing raw exception text for unexpected `store` command vault failures.
 - Tests now use explicit sentinel secrets to assert generated, retrieved, and rejected passwords do not appear in CLI output.
 
+### Addressed in this follow-up pass
+
+The follow-up hardening reduces repeat risk beyond the original alert locations:
+
+- Interactive and non-interactive CLI paths no longer echo raw exception text from key-file, vault, encryption, decryption, clipboard, import/export/reset/migrate, shred, or top-level command failures.
+- `AuditLogger` now redacts `error` details that appear to contain sensitive terms, in addition to key-based redaction.
+- `tools/check_sensitive_output.py` adds an AST guard that fails if credential-like variables or raw exception objects flow into CLI, logging, or audit sinks.
+- CI, pre-commit, `make lint`, and the release workflow now run the sensitive-output guard.
+- The release workflow now runs focused no-secret-output regression tests before package build and publication.
+- CodeQL is configured to run `security-extended` and `security-and-quality` queries in addition to default analysis.
+
 Verified locally with:
 
 ```bash
-uv run --locked ruff check src/secure_string_cipher/cli.py src/secure_string_cipher/cli_args.py tests/unit/test_cli_menu.py tests/unit/test_cli_coverage.py tests/unit/test_cli_args_coverage.py
-uv run --locked pytest tests/unit/test_cli_menu.py tests/unit/test_cli_coverage.py tests/unit/test_cli_args_coverage.py
+python3 tools/check_sensitive_output.py
+uv run --locked ruff format --check src tests tools
+uv run --locked ruff check src tests tools
 uv run --locked mypy src
+uv run --locked pytest tests/unit/test_cli_coverage.py tests/unit/test_cli_menu.py tests/unit/test_cli_args_coverage.py tests/security/test_audit_log.py
+uv run --locked pytest tests/
+uv run --locked detect-secrets scan --baseline .secrets.baseline
 ```
 
 ## Alert Inventory

@@ -100,6 +100,20 @@ def _print_password_policy() -> None:
     print(file=sys.stderr)
 
 
+def _key_file_error_message(error: Exception) -> str:
+    """Return a fixed key-file error message without echoing paths or internals."""
+    message = str(error)
+    if "Key file not found" in message:
+        return "Key file not found."
+    if "Key file is empty" in message:
+        return "Key file is empty."
+    if "Key file is not a regular file" in message:
+        return "Key file is not a regular file."
+    if "Key file too large" in message:
+        return "Key file too large."
+    return "Key file error."
+
+
 def _audit_encryption(
     event: AuditEvent,
     success: bool,
@@ -246,7 +260,7 @@ def _get_password_from_vault(label: str) -> str:
         _cli_limiter.record_attempt("vault_unlock", vault_id, success=False)
         if "not found" in str(e):
             _audit_vault(
-                AuditEvent.VAULT_RETRIEVE, False, vault, label=label, error=str(e)
+                AuditEvent.VAULT_RETRIEVE, False, vault, label=label, error="not_found"
             )
             _exit_error(EXIT_VAULT_ERROR, f"Label '{label}' not found in vault.")
         _audit_vault(
@@ -279,7 +293,7 @@ def _get_password_from_key_file(key_file_path: str) -> str:
     try:
         return derive_passphrase_from_key_file(key_file_path)
     except CryptoError as e:
-        _exit_error(EXIT_FILE_ERROR, str(e))
+        _exit_error(EXIT_FILE_ERROR, _key_file_error_message(e))
 
 
 def _load_file_metadata(input_path: Path) -> FileMetadata:
@@ -405,8 +419,8 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
             password = _get_password_from_key_file(args.key_file)
         except CryptoError:
             raise
-        except Exception as e:
-            _exit_error(EXIT_FILE_ERROR, f"Key file error: {e}")
+        except Exception:
+            _exit_error(EXIT_FILE_ERROR, "Key file error.")
     else:
         password = _prompt_password("Enter password: ", confirm=True)
 
@@ -418,9 +432,9 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
             _audit_encryption(AuditEvent.ENCRYPT_TEXT, True)
             _print_info("✓ Encrypted successfully")
             return EXIT_SUCCESS
-        except CryptoError as e:
-            _audit_encryption(AuditEvent.ENCRYPT_TEXT, False, error=str(e))
-            _exit_error(EXIT_AUTH_ERROR, f"Encryption failed: {e}")
+        except CryptoError:
+            _audit_encryption(AuditEvent.ENCRYPT_TEXT, False, error="encryption_failed")
+            _exit_error(EXIT_AUTH_ERROR, "Encryption failed.")
 
     # Encrypt file
     if args.file:
@@ -435,13 +449,16 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
                 _audit_encryption(AuditEvent.ENCRYPT_FILE, True, file_path="stdin")
                 _print_info("✓ Encrypted stdin to stdout")
                 return EXIT_SUCCESS
-            except CryptoError as e:
+            except CryptoError:
                 _audit_encryption(
-                    AuditEvent.ENCRYPT_FILE, False, file_path="stdin", error=str(e)
+                    AuditEvent.ENCRYPT_FILE,
+                    False,
+                    file_path="stdin",
+                    error="encryption_failed",
                 )
-                _exit_error(EXIT_AUTH_ERROR, f"Encryption failed: {e}")
-            except Exception as e:
-                _exit_error(EXIT_FILE_ERROR, f"Error: {e}")
+                _exit_error(EXIT_AUTH_ERROR, "Encryption failed.")
+            except Exception:
+                _exit_error(EXIT_FILE_ERROR, "File error.")
 
         filepath_obj = Path(filepath)
         output_path = filepath_obj.with_suffix(filepath_obj.suffix + ".enc")
@@ -457,18 +474,18 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
             )
             _print_info(f"✓ Encrypted to {output_path}")
             return EXIT_SUCCESS
-        except CryptoError as e:
+        except CryptoError:
             _audit_encryption(
                 AuditEvent.ENCRYPT_FILE,
                 False,
                 file_path=str(filepath_obj),
-                error=str(e),
+                error="encryption_failed",
             )
-            _exit_error(EXIT_AUTH_ERROR, f"Encryption failed: {e}")
+            _exit_error(EXIT_AUTH_ERROR, "Encryption failed.")
         except PermissionError:
             _exit_error(EXIT_FILE_ERROR, f"Permission denied: {args.file}")
-        except OSError as e:
-            _exit_error(EXIT_FILE_ERROR, f"File error: {e}")
+        except OSError:
+            _exit_error(EXIT_FILE_ERROR, "File error.")
 
     return EXIT_SUCCESS
 
@@ -511,8 +528,8 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
                 output_path = Path(output_arg)
             else:
                 output_path = _determine_output_path(filepath, restore_filename)
-        except (OSError, PermissionError, CryptoError) as e:
-            _exit_error(EXIT_FILE_ERROR, f"File error: {e}")
+        except (OSError, PermissionError, CryptoError):
+            _exit_error(EXIT_FILE_ERROR, "File error.")
 
         # Check overwrite
         if output_path.exists() and not args.force:
@@ -540,8 +557,8 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
             password = _get_password_from_key_file(args.key_file)
         except CryptoError:
             raise
-        except Exception as e:
-            _exit_error(EXIT_FILE_ERROR, f"Key file error: {e}")
+        except Exception:
+            _exit_error(EXIT_FILE_ERROR, "Key file error.")
     else:
         password = _prompt_password("Enter password: ", confirm=False)
 
@@ -554,9 +571,9 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
             _audit_encryption(AuditEvent.DECRYPT_TEXT, True)
             _print_info("✓ Decrypted successfully")
             return EXIT_SUCCESS
-        except CryptoError as e:
+        except CryptoError:
             _cli_limiter.record_attempt("decrypt_text", "", success=False)
-            _audit_encryption(AuditEvent.DECRYPT_TEXT, False, error=str(e))
+            _audit_encryption(AuditEvent.DECRYPT_TEXT, False, error="decryption_failed")
             _exit_error(
                 EXIT_AUTH_ERROR, "Decryption failed. Wrong password or corrupted data."
             )
@@ -576,14 +593,20 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
                 _audit_encryption(AuditEvent.DECRYPT_FILE, True, file_path="stdin")
                 _print_info("✓ Decrypted stdin to stdout")
                 return EXIT_SUCCESS
-            except CryptoError as e:
+            except CryptoError:
                 _cli_limiter.record_attempt("decrypt_file", "-", success=False)
                 _audit_encryption(
-                    AuditEvent.DECRYPT_FILE, False, file_path="stdin", error=str(e)
+                    AuditEvent.DECRYPT_FILE,
+                    False,
+                    file_path="stdin",
+                    error="decryption_failed",
                 )
-                _exit_error(EXIT_AUTH_ERROR, f"Decryption failed: {e}")
-            except Exception as e:
-                _exit_error(EXIT_FILE_ERROR, f"Error: {e}")
+                _exit_error(
+                    EXIT_AUTH_ERROR,
+                    "Decryption failed. Wrong password or corrupted data.",
+                )
+            except Exception:
+                _exit_error(EXIT_FILE_ERROR, "File error.")
 
         filepath_obj = Path(filepath)
 
@@ -597,8 +620,8 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
                 output_path = Path(output_arg)
             else:
                 output_path = _determine_output_path(filepath_obj, restore_filename)
-        except (OSError, PermissionError, CryptoError) as e:
-            _exit_error(EXIT_FILE_ERROR, f"File error: {e}")
+        except (OSError, PermissionError, CryptoError):
+            _exit_error(EXIT_FILE_ERROR, "File error.")
 
         # Check overwrite
         if output_path.exists():
@@ -623,7 +646,7 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
             )
             _print_info(f"✓ Decrypted to {actual_output}")
             return EXIT_SUCCESS
-        except CryptoError as e:
+        except CryptoError:
             _cli_limiter.record_attempt(
                 "decrypt_file", str(filepath_obj), success=False
             )
@@ -631,15 +654,15 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
                 AuditEvent.DECRYPT_FILE,
                 False,
                 file_path=str(filepath_obj),
-                error=str(e),
+                error="decryption_failed",
             )
             _exit_error(
                 EXIT_AUTH_ERROR, "Decryption failed. Wrong password or corrupted data."
             )
         except PermissionError:
             _exit_error(EXIT_FILE_ERROR, f"Permission denied: {args.file}")
-        except OSError as e:
-            _exit_error(EXIT_FILE_ERROR, f"File error: {e}")
+        except OSError:
+            _exit_error(EXIT_FILE_ERROR, "File error.")
 
     return EXIT_SUCCESS
 
@@ -705,9 +728,9 @@ def cmd_vault_list(args: argparse.Namespace) -> int:
     except CryptoError:
         _audit_vault(AuditEvent.VAULT_LIST, False, vault, error="auth_failed")
         _exit_error(EXIT_AUTH_ERROR, "Wrong master password.")
-    except ValueError as e:
-        _audit_vault(AuditEvent.VAULT_LIST, False, vault, error=str(e))
-        _exit_error(EXIT_AUTH_ERROR, str(e))
+    except ValueError:
+        _audit_vault(AuditEvent.VAULT_LIST, False, vault, error="vault_error")
+        _exit_error(EXIT_AUTH_ERROR, "Vault operation failed.")
 
 
 def cmd_vault_delete(args: argparse.Namespace) -> int:
@@ -722,11 +745,11 @@ def cmd_vault_delete(args: argparse.Namespace) -> int:
         return EXIT_SUCCESS
     except ValueError as e:
         _audit_vault(
-            AuditEvent.VAULT_DELETE, False, vault, label=args.label, error=str(e)
+            AuditEvent.VAULT_DELETE, False, vault, label=args.label, error="vault_error"
         )
         if "not found" in str(e):
             _exit_error(EXIT_VAULT_ERROR, f"Label '{args.label}' not found.")
-        _exit_error(EXIT_AUTH_ERROR, str(e))
+        _exit_error(EXIT_AUTH_ERROR, "Wrong master password.")
     except KeyError:
         _audit_vault(
             AuditEvent.VAULT_DELETE,
@@ -800,8 +823,8 @@ def cmd_vault_import(args: argparse.Namespace) -> int:
     # Validate vault format before replacing
     try:
         content = import_path.read_text()
-    except OSError as e:
-        _exit_error(EXIT_FILE_ERROR, f"Cannot read import file: {e}")
+    except OSError:
+        _exit_error(EXIT_FILE_ERROR, "Cannot read import file.")
 
     if not _validate_vault_format(content):
         _exit_error(
@@ -821,12 +844,12 @@ def cmd_vault_import(args: argparse.Namespace) -> int:
         _audit_vault(AuditEvent.VAULT_STORE, True, vault)
         _print_info("✓ Vault imported successfully")
         return EXIT_SUCCESS
-    except OSError as e:
-        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=str(e))
-        _exit_error(EXIT_FILE_ERROR, f"Import failed: {e}")
-    except Exception as e:
-        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=str(e))
-        _exit_error(EXIT_VAULT_ERROR, f"Import failed: {e}")
+    except OSError:
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error="import_failed")
+        _exit_error(EXIT_FILE_ERROR, "Import failed.")
+    except Exception:
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error="import_failed")
+        _exit_error(EXIT_VAULT_ERROR, "Import failed.")
 
 
 def cmd_vault_reset(args: argparse.Namespace) -> int:
@@ -848,12 +871,12 @@ def cmd_vault_reset(args: argparse.Namespace) -> int:
         _audit_vault(AuditEvent.VAULT_DELETE, True, vault)
         _print_info("✓ Vault reset. All passwords deleted.")
         return EXIT_SUCCESS
-    except OSError as e:
-        _audit_vault(AuditEvent.VAULT_DELETE, False, vault, error=str(e))
-        _exit_error(EXIT_FILE_ERROR, f"Reset failed: {e}")
-    except Exception as e:
-        _audit_vault(AuditEvent.VAULT_DELETE, False, vault, error=str(e))
-        _exit_error(EXIT_VAULT_ERROR, f"Reset failed: {e}")
+    except OSError:
+        _audit_vault(AuditEvent.VAULT_DELETE, False, vault, error="reset_failed")
+        _exit_error(EXIT_FILE_ERROR, "Reset failed.")
+    except Exception:
+        _audit_vault(AuditEvent.VAULT_DELETE, False, vault, error="reset_failed")
+        _exit_error(EXIT_VAULT_ERROR, "Reset failed.")
 
 
 def cmd_vault_migrate(args: argparse.Namespace) -> int:
@@ -882,15 +905,18 @@ def cmd_vault_migrate(args: argparse.Namespace) -> int:
             _print_info("✓ Vault migrated to file.")
             _print_info(f"  Vault location: {vault.vault_path}")
         return EXIT_SUCCESS
-    except KeychainUnavailableError as e:
-        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=str(e))
-        _exit_error(EXIT_VAULT_ERROR, str(e))
-    except ValueError as e:
-        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=str(e))
-        _exit_error(EXIT_AUTH_ERROR, str(e))
-    except Exception as e:
-        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=str(e))
-        _exit_error(EXIT_VAULT_ERROR, f"Migration failed: {e}")
+    except KeychainUnavailableError:
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error="keychain_unavailable")
+        _exit_error(
+            EXIT_VAULT_ERROR,
+            "Keychain backend unavailable. Install keychain support and ensure your OS keychain service is running.",
+        )
+    except ValueError:
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error="auth_failed")
+        _exit_error(EXIT_AUTH_ERROR, "Wrong master password.")
+    except Exception:
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error="migration_failed")
+        _exit_error(EXIT_VAULT_ERROR, "Migration failed.")
 
 
 def cmd_vault_status(args: argparse.Namespace) -> int:
@@ -916,8 +942,8 @@ def cmd_vault_backend(args: argparse.Namespace) -> int:
 
     try:
         settings = set_vault_backend(args.backend)
-    except ValueError as e:
-        _exit_error(EXIT_INPUT_ERROR, str(e))
+    except ValueError:
+        _exit_error(EXIT_INPUT_ERROR, "Invalid vault backend.")
 
     _print_info(f"✓ Active vault backend set to: {settings.vault_backend}")
     return EXIT_SUCCESS
@@ -945,12 +971,12 @@ def cmd_vault_restore(args: argparse.Namespace) -> int:
         _audit_vault(AuditEvent.VAULT_STORE, True, vault)
         _print_info(f"✓ Restored backup [{args.index}] to {vault.vault_path}")
         return EXIT_SUCCESS
-    except ValueError as e:
-        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=str(e))
-        _exit_error(EXIT_VAULT_ERROR, str(e))
-    except OSError as e:
-        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=str(e))
-        _exit_error(EXIT_FILE_ERROR, f"Restore failed: {e}")
+    except ValueError:
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error="restore_failed")
+        _exit_error(EXIT_VAULT_ERROR, "Restore failed.")
+    except OSError:
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error="restore_failed")
+        _exit_error(EXIT_FILE_ERROR, "Restore failed.")
 
 
 def cmd_vault(args: argparse.Namespace) -> int:
@@ -989,8 +1015,8 @@ def cmd_shred(args: argparse.Namespace) -> int:
         try:
             secure_overwrite(str(path))
             _print_info(f"✓ Shredded: {path}")
-        except OSError as e:
-            _exit_error(EXIT_FILE_ERROR, f"Failed to shred {path}: {e}")
+        except OSError:
+            _exit_error(EXIT_FILE_ERROR, f"Failed to shred {path}.")
 
     return EXIT_SUCCESS
 
@@ -1360,8 +1386,8 @@ def main() -> NoReturn:
     except KeyboardInterrupt:
         print("\nCancelled.", file=sys.stderr)
         sys.exit(EXIT_INPUT_ERROR)
-    except Exception as e:
-        _exit_error(EXIT_INPUT_ERROR, str(e))
+    except Exception:
+        _exit_error(EXIT_INPUT_ERROR, "Command failed.")
 
 
 if __name__ == "__main__":

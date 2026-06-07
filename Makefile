@@ -1,4 +1,4 @@
-.PHONY: help format lint test test-fast test-watch test-unit test-integration test-security test-quick test-failed test-cov clean install ci docker-build docker-build-fast docker-build-ultra docker-run docker-test docker-clean docker-size
+.PHONY: help format lint security-guard test test-fast test-watch test-unit test-integration test-security test-quick test-failed test-cov clean install ci docker-build docker-build-fast docker-build-ultra docker-run docker-test docker-clean docker-size
 
 help:  ## Show this help message
 	@echo 'Usage: make [target]'
@@ -11,18 +11,23 @@ install:  ## Install package and dev dependencies
 
 format:  ## Auto-format code with Ruff
 	@echo "✨ Formatting code with Ruff..."
-	uv run --locked ruff format src tests
-	uv run --locked ruff check --fix src tests
+	uv run --locked ruff format src tests tools
+	uv run --locked ruff check --fix src tests tools
 	@echo "✅ Formatting complete!"
 
 lint:  ## Run all linting checks (Ruff format check, Ruff lint, mypy)
 	@echo "🔍 Checking code format..."
-	uv run --locked ruff format --check src tests
+	uv run --locked ruff format --check src tests tools
 	@echo "� Checking code quality..."
-	uv run --locked ruff check src tests
+	uv run --locked ruff check src tests tools
 	@echo "🔬 Running mypy type checks on production code..."
 	uv run --locked mypy src
+	@make security-guard
 	@echo "✅ All linting checks passed!"
+
+security-guard:  ## Check that CLI/audit paths do not output credential material
+	@echo "🔒 Checking for sensitive CLI/audit output..."
+	uv run --locked python tools/check_sensitive_output.py
 
 lint-tests:  ## Run the gradual non-blocking mypy check for tests
 	@echo "🔬 Running mypy type checks on tests..."

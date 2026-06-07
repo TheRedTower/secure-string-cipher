@@ -168,6 +168,22 @@ class TestSensitiveDataRedaction:
 
         assert entry["details"]["plaintext"] == "[REDACTED]"
 
+    def test_sensitive_error_detail_is_redacted(self, audit_logger, temp_log_dir):
+        """Error fields that appear to contain secret material should be redacted."""
+        log_path = temp_log_dir / "test_audit.log"
+        leaked_detail = "DO_NOT_PRINT_AUDIT_SECRET_123!"  # pragma: allowlist secret
+        audit_logger.log(
+            AuditEvent.DECRYPT_TEXT,
+            success=False,
+            details={"error": f"failed with passphrase {leaked_detail}"},
+        )
+
+        line = log_path.read_text()
+        entry = json.loads(line)
+
+        assert leaked_detail not in line
+        assert entry["details"]["error"] == "[REDACTED]"
+
 
 class TestAuditLevels:
     """Tests for audit logging levels."""

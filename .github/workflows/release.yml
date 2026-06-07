@@ -34,6 +34,32 @@ jobs:
           uv.lock
           pyproject.toml
 
+    - name: Sync (locked)
+      run: uv sync --extra dev --locked
+
+    - name: Check code quality (Ruff)
+      run: uv run --locked ruff check src tests tools
+
+    - name: Check formatting (Ruff)
+      run: uv run --locked ruff format --check src tests tools
+
+    - name: Type check (mypy)
+      run: uv run --locked mypy src
+
+    - name: Guard sensitive CLI output
+      run: uv run --locked python tools/check_sensitive_output.py
+
+    - name: Test sensitive-output regressions
+      run: |
+        uv run --locked pytest \
+          tests/unit/test_cli_coverage.py \
+          tests/unit/test_cli_menu.py \
+          tests/unit/test_cli_args_coverage.py \
+          tests/security/test_audit_log.py
+
+    - name: Security scan - Secrets
+      run: uv run --locked detect-secrets scan --baseline .secrets.baseline
+
     - name: Build package
       run: uv build
 
