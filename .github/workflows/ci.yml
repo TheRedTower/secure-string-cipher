@@ -112,7 +112,7 @@ jobs:
         fi
 
     - name: Upload coverage
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v7
       if: matrix.python-version == '3.14'
       continue-on-error: true
       with:
