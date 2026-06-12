@@ -418,7 +418,7 @@ def _encrypt_data(data: bytes, passphrase: str) -> bytes:
 
         with SecureBytes(derive_key(passphrase, salt)) as secure_key:
             # Compute key commitment
-            commitment = compute_key_commitment(secure_key.data)
+            commitment = compute_key_commitment(bytes(secure_key.data))
 
             encryptor = Cipher(
                 algorithms.AES(secure_key.data),
@@ -632,7 +632,7 @@ def encrypt_file(
 
         with SecureBytes(derive_key(passphrase, salt)) as secure_key:
             # Compute key commitment to bind ciphertext to this specific key
-            commitment = compute_key_commitment(secure_key.data)
+            commitment = compute_key_commitment(bytes(secure_key.data))
             commitment_b64 = base64.b64encode(commitment).decode("ascii")
 
             # Build metadata with key commitment
