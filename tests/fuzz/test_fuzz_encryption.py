@@ -45,10 +45,12 @@ class TestEncryptionFuzz:
     @given(
         plaintext=st.text(min_size=0, max_size=10000),
         passphrase=st.text(min_size=12, max_size=128).filter(
-            lambda p: any(c.isupper() for c in p)
-            and any(c.islower() for c in p)
-            and any(c.isdigit() for c in p)
-            and any(not c.isalnum() for c in p)
+            lambda p: (
+                any(c.isupper() for c in p)
+                and any(c.islower() for c in p)
+                and any(c.isdigit() for c in p)
+                and any(not c.isalnum() for c in p)
+            )
         ),
     )
     def test_encrypt_decrypt_arbitrary_text(self, plaintext: str, passphrase: str):
@@ -65,10 +67,12 @@ class TestEncryptionFuzz:
     @given(
         plaintext=st.binary(min_size=1, max_size=5000),
         passphrase=st.text(min_size=12, max_size=64).filter(
-            lambda p: any(c.isupper() for c in p)
-            and any(c.islower() for c in p)
-            and any(c.isdigit() for c in p)
-            and any(not c.isalnum() for c in p)
+            lambda p: (
+                any(c.isupper() for c in p)
+                and any(c.islower() for c in p)
+                and any(c.isdigit() for c in p)
+                and any(not c.isalnum() for c in p)
+            )
         ),
     )
     def test_encrypt_binary_as_text(self, plaintext: bytes, passphrase: str):
@@ -88,10 +92,12 @@ class TestEncryptionFuzz:
             max_size=1000,
         ),
         passphrase=st.text(min_size=12, max_size=64).filter(
-            lambda p: any(c.isupper() for c in p)
-            and any(c.islower() for c in p)
-            and any(c.isdigit() for c in p)
-            and any(not c.isalnum() for c in p)
+            lambda p: (
+                any(c.isupper() for c in p)
+                and any(c.islower() for c in p)
+                and any(c.isdigit() for c in p)
+                and any(not c.isalnum() for c in p)
+            )
         ),
     )
     def test_encrypt_unicode_text(self, plaintext: str, passphrase: str):
@@ -137,10 +143,12 @@ class TestDecryptionFuzz:
     @given(
         garbage=st.text(min_size=1, max_size=1000),
         passphrase=st.text(min_size=12, max_size=64).filter(
-            lambda p: any(c.isupper() for c in p)
-            and any(c.islower() for c in p)
-            and any(c.isdigit() for c in p)
-            and any(not c.isalnum() for c in p)
+            lambda p: (
+                any(c.isupper() for c in p)
+                and any(c.islower() for c in p)
+                and any(c.isdigit() for c in p)
+                and any(not c.isalnum() for c in p)
+            )
         ),
     )
     def test_decrypt_garbage_never_crashes(self, garbage: str, passphrase: str):

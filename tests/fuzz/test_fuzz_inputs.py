@@ -167,10 +167,12 @@ class TestPasswordStrengthFuzz:
     @settings(max_examples=100, deadline=None)
     @given(
         password=st.text(min_size=12, max_size=100).filter(
-            lambda p: any(c.isupper() for c in p)
-            and any(c.islower() for c in p)
-            and any(c.isdigit() for c in p)
-            and any(not c.isalnum() for c in p)
+            lambda p: (
+                any(c.isupper() for c in p)
+                and any(c.islower() for c in p)
+                and any(c.isdigit() for c in p)
+                and any(not c.isalnum() for c in p)
+            )
         ),
     )
     def test_complex_passwords_pass(self, password: str):

@@ -13,11 +13,11 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
 dependencies = [
-    "cryptography==46.0.7",
+    "cryptography==48.0.0",
     "argon2-cffi==25.1.0",
     "pynacl==1.6.2",
     "pyperclip==1.11.0",
-    "wcwidth==0.2.14",
+    "wcwidth==0.8.1",
 ]
 
 classifiers = [
@@ -40,21 +40,21 @@ keychain = [
 ]
 dev = [
     "pytest==8.4.2",
-    "pytest-cov==7.0.0",
+    "pytest-cov==7.1.0",
     "pytest-xdist==3.8.0",        # Parallel test execution
     "pytest-timeout==2.4.0",      # Prevent hanging tests
     "pytest-mock==3.15.1",        # Better mocking
     "hypothesis==6.146.0",        # Property-based testing
-    "mypy==1.18.2",
-    "ruff==0.14.3",
+    "mypy==2.1.0",
+    "ruff==0.15.16",
     "detect-secrets==1.5.0",      # Secret scanning
-    "pip-audit==2.9.0",           # Vulnerability scanning
+    "pip-audit==2.10.0",          # Vulnerability scanning
     "pre-commit>=4.5.0",
     "keyring>=25.0.0",            # For keychain backend tests
 ]
 test = [
     "pytest==8.4.2",
-    "pytest-cov==7.0.0",
+    "pytest-cov==7.1.0",
     "pytest-xdist==3.8.0",        # Parallel execution
     "pytest-timeout==2.4.0",      # Timeout protection
 ]

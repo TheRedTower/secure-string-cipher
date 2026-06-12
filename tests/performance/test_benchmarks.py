@@ -11,6 +11,7 @@ Run with: pytest tests/performance/ -v --benchmark-only
 import os
 import time
 from pathlib import Path
+from statistics import median
 
 import pytest
 
@@ -308,29 +309,36 @@ class TestConstantTimeBenchmarks:
         constant_time_compare uses hmac.compare_digest which is guaranteed
         constant-time at the C level.
         """
-        base = "A" * 100
-        iterations = 5000  # More iterations for stability
+        base = b"A" * 100
+        early_mismatch = b"B" + b"A" * 99
+        late_mismatch = b"A" * 99 + b"B"
+        iterations = 2000
+        rounds = 9
 
-        # Warm up to reduce JIT effects
+        # Warm up caches and the interpreter before collecting samples.
         for _ in range(100):
-            constant_time_compare(base, "B" + "A" * 99)
-            constant_time_compare(base, "A" * 99 + "B")
-
-        # Compare with mismatch at start
-        early_mismatch = "B" + "A" * 99
-        start = time.perf_counter()
-        for _ in range(iterations):
             constant_time_compare(base, early_mismatch)
-        early_time = time.perf_counter() - start
-
-        # Compare with mismatch at end
-        late_mismatch = "A" * 99 + "B"
-        start = time.perf_counter()
-        for _ in range(iterations):
             constant_time_compare(base, late_mismatch)
-        late_time = time.perf_counter() - start
 
-        # Times should be similar
+        def measure(candidate: bytes) -> float:
+            start = time.perf_counter()
+            for _ in range(iterations):
+                constant_time_compare(base, candidate)
+            return time.perf_counter() - start
+
+        early_samples: list[float] = []
+        late_samples: list[float] = []
+        for round_index in range(rounds):
+            if round_index % 2 == 0:
+                early_samples.append(measure(early_mismatch))
+                late_samples.append(measure(late_mismatch))
+            else:
+                late_samples.append(measure(late_mismatch))
+                early_samples.append(measure(early_mismatch))
+
+        # Medians of interleaved samples are less sensitive to runner scheduling.
+        early_time = median(early_samples)
+        late_time = median(late_samples)
         ratio = max(early_time, late_time) / min(early_time, late_time)
 
         print("\n📊 Timing Consistency Check:")
