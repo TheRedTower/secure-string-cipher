@@ -120,10 +120,15 @@ class TestSecureBytes:
 
     def test_exception_wipes_data(self):
         """Verify data is wiped even when exception occurs."""
-        secure = None
-        with pytest.raises(ValueError, match="test exception"):
-            with SecureBytes(b"classified") as secure:
+        secure = SecureBytes(b"classified")
+        try:
+            with secure:
                 raise ValueError("test exception")
+        except ValueError as exc:
+            assert str(exc) == "test exception"
+        else:
+            pytest.fail("SecureBytes context did not propagate the exception")
+
         with pytest.raises(AttributeError):
             _ = secure.data
 
@@ -176,10 +181,15 @@ class TestSecureString:
 
     def test_exception_wipes_string(self):
         """Verify string is wiped even when exception occurs."""
-        secure = None
-        with pytest.raises(ValueError, match="test exception"):
-            with SecureString("topsecret") as secure:
+        secure = SecureString("topsecret")
+        try:
+            with secure:
                 raise ValueError("test exception")
+        except ValueError as exc:
+            assert str(exc) == "test exception"
+        else:
+            pytest.fail("SecureString context did not propagate the exception")
+
         with pytest.raises(AttributeError):
             _ = secure.string
 
