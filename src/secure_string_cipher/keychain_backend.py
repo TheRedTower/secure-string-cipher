@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import suppress
 from typing import Any, cast
 
 logger = logging.getLogger(__name__)
@@ -153,9 +154,8 @@ class KeychainVaultBackend:
             KeychainError: If the keychain delete operation fails.
         """
         try:
-            self._keyring.delete_password(self._service, _VAULT_KEY)
-        except self._keyring.errors.PasswordDeleteError:
-            pass  # Already deleted or doesn't exist
+            with suppress(self._keyring.errors.PasswordDeleteError):
+                self._keyring.delete_password(self._service, _VAULT_KEY)
         except Exception as e:
             raise KeychainError(f"Failed to delete vault from keychain: {e}") from e
 
@@ -176,12 +176,10 @@ class KeychainVaultBackend:
         Args:
             metadata: Dictionary of metadata to store.
         """
-        try:
+        with suppress(Exception):
             self._keyring.set_password(
                 self._service, "__ssc_metadata__", json.dumps(metadata)
             )
-        except Exception:
-            pass  # Metadata storage is best-effort
 
     def load_metadata(self) -> dict[str, Any]:
         """Load vault metadata from keychain.
@@ -189,10 +187,8 @@ class KeychainVaultBackend:
         Returns:
             Dictionary of metadata, or empty dict if not found.
         """
-        try:
+        with suppress(Exception):
             data = self._keyring.get_password(self._service, "__ssc_metadata__")
             if data:
                 return cast(dict[str, Any], json.loads(data))
-        except Exception:
-            pass
         return {}

@@ -16,6 +16,7 @@ import threading
 import time
 from collections import defaultdict
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from functools import wraps
 from typing import ParamSpec, TypeVar
@@ -267,10 +268,8 @@ class PersistentRateLimiter(RateLimiter):
             os.chmod(temp_path, 0o600)
             os.replace(temp_path, state_file)
         except Exception:
-            try:
+            with suppress(OSError):
                 os.unlink(temp_path)
-            except OSError:
-                pass
             raise
 
     def check_rate_limit(
@@ -343,10 +342,8 @@ def rate_limited(
             # Get identifier from arguments
             identifier = ""
             if get_identifier is not None:
-                try:
+                with suppress(Exception):
                     identifier = get_identifier(*args, **kwargs)
-                except Exception:
-                    pass
 
             # Check rate limit
             allowed, wait_time = limiter.check_rate_limit(operation, identifier)

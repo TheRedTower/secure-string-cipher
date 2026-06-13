@@ -219,7 +219,7 @@ class TestCLI:
         assert exc_info.value.code == 1  # Should exit with error
         output = out_stream.getvalue()
         assert "Maximum password attempts" in output or "5" in output
-        assert "attempts remaining" in output
+        assert "Password attempt failed" in output
 
     def test_password_retry_success_on_retry(self):
         """Test password retry succeeds on valid attempt."""
@@ -242,7 +242,7 @@ class TestCLI:
         # Should complete successfully and exit cleanly
         assert exc_info.value.code == 0
         output = out_stream.getvalue()
-        assert "attempts remaining" in output  # Should show retry message
+        assert "Password attempt failed" in output
         assert "Continue? (y/n):" in output  # Should reach continue prompt
 
     @patch("pyperclip.copy")

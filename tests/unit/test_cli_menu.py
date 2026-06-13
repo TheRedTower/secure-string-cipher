@@ -9,12 +9,11 @@ import pytest
 from wcwidth import wcswidth
 
 import secure_string_cipher.cli as cli
-from secure_string_cipher.cli import (
-    _get_mode,
-    _handle_generate_passphrase,
-    _handle_generate_passphrase_inline,
-    _offer_vault_storage,
-)
+
+_get_mode = cli._get_mode
+_handle_generate_passphrase = cli._handle_generate_passphrase
+_handle_generate_passphrase_inline = cli._handle_generate_passphrase_inline
+_offer_vault_storage = cli._offer_vault_storage
 
 
 class TestMenuDisplay:

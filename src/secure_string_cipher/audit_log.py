@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import threading
+from contextlib import suppress
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -186,17 +187,13 @@ class AuditLogger:
             old_backup = self.log_path.with_suffix(f".log.{i}")
             new_backup = self.log_path.with_suffix(f".log.{i + 1}")
             if old_backup.exists():
-                try:
+                with suppress(OSError):
                     old_backup.rename(new_backup)
-                except OSError:
-                    pass
 
         # Rotate current log
         backup_path = self.log_path.with_suffix(".log.1")
-        try:
+        with suppress(OSError):
             self.log_path.rename(backup_path)
-        except OSError:
-            pass
 
     def _format_entry(
         self,

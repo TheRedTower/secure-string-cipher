@@ -14,6 +14,7 @@ import json
 import os
 import secrets
 import tempfile
+from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
@@ -170,11 +171,9 @@ class StreamProcessor:
 
             # Setup progress bar for reading
             if self.mode == "rb":
-                try:
+                with suppress(OSError):
                     size = os.path.getsize(self.path)
                     self._progress = ProgressBar(size)
-                except OSError:
-                    pass  # Skip progress if we can't get file size
         else:
             self.file = self.path
 
@@ -840,15 +839,11 @@ def decrypt_file(
                     temp_path = None
                 finally:
                     if temp_fd is not None:
-                        try:
+                        with suppress(OSError):
                             os.close(temp_fd)
-                        except OSError:
-                            pass
                     if temp_path is not None:
-                        try:
+                        with suppress(OSError):
                             os.unlink(temp_path)
-                        except OSError:
-                            pass
 
         return str(output_path_obj), metadata
 
@@ -980,7 +975,7 @@ def generate_key_pair(
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
         )
 
-        def _write_key_file_securely(path: Path, data: bytes, mode: int) -> None:
+        def _write_key_file_securely(path: Path, data: bytes) -> None:
             # Re-check immediately before open to reduce TOCTOU window and
             # enforce no-symlink behavior even when O_NOFOLLOW is unavailable.
             if path.is_symlink():
@@ -991,7 +986,7 @@ def generate_key_pair(
                 flags |= os.O_NOFOLLOW
 
             try:
-                fd = os.open(path, flags, mode)
+                fd = os.open(path, flags, 0o600)
             except OSError as exc:
                 raise CryptoError(
                     f"Failed to open key file for secure write: {path}"
@@ -999,7 +994,7 @@ def generate_key_pair(
 
             try:
                 if hasattr(os, "fchmod"):
-                    os.fchmod(fd, mode)
+                    os.fchmod(fd, 0o600)
 
                 view = memoryview(data)
                 while view:
@@ -1014,11 +1009,11 @@ def generate_key_pair(
                 os.close(fd)
 
             if not hasattr(os, "fchmod"):
-                os.chmod(path, mode)
+                os.chmod(path, 0o600)
 
-        # Write files with secure open flags (where supported)
-        _write_key_file_securely(private_path, private_pem, 0o600)
-        _write_key_file_securely(public_path, public_pem, 0o644)
+        # Keep both key files owner-only. Public keys can be shared explicitly.
+        _write_key_file_securely(private_path, private_pem)
+        _write_key_file_securely(public_path, public_pem)
 
     except ImportError as err:
         raise CryptoError(

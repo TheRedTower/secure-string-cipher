@@ -3,24 +3,25 @@ Tests for security utilities (filename sanitization, path validation, symlink de
 """
 
 import os
+from contextlib import suppress
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from secure_string_cipher.security import (
-    SecurityError,
-    check_elevated_privileges,
-    check_sensitive_directory,
-    create_secure_temp_file,
-    detect_symlink,
-    sanitize_filename,
-    secure_atomic_write,
-    validate_execution_context,
-    validate_filename_safety,
-    validate_output_path,
-    validate_safe_path,
-)
+import secure_string_cipher.security as security_module
+
+SecurityError = security_module.SecurityError
+check_elevated_privileges = security_module.check_elevated_privileges
+check_sensitive_directory = security_module.check_sensitive_directory
+create_secure_temp_file = security_module.create_secure_temp_file
+detect_symlink = security_module.detect_symlink
+sanitize_filename = security_module.sanitize_filename
+secure_atomic_write = security_module.secure_atomic_write
+validate_execution_context = security_module.validate_execution_context
+validate_filename_safety = security_module.validate_filename_safety
+validate_output_path = security_module.validate_output_path
+validate_safe_path = security_module.validate_safe_path
 
 
 class TestFilenameSanitization:
@@ -182,9 +183,10 @@ class TestSecurityErrorException:
 
     def test_security_error_can_be_raised(self):
         """Test SecurityError can be raised and caught."""
-        with pytest.raises(SecurityError) as exc_info:
-            raise SecurityError("Test error")
-        assert "Test error" in str(exc_info.value)
+        error = SecurityError("Test error")
+        assert "Test error" in str(error)
+        with pytest.raises(SecurityError, match="Test error"):
+            raise error
 
 
 class TestPathValidation:
@@ -610,13 +612,11 @@ class TestSecureTempFile:
     def test_create_secure_temp_file_cleanup_on_exception(self, tmp_path):
         """Test that temp file is cleaned up even if exception occurs."""
         temp_path = None
-        try:
+        with pytest.raises(ValueError, match="Test error"):
             with create_secure_temp_file(directory=tmp_path) as (fd, path):
                 temp_path = path
                 # Simulate an error
                 raise ValueError("Test error")
-        except ValueError:
-            pass
 
         # File should still be cleaned up
         assert temp_path is not None
@@ -634,8 +634,6 @@ class TestSecureTempFile:
         readonly_dir = tmp_path / "readonly"
         readonly_dir.mkdir()
         readonly_dir.chmod(0o444)
-
-        import secure_string_cipher.security as security_module
 
         original_access = security_module.os.access
 
@@ -689,17 +687,14 @@ class TestSecureAtomicWrite:
         perms = stat_info.st_mode & 0o777
         assert perms == 0o600
 
-    def test_secure_atomic_write_custom_permissions(self, tmp_path):
-        """Test atomic write with custom permissions."""
+    def test_secure_atomic_write_rejects_permissive_permissions(self, tmp_path):
+        """Secure atomic writes must remain owner-only."""
         dest = tmp_path / "test.txt"
         content = b"data"
 
-        secure_atomic_write(dest, content, mode=0o644)
-
-        # Check permissions are 0o644
-        stat_info = os.stat(dest)
-        perms = stat_info.st_mode & 0o777
-        assert perms == 0o644
+        with pytest.raises(SecurityError, match="owner-only"):
+            secure_atomic_write(dest, content, mode=0o644)
+        assert not dest.exists()
 
     def test_secure_atomic_write_overwrite_existing(self, tmp_path):
         """Test atomic write overwrites existing file."""
@@ -738,8 +733,6 @@ class TestSecureAtomicWrite:
         except (OSError, PermissionError):
             pytest.skip("Environment does not support chmod on directories")
 
-        import secure_string_cipher.security as security_module
-
         original_access = security_module.os.access
 
         def _fake_access(path, mode):
@@ -753,10 +746,8 @@ class TestSecureAtomicWrite:
             with pytest.raises(SecurityError, match="not writable"):
                 secure_atomic_write(readonly_dir / "test.txt", b"data")
         finally:
-            try:
+            with suppress(OSError, PermissionError):
                 readonly_dir.chmod(0o755)
-            except (OSError, PermissionError):
-                pass
 
     def test_secure_atomic_write_preserves_on_failure(self, tmp_path):
         """Test that existing file is preserved if write fails."""

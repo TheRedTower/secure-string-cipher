@@ -10,6 +10,7 @@ Tests cover:
 
 import os
 import tempfile
+from contextlib import suppress
 from typing import Final
 
 import pytest
@@ -121,10 +122,8 @@ class TestFileEncryptionWithKDF:
         path_dec = path_in + ".dec"
         yield path_in, path_out, path_dec
         for path in [path_in, path_out, path_dec]:
-            try:
+            with suppress(OSError):
                 os.unlink(path)
-            except OSError:
-                pass
 
     def test_file_encrypted_with_argon2id(self, temp_files):
         """Test that files can be encrypted and metadata is valid."""

@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
+import secure_string_cipher.cli_args as cli_args
+
 # =============================================================================
 # CLI Integration Tests using subprocess
 # =============================================================================
@@ -246,9 +248,6 @@ class TestCLIWithMockedInput:
 
         import argparse
 
-        import secure_string_cipher.cli_args as cli_args
-        from secure_string_cipher.cli_args import cmd_encrypt
-
         cli_args._quiet_mode = True
         cli_args._no_color = True
 
@@ -261,7 +260,7 @@ class TestCLIWithMockedInput:
             no_color=True,
         )
 
-        result = cmd_encrypt(args)
+        result = cli_args.cmd_encrypt(args)
         assert result == 0  # EXIT_SUCCESS
 
         captured = capsys.readouterr()
@@ -273,8 +272,6 @@ class TestCLIWithMockedInput:
         """decrypt -t with wrong password should fail."""
         import argparse
 
-        import secure_string_cipher.cli_args as cli_args
-        from secure_string_cipher.cli_args import cmd_decrypt
         from secure_string_cipher.core import encrypt_text
 
         cli_args._quiet_mode = True
@@ -296,7 +293,7 @@ class TestCLIWithMockedInput:
         )
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_decrypt(args)
+            cli_args.cmd_decrypt(args)
         assert exc_info.value.code == 2  # EXIT_AUTH_ERROR
 
 
@@ -309,9 +306,6 @@ class TestCLIFileEncryption:
         mock_getpass.side_effect = ["TestPassword123!", "TestPassword123!"]
 
         import argparse
-
-        import secure_string_cipher.cli_args as cli_args
-        from secure_string_cipher.cli_args import cmd_encrypt
 
         cli_args._quiet_mode = True
         cli_args._no_color = True
@@ -329,7 +323,7 @@ class TestCLIFileEncryption:
             no_color=True,
         )
 
-        result = cmd_encrypt(args)
+        result = cli_args.cmd_encrypt(args)
         assert result == 0
 
         # Verify .enc file created
@@ -342,9 +336,6 @@ class TestCLIFileEncryption:
         mock_getpass.side_effect = ["TestPassword123!", "TestPassword123!"]
 
         import argparse
-
-        import secure_string_cipher.cli_args as cli_args
-        from secure_string_cipher.cli_args import cmd_encrypt
 
         cli_args._quiet_mode = True
         cli_args._no_color = True
@@ -365,7 +356,7 @@ class TestCLIFileEncryption:
         )
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_encrypt(args)
+            cli_args.cmd_encrypt(args)
         assert exc_info.value.code == 4  # EXIT_FILE_ERROR
 
     @patch("getpass.getpass")
@@ -374,9 +365,6 @@ class TestCLIFileEncryption:
         mock_getpass.side_effect = ["TestPassword123!", "TestPassword123!"]
 
         import argparse
-
-        import secure_string_cipher.cli_args as cli_args
-        from secure_string_cipher.cli_args import cmd_encrypt
 
         cli_args._quiet_mode = True
         cli_args._no_color = True
@@ -397,7 +385,7 @@ class TestCLIFileEncryption:
             no_color=True,
         )
 
-        result = cmd_encrypt(args)
+        result = cli_args.cmd_encrypt(args)
         assert result == 0
 
         # Verify file was overwritten (size changed)
@@ -408,8 +396,6 @@ class TestCLIFileEncryption:
         """decrypt -f should create file without .enc suffix."""
         import argparse
 
-        import secure_string_cipher.cli_args as cli_args
-        from secure_string_cipher.cli_args import cmd_decrypt
         from secure_string_cipher.core import encrypt_file
 
         cli_args._quiet_mode = True
@@ -437,7 +423,7 @@ class TestCLIFileEncryption:
             no_color=True,
         )
 
-        result = cmd_decrypt(args)
+        result = cli_args.cmd_decrypt(args)
         assert result == 0
 
         # Verify decrypted file created without .enc
@@ -461,9 +447,6 @@ class TestQuietMode:
 
         import argparse
 
-        import secure_string_cipher.cli_args as cli_args
-        from secure_string_cipher.cli_args import cmd_encrypt
-
         cli_args._quiet_mode = True
         cli_args._no_color = True
 
@@ -476,7 +459,7 @@ class TestQuietMode:
             no_color=True,
         )
 
-        cmd_encrypt(args)
+        cli_args.cmd_encrypt(args)
         captured = capsys.readouterr()
 
         # stderr should NOT have success message in quiet mode
@@ -493,9 +476,6 @@ class TestNoColorMode:
 
         import argparse
 
-        import secure_string_cipher.cli_args as cli_args
-        from secure_string_cipher.cli_args import cmd_encrypt
-
         cli_args._quiet_mode = False
         cli_args._no_color = True
 
@@ -508,7 +488,7 @@ class TestNoColorMode:
             no_color=True,
         )
 
-        cmd_encrypt(args)
+        cli_args.cmd_encrypt(args)
         captured = capsys.readouterr()
 
         # Should NOT have ANSI escape codes

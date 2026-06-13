@@ -3336,29 +3336,26 @@ def calculate_entropy_bits(passphrase_type: str, **params: object) -> float:
     Returns:
         Entropy in bits
     """
-    match passphrase_type:
-        case "word":
-            word_count = cast(int, params.get("word_count", 6))
-            return math.log2(len(WORD_LIST)) * word_count
+    if passphrase_type == "word":
+        word_count = cast(int, params.get("word_count", 6))
+        return math.log2(len(WORD_LIST)) * word_count
 
-        case "alphanumeric":
-            length = cast(int, params.get("length", 24))
-            include_symbols = cast(bool, params.get("include_symbols", True))
+    if passphrase_type == "alphanumeric":
+        length = cast(int, params.get("length", 24))
+        include_symbols = cast(bool, params.get("include_symbols", True))
 
-            alphabet_size = len(string.ascii_letters) + len(string.digits)
-            if include_symbols:
-                alphabet_size += len("!@#$%^&*()-_=+[]{}|;:,.<>?")
+        alphabet_size = len(string.ascii_letters) + len(string.digits)
+        if include_symbols:
+            alphabet_size += len("!@#$%^&*()-_=+[]{}|;:,.<>?")
 
-            return math.log2(alphabet_size) * length
+        return math.log2(alphabet_size) * length
 
-        case "mixed":
-            word_count = cast(int, params.get("word_count", 4))
-            number_count = cast(int, params.get("number_count", 4))
+    if passphrase_type == "mixed":
+        word_count = cast(int, params.get("word_count", 4))
+        number_count = cast(int, params.get("number_count", 4))
+        return math.log2(len(WORD_LIST)) * word_count + math.log2(10) * number_count
 
-            return math.log2(len(WORD_LIST)) * word_count + math.log2(10) * number_count
-
-        case _:
-            return 0.0
+    return 0.0
 
 
 def generate_passphrase(
@@ -3383,26 +3380,28 @@ def generate_passphrase(
     Raises:
         ValueError: If strategy is unknown
     """
-    match strategy:
-        case "word":
-            passphrase = generate_word_passphrase(word_count)
-            entropy = calculate_entropy_bits("word", word_count=word_count)
+    if strategy == "word":
+        return (
+            generate_word_passphrase(word_count),
+            calculate_entropy_bits("word", word_count=word_count),
+        )
 
-        case "alphanumeric":
-            passphrase = generate_alphanumeric_passphrase(length, include_symbols)
-            entropy = calculate_entropy_bits(
+    if strategy == "alphanumeric":
+        return (
+            generate_alphanumeric_passphrase(length, include_symbols),
+            calculate_entropy_bits(
                 "alphanumeric", length=length, include_symbols=include_symbols
-            )
+            ),
+        )
 
-        case "mixed":
-            passphrase = generate_mixed_passphrase(word_count, number_count)
-            entropy = calculate_entropy_bits(
+    if strategy == "mixed":
+        return (
+            generate_mixed_passphrase(word_count, number_count),
+            calculate_entropy_bits(
                 "mixed", word_count=word_count, number_count=number_count
-            )
+            ),
+        )
 
-        case _:
-            raise ValueError(
-                f"Unknown strategy '{strategy}'. Use 'word', 'alphanumeric', or 'mixed'"
-            )
-
-    return passphrase, entropy
+    raise ValueError(
+        f"Unknown strategy '{strategy}'. Use 'word', 'alphanumeric', or 'mixed'"
+    )
