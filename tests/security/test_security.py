@@ -5,7 +5,7 @@ Tests for security utilities (filename sanitization, path validation, symlink de
 import os
 from contextlib import suppress
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -611,17 +611,15 @@ class TestSecureTempFile:
 
     def test_create_secure_temp_file_cleanup_on_exception(self, tmp_path):
         """Test that temp file is cleaned up even if exception occurs."""
+        trigger_error = Mock(side_effect=ValueError("Test error"))
         temp_path = None
-        try:
+        with pytest.raises(ValueError, match="Test error"):
             with create_secure_temp_file(directory=tmp_path) as (fd, path):
                 temp_path = path
-                raise ValueError("Test error")
-        except ValueError as exc:
-            assert str(exc) == "Test error"
-        else:
-            pytest.fail("Secure temp file context did not propagate the exception")
+                trigger_error()
 
         # File should still be cleaned up
+        trigger_error.assert_called_once_with()
         assert temp_path is not None
         assert not os.path.exists(temp_path)
 

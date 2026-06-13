@@ -11,6 +11,7 @@ Tests verify:
 """
 
 import array
+from unittest.mock import Mock
 
 import pytest
 
@@ -120,15 +121,13 @@ class TestSecureBytes:
 
     def test_exception_wipes_data(self):
         """Verify data is wiped even when exception occurs."""
+        trigger_error = Mock(side_effect=ValueError("test exception"))
         secure = SecureBytes(b"classified")
-        try:
+        with pytest.raises(ValueError, match="test exception"):
             with secure:
-                raise ValueError("test exception")
-        except ValueError as exc:
-            assert str(exc) == "test exception"
-        else:
-            pytest.fail("SecureBytes context did not propagate the exception")
+                trigger_error()
 
+        trigger_error.assert_called_once_with()
         with pytest.raises(AttributeError):
             _ = secure.data
 
@@ -181,15 +180,13 @@ class TestSecureString:
 
     def test_exception_wipes_string(self):
         """Verify string is wiped even when exception occurs."""
+        trigger_error = Mock(side_effect=ValueError("test exception"))
         secure = SecureString("topsecret")
-        try:
+        with pytest.raises(ValueError, match="test exception"):
             with secure:
-                raise ValueError("test exception")
-        except ValueError as exc:
-            assert str(exc) == "test exception"
-        else:
-            pytest.fail("SecureString context did not propagate the exception")
+                trigger_error()
 
+        trigger_error.assert_called_once_with()
         with pytest.raises(AttributeError):
             _ = secure.string
 
