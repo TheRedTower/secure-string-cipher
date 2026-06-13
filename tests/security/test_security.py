@@ -612,11 +612,14 @@ class TestSecureTempFile:
     def test_create_secure_temp_file_cleanup_on_exception(self, tmp_path):
         """Test that temp file is cleaned up even if exception occurs."""
         temp_path = None
-        with pytest.raises(ValueError, match="Test error"):
+        try:
             with create_secure_temp_file(directory=tmp_path) as (fd, path):
                 temp_path = path
-                # Simulate an error
                 raise ValueError("Test error")
+        except ValueError as exc:
+            assert str(exc) == "Test error"
+        else:
+            pytest.fail("Secure temp file context did not propagate the exception")
 
         # File should still be cleaned up
         assert temp_path is not None
