@@ -7,6 +7,8 @@ the encryption system handles all inputs correctly without crashing.
 Run with: pytest tests/fuzz/ -v --hypothesis-seed=random
 """
 
+from contextlib import suppress
+
 import pytest
 from hypothesis import HealthCheck, Phase, given, settings
 from hypothesis import strategies as st
@@ -127,13 +129,11 @@ class TestKeyDerivationFuzz:
     )
     def test_derive_key_binary_passphrase(self, passphrase: bytes, salt: bytes):
         """Fuzz: Binary passphrases (as decoded strings) should work."""
-        try:
+        with suppress(UnicodeDecodeError):
             # Try to decode as UTF-8, skip if invalid
             passphrase_str = passphrase.decode("utf-8", errors="strict")
             key = derive_key(passphrase_str, salt)
             assert len(key) == ARGON2_HASH_LENGTH
-        except UnicodeDecodeError:
-            pass  # Skip invalid UTF-8 sequences
 
 
 class TestDecryptionFuzz:
@@ -153,11 +153,8 @@ class TestDecryptionFuzz:
     )
     def test_decrypt_garbage_never_crashes(self, garbage: str, passphrase: str):
         """Fuzz: Decrypting garbage should raise CryptoError, never crash."""
-        try:
+        with suppress(CryptoError, ValueError):
             decrypt_text(garbage, passphrase)
-            # If it somehow succeeds, that's also fine (unlikely but valid)
-        except (CryptoError, ValueError, Exception):
-            pass  # Expected behavior
 
     @settings(max_examples=100, deadline=None)
     @given(
@@ -177,10 +174,8 @@ class TestDecryptionFuzz:
             pos = ciphertext_mutation % len(original)
             mutated = original[:pos] + mutation_char + original[pos + 1 :]
 
-            try:
+            with suppress(CryptoError, ValueError):
                 decrypt_text(mutated, passphrase)
-            except (CryptoError, ValueError, Exception):
-                pass  # Expected - authentication should fail
 
 
 # =============================================================================

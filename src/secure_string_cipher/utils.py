@@ -73,10 +73,8 @@ def detect_dark_background() -> bool:
     """
     cfg = os.getenv("COLORFGBG", "")
     if ";" in cfg:
-        try:
+        with contextlib.suppress(ValueError):
             return int(cfg.split(";")[-1]) <= 6
-        except ValueError:
-            pass
     return True
 
 

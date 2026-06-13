@@ -8,24 +8,24 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from secure_string_cipher.cli_args import (
-    EXIT_AUTH_ERROR,
-    EXIT_FILE_ERROR,
-    EXIT_INPUT_ERROR,
-    EXIT_SUCCESS,
-    EXIT_VAULT_ERROR,
-    _print_error,
-    _print_info,
-    _print_warning,
-    cmd_decrypt,
-    cmd_encrypt,
-    cmd_vault_delete,
-    cmd_vault_import,
-    cmd_vault_list,
-    cmd_vault_reset,
-    create_parser,
-)
+import secure_string_cipher.cli_args as cli_args
 from secure_string_cipher.core import encrypt_file
+
+EXIT_AUTH_ERROR = cli_args.EXIT_AUTH_ERROR
+EXIT_FILE_ERROR = cli_args.EXIT_FILE_ERROR
+EXIT_INPUT_ERROR = cli_args.EXIT_INPUT_ERROR
+EXIT_SUCCESS = cli_args.EXIT_SUCCESS
+EXIT_VAULT_ERROR = cli_args.EXIT_VAULT_ERROR
+_print_error = cli_args._print_error
+_print_info = cli_args._print_info
+_print_warning = cli_args._print_warning
+cmd_decrypt = cli_args.cmd_decrypt
+cmd_encrypt = cli_args.cmd_encrypt
+cmd_vault_delete = cli_args.cmd_vault_delete
+cmd_vault_import = cli_args.cmd_vault_import
+cmd_vault_list = cli_args.cmd_vault_list
+cmd_vault_reset = cli_args.cmd_vault_reset
+create_parser = cli_args.create_parser
 
 # =============================================================================
 # Parser Tests
@@ -222,7 +222,6 @@ class TestKeyFileParser:
 
     def test_encrypt_vault_and_key_file_mutual_exclusion(self, capsys):
         """encrypt with both --vault and --key-file should error."""
-        import secure_string_cipher.cli_args as cli_args
 
         cli_args._quiet_mode = True
         cli_args._no_color = True
@@ -245,7 +244,6 @@ class TestKeyFileParser:
 
     def test_decrypt_vault_and_key_file_mutual_exclusion(self, capsys):
         """decrypt with both --vault and --key-file should error."""
-        import secure_string_cipher.cli_args as cli_args
 
         cli_args._quiet_mode = True
         cli_args._no_color = True
@@ -274,7 +272,6 @@ class TestKeyFileEncryption:
 
     def test_encrypt_text_with_key_file(self, tmp_path, capsys):
         """encrypt -t with --key-file should produce decryptable ciphertext."""
-        import secure_string_cipher.cli_args as cli_args
 
         cli_args._quiet_mode = True
         cli_args._no_color = True
@@ -317,7 +314,6 @@ class TestKeyFileEncryption:
 
     def test_encrypt_with_key_file_wrong_key(self, tmp_path, capsys):
         """decrypt with wrong key file should fail."""
-        import secure_string_cipher.cli_args as cli_args
 
         cli_args._quiet_mode = True
         cli_args._no_color = True
@@ -358,7 +354,6 @@ class TestKeyFileEncryption:
 
     def test_key_file_not_found(self, tmp_path, capsys):
         """--key-file with non-existent file should error."""
-        import secure_string_cipher.cli_args as cli_args
 
         cli_args._quiet_mode = True
         cli_args._no_color = True
@@ -382,7 +377,6 @@ class TestKeyFileEncryption:
 
     def test_key_file_empty(self, tmp_path, capsys):
         """--key-file with empty file should error."""
-        import secure_string_cipher.cli_args as cli_args
 
         cli_args._quiet_mode = True
         cli_args._no_color = True
@@ -409,7 +403,6 @@ class TestKeyFileEncryption:
 
     def test_key_file_deterministic(self, tmp_path, capsys):
         """Same key file should produce same encryption key (deterministic)."""
-        import secure_string_cipher.cli_args as cli_args
 
         cli_args._quiet_mode = True
         cli_args._no_color = True
@@ -475,7 +468,6 @@ class TestOutputFunctions:
 
     def test_print_info_normal_mode(self, capsys):
         """_print_info should print in normal mode."""
-        import secure_string_cipher.cli_args as cli_args
 
         # Save and set state
         orig_quiet = cli_args._quiet_mode
@@ -493,7 +485,6 @@ class TestOutputFunctions:
 
     def test_print_info_quiet_mode(self, capsys):
         """_print_info should not print in quiet mode."""
-        import secure_string_cipher.cli_args as cli_args
 
         orig_quiet = cli_args._quiet_mode
         cli_args._quiet_mode = True
@@ -507,7 +498,6 @@ class TestOutputFunctions:
 
     def test_print_warning_quiet_mode(self, capsys):
         """_print_warning should not print in quiet mode."""
-        import secure_string_cipher.cli_args as cli_args
 
         orig_quiet = cli_args._quiet_mode
         cli_args._quiet_mode = True
@@ -521,7 +511,6 @@ class TestOutputFunctions:
 
     def test_print_error_always_shows(self, capsys):
         """_print_error should always print, even in quiet mode."""
-        import secure_string_cipher.cli_args as cli_args
 
         orig_quiet = cli_args._quiet_mode
         orig_color = cli_args._no_color
@@ -770,7 +759,6 @@ class TestTextEncryption:
     @patch("secure_string_cipher.cli_args._prompt_password")
     def test_encrypt_text_success(self, mock_prompt, capsys):
         """encrypt -t should output ciphertext to stdout."""
-        import secure_string_cipher.cli_args as cli_args
 
         cli_args._quiet_mode = False
         cli_args._no_color = True
@@ -796,7 +784,6 @@ class TestTextEncryption:
     @patch("secure_string_cipher.cli_args._prompt_password")
     def test_encrypt_decrypt_roundtrip(self, mock_prompt, capsys):
         """encrypt and decrypt should round-trip correctly."""
-        import secure_string_cipher.cli_args as cli_args
 
         cli_args._quiet_mode = True
         cli_args._no_color = True
@@ -834,7 +821,6 @@ class TestTextEncryption:
     @patch("secure_string_cipher.cli_args._prompt_password")
     def test_decrypt_wrong_password(self, mock_prompt, capsys):
         """decrypt with wrong password should exit with AUTH_ERROR."""
-        import secure_string_cipher.cli_args as cli_args
 
         cli_args._quiet_mode = True
         cli_args._no_color = True
@@ -913,7 +899,6 @@ class TestVaultCommands:
     @patch("secure_string_cipher.cli_args._prompt_master_password")
     def test_vault_delete_success(self, mock_master, mock_vault, capsys):
         """vault delete should delete entry and show success."""
-        import secure_string_cipher.cli_args as cli_args
 
         cli_args._quiet_mode = False
         cli_args._no_color = True
@@ -1033,10 +1018,8 @@ class TestStartCommand:
     @patch("secure_string_cipher.cli_args.run_interactive_menu")
     def test_start_launches_interactive(self, mock_menu):
         """start command should launch interactive menu."""
-        from secure_string_cipher.cli_args import cmd_start
-
         args = argparse.Namespace()
-        result = cmd_start(args)
+        result = cli_args.cmd_start(args)
 
         assert result == EXIT_SUCCESS
         mock_menu.assert_called_once()
@@ -1047,24 +1030,20 @@ class TestMainFunction:
 
     def test_main_no_command_shows_help(self, capsys):
         """main with no arguments should show help."""
-        from secure_string_cipher.cli_args import main
-
         with patch.object(sys, "argv", ["ssc"]):
             with pytest.raises(SystemExit) as exc_info:
-                main()
+                cli_args.main()
             assert exc_info.value.code == EXIT_SUCCESS
 
     def test_main_keyboard_interrupt_handled(self, capsys):
         """main should handle KeyboardInterrupt gracefully."""
-        from secure_string_cipher.cli_args import main
-
         with patch.object(sys, "argv", ["ssc", "encrypt", "-t", "test"]):
             with patch(
                 "secure_string_cipher.cli_args._prompt_password",
                 side_effect=KeyboardInterrupt,
             ):
                 with pytest.raises(SystemExit) as exc_info:
-                    main()
+                    cli_args.main()
                 assert exc_info.value.code == EXIT_INPUT_ERROR
 
 
@@ -1080,12 +1059,10 @@ class TestShredCommand:
     @patch("secure_string_cipher.cli_args._print_info")
     def test_shred_single_file(self, mock_print_info, mock_secure_overwrite):
         """shred should overwrite and delete a single file."""
-        from secure_string_cipher.cli_args import cmd_shred
-
         with patch("builtins.input", return_value="yes"):
             with patch("pathlib.Path.exists", return_value=True):
                 args = argparse.Namespace(paths=["test.txt"], force=False)
-                result = cmd_shred(args)
+                result = cli_args.cmd_shred(args)
 
         assert result == EXIT_SUCCESS
         mock_secure_overwrite.assert_called_once_with("test.txt")
@@ -1096,23 +1073,19 @@ class TestShredCommand:
         self, mock_print_info, mock_secure_overwrite
     ):
         """shred with --force should skip confirmation."""
-        from secure_string_cipher.cli_args import cmd_shred
-
         with patch("pathlib.Path.exists", return_value=True):
             args = argparse.Namespace(paths=["a.txt", "b.txt"], force=True)
-            result = cmd_shred(args)
+            result = cli_args.cmd_shred(args)
 
         assert result == EXIT_SUCCESS
         assert mock_secure_overwrite.call_count == 2
 
     def test_shred_file_not_found(self):
         """shred should exit with FILE_ERROR if file doesn't exist."""
-        from secure_string_cipher.cli_args import cmd_shred
-
         args = argparse.Namespace(paths=["nonexistent.txt"], force=True)
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_shred(args)
+            cli_args.cmd_shred(args)
         assert exc_info.value.code == EXIT_FILE_ERROR
 
     @patch("secure_string_cipher.cli_args.secure_overwrite")
@@ -1121,12 +1094,10 @@ class TestShredCommand:
         self, mock_print_info, mock_secure_overwrite
     ):
         """shred should skip file if user doesn't confirm."""
-        from secure_string_cipher.cli_args import cmd_shred
-
         with patch("builtins.input", return_value="no"):
             with patch("pathlib.Path.exists", return_value=True):
                 args = argparse.Namespace(paths=["test.txt"], force=False)
-                result = cmd_shred(args)
+                result = cli_args.cmd_shred(args)
 
         assert result == EXIT_SUCCESS
         mock_secure_overwrite.assert_not_called()

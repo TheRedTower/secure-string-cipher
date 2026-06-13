@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -163,13 +164,11 @@ def _validated_backend(value: object) -> str:
 
 def _default_vault_backend() -> str:
     """Return the safest available default vault backend."""
-    try:
+    with suppress(Exception):
         from .keychain_backend import is_keychain_available
 
         if is_keychain_available():
             return VAULT_BACKEND_KEYCHAIN
-    except Exception:
-        pass
     return VAULT_BACKEND_FILE
 
 
@@ -251,10 +250,8 @@ def save_vault_settings(settings: VaultSettings) -> None:
         os.chmod(temp_path, 0o600)
         os.replace(temp_path, config_path)
     except Exception:
-        try:
+        with suppress(OSError):
             os.unlink(temp_path)
-        except OSError:
-            pass
         raise
 
 

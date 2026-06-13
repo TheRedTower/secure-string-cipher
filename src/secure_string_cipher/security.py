@@ -8,7 +8,6 @@ Unicode exploits, symlink attacks, and unsafe execution contexts.
 import contextlib
 import os
 import re
-import shutil
 import sys
 import tempfile
 import unicodedata
@@ -464,16 +463,12 @@ def create_secure_temp_file(
         finally:
             # Clean up: close fd and delete file
             if fd is not None:
-                try:
+                with contextlib.suppress(OSError):
                     os.close(fd)
-                except OSError:
-                    pass  # Already closed
 
             if path and os.path.exists(path):
-                try:
+                with contextlib.suppress(OSError):
                     os.unlink(path)
-                except OSError:
-                    pass  # Best effort cleanup
 
     return _secure_temp_context()
 
@@ -510,6 +505,8 @@ def secure_atomic_write(
         - Automatic cleanup on failure
     """
     destination = Path(destination)
+    if mode != 0o600:
+        raise SecurityError("Secure atomic writes require owner-only mode 0o600")
 
     # Validate destination path
     try:
@@ -541,13 +538,13 @@ def secure_atomic_write(
             dir=parent_dir,
         )
 
-        os.chmod(temp_path, mode)
+        os.chmod(temp_path, 0o600)
 
         stat_info = os.stat(temp_path)
         actual_perms = stat_info.st_mode & 0o777
-        if actual_perms != mode:
+        if actual_perms != 0o600:
             raise SecurityError(
-                f"Failed to set permissions {oct(mode)} on temp file. "
+                "Failed to set owner-only permissions 0o600 on temp file. "
                 f"Got {oct(actual_perms)}"
             )
 
@@ -560,20 +557,15 @@ def secure_atomic_write(
 
         # Atomic rename to destination
         # On POSIX systems, this is atomic even if destination exists
-        shutil.move(temp_path, destination)
-        temp_path = None
+        os.replace(temp_path, destination)
 
     except Exception as e:
         if temp_fd is not None:
-            try:
+            with contextlib.suppress(OSError):
                 os.close(temp_fd)
-            except OSError:
-                pass
 
         if temp_path and os.path.exists(temp_path):
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(temp_path)
-            except OSError:
-                pass
 
         raise SecurityError(f"Secure atomic write failed: {e}") from e

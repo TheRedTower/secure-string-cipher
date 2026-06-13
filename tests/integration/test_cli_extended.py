@@ -224,7 +224,7 @@ class TestHandleGeneratePassphrase:
 
         output = out_stream.getvalue()
         assert "Generated secure passphrase (hidden)" in output
-        assert "Entropy" in output
+        assert "Entropy:" not in output
 
     def test_handle_generate_alphanumeric_strategy(self, tmp_path, monkeypatch):
         """Should generate alphanumeric passphrase for option 2."""

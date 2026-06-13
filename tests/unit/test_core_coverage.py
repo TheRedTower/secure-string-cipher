@@ -206,8 +206,8 @@ class TestGenerateKeyPair:
 
         # Private key should be 0o600
         assert oct(private_key.stat().st_mode & 0o777) == oct(0o600)
-        # Public key should be 0o644
-        assert oct(public_key.stat().st_mode & 0o777) == oct(0o644)
+        # Public keys stay owner-only until explicitly shared.
+        assert oct(public_key.stat().st_mode & 0o777) == oct(0o600)
 
 
 # =============================================================================

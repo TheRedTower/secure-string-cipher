@@ -12,6 +12,7 @@ import base64
 import json
 import os
 import tempfile
+from contextlib import suppress
 from typing import Final
 
 import pytest
@@ -147,10 +148,8 @@ class TestFileEncryptionKeyCommitment:
         path_dec = path_in + ".dec"
         yield path_in, path_out, path_dec
         for path in [path_in, path_out, path_dec]:
-            try:
+            with suppress(OSError):
                 os.unlink(path)
-            except OSError:
-                pass
 
     def test_encrypted_file_contains_key_commitment(self, temp_files):
         """Test that encrypted files include key commitment in metadata."""

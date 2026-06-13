@@ -5,6 +5,8 @@ These tests verify that all input validation functions handle
 arbitrary malicious inputs without crashing or allowing exploits.
 """
 
+from contextlib import suppress
+
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -105,10 +107,8 @@ class TestPathValidationFuzz:
     )
     def test_validate_path_never_crashes(self, path: str):
         """Fuzz: Path validation should never crash."""
-        try:
+        with suppress(SecurityError, ValueError, OSError):
             validate_safe_path(path)
-        except (SecurityError, ValueError, OSError):
-            pass  # Expected for invalid paths
 
     @settings(max_examples=100)
     @given(
@@ -127,11 +127,8 @@ class TestPathValidationFuzz:
     def test_validate_path_blocks_traversal(self, traversal: str):
         """Fuzz: Known path traversal patterns should be blocked."""
         # These should either raise SecurityError or be blocked by OS
-        try:
+        with suppress(SecurityError, ValueError, OSError):
             validate_safe_path(traversal)
-            # If it doesn't raise, the path might be within cwd (unlikely but possible)
-        except (SecurityError, ValueError, OSError):
-            pass  # Expected behavior
 
 
 # =============================================================================

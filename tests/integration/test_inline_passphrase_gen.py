@@ -40,7 +40,7 @@ class TestInlinePassphraseGeneration:
         assert "Auto-Generating Secure Passphrase" in output
         assert "Generated Passphrase:" not in output
         assert "Generated secure passphrase (hidden)" in output
-        assert "Entropy:" in output
+        assert "Entropy:" not in output
         assert "Save generated passphrase to vault" in output
         assert "Using stored passphrase for current operation" in output
         assert "Encrypted" in output
@@ -102,7 +102,8 @@ class TestInlinePassphraseGeneration:
 
         assert "Auto-Generating Secure Passphrase" in output
         assert "Save generated passphrase to vault" in output
-        assert "Passphrase 'test-label' stored in vault!" in output
+        assert "Passphrase stored in vault!" in output
+        assert "test-label" not in output
         assert "Vault location:" in output
         assert "Using stored passphrase for current operation" in output
         assert "Encrypted" in output

@@ -25,37 +25,38 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from secure_string_cipher.cli_args import (
-    EXIT_AUTH_ERROR,
-    EXIT_FILE_ERROR,
-    EXIT_INPUT_ERROR,
-    EXIT_SUCCESS,
-    EXIT_VAULT_ERROR,
-    _get_password_from_key_file,
-    _get_password_from_vault,
-    _get_vault,
-    _validate_vault_format,
-    cmd_decrypt,
-    cmd_encrypt,
-    cmd_shred,
-    cmd_store,
-    cmd_vault_backend,
-    cmd_vault_backups,
-    cmd_vault_delete,
-    cmd_vault_export,
-    cmd_vault_import,
-    cmd_vault_list,
-    cmd_vault_migrate,
-    cmd_vault_reset,
-    cmd_vault_restore,
-    cmd_vault_status,
-)
+import secure_string_cipher.cli_args as cli_args
 from secure_string_cipher.core import (
     CryptoError,
     encrypt_bytes,
     encrypt_file,
     encrypt_text,
 )
+
+EXIT_AUTH_ERROR = cli_args.EXIT_AUTH_ERROR
+EXIT_FILE_ERROR = cli_args.EXIT_FILE_ERROR
+EXIT_INPUT_ERROR = cli_args.EXIT_INPUT_ERROR
+EXIT_SUCCESS = cli_args.EXIT_SUCCESS
+EXIT_VAULT_ERROR = cli_args.EXIT_VAULT_ERROR
+_get_password_from_key_file = cli_args._get_password_from_key_file
+_get_password_from_vault = cli_args._get_password_from_vault
+_get_vault = cli_args._get_vault
+_prompt_password_with_validation = cli_args._prompt_password_with_validation
+_validate_vault_format = cli_args._validate_vault_format
+cmd_decrypt = cli_args.cmd_decrypt
+cmd_encrypt = cli_args.cmd_encrypt
+cmd_shred = cli_args.cmd_shred
+cmd_store = cli_args.cmd_store
+cmd_vault_backend = cli_args.cmd_vault_backend
+cmd_vault_backups = cli_args.cmd_vault_backups
+cmd_vault_delete = cli_args.cmd_vault_delete
+cmd_vault_export = cli_args.cmd_vault_export
+cmd_vault_import = cli_args.cmd_vault_import
+cmd_vault_list = cli_args.cmd_vault_list
+cmd_vault_migrate = cli_args.cmd_vault_migrate
+cmd_vault_reset = cli_args.cmd_vault_reset
+cmd_vault_restore = cli_args.cmd_vault_restore
+cmd_vault_status = cli_args.cmd_vault_status
 
 
 class _BinaryInput:
@@ -805,7 +806,6 @@ class TestCmdStore:
         self, mock_get_vault, mock_prompt_master, monkeypatch, capsys
     ):
         """Unexpected store errors should not print raw exception text."""
-        import secure_string_cipher.cli_args as cli_args
 
         leaked_detail = "DO_NOT_PRINT_STORE_FAILURE_SECRET"  # pragma: allowlist secret
         mock_vault = MagicMock()
@@ -1361,7 +1361,6 @@ class TestPromptPasswordWithValidation:
     @patch("getpass.getpass")
     def test_valid_first_try(self, mock_getpass):
         """Should accept valid password on first try."""
-        from secure_string_cipher.cli_args import _prompt_password_with_validation
 
         mock_getpass.side_effect = ["StrongPass1!@#ab", "StrongPass1!@#ab"]
         result = _prompt_password_with_validation()
@@ -1370,7 +1369,6 @@ class TestPromptPasswordWithValidation:
     @patch("getpass.getpass")
     def test_weak_then_strong(self, mock_getpass):
         """Should reject weak then accept strong."""
-        from secure_string_cipher.cli_args import _prompt_password_with_validation
 
         mock_getpass.side_effect = [
             "weak",  # Too weak
@@ -1385,7 +1383,6 @@ class TestPromptPasswordWithValidation:
         self, mock_getpass, capsys
     ):
         """Weak-password validation should avoid password-derived output."""
-        from secure_string_cipher.cli_args import _prompt_password_with_validation
 
         submitted_secret = "DO_NOT_PRINT_THIS_SECRET_123"  # pragma: allowlist secret
         mock_getpass.side_effect = [
@@ -1405,7 +1402,6 @@ class TestPromptPasswordWithValidation:
     @patch("getpass.getpass")
     def test_mismatch_then_match(self, mock_getpass):
         """Should retry on mismatch."""
-        from secure_string_cipher.cli_args import _prompt_password_with_validation
 
         mock_getpass.side_effect = [
             "StrongPass1!@#ab",  # Strong

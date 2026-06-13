@@ -203,10 +203,7 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
             "10",
             "11",
         }:
-            try:
-                return int(choice)
-            except ValueError:
-                pass
+            return int(choice)
 
         # print both phrases to satisfy tests that assert either
         out_stream.write("Invalid choice\n")
@@ -292,9 +289,7 @@ def _offer_vault_storage(
 
     try:
         vault.store_passphrase(label, passphrase, master_pw)
-        out_stream.write(
-            colorize(f"✅ Passphrase '{label}' stored in vault!\n", "green")
-        )
+        out_stream.write(colorize("✅ Passphrase stored in vault!\n", "green"))
         out_stream.write(f"Vault location: {vault.get_vault_path()}\n")
         out_stream.flush()
         return True
@@ -365,15 +360,13 @@ def _load_passphrase_from_vault(
         if for_operation:
             out_stream.write(
                 colorize(
-                    f"\n✅ Loaded passphrase '{label}' from vault for current operation.\n",
+                    "\n✅ Loaded passphrase from vault for current operation.\n",
                     "green",
                 )
             )
         else:
             out_stream.write(
-                colorize(
-                    f"\n✅ Passphrase '{label}' retrieved and kept hidden.\n", "green"
-                )
+                colorize("\n✅ Passphrase retrieved and kept hidden.\n", "green")
             )
             out_stream.write(
                 "Use /vault at an encrypt/decrypt passphrase prompt to inject it.\n"
@@ -434,21 +427,15 @@ def _key_file_error_message(error: Exception) -> str:
     return "Error loading key file."
 
 
-def _write_retry_status(
-    out_stream: TextIO, attempts: int, max_retries: int, remaining: int
-) -> None:
-    """Write retry status using only non-sensitive counters."""
-    out_stream.write(
-        f"⚠️  Attempt {attempts}/{max_retries}. {remaining} attempts remaining.\n"
-    )
+def _write_retry_status(out_stream: TextIO) -> None:
+    """Write a static retry message with no password-derived context."""
+    out_stream.write("⚠️  Password attempt failed.\n")
     out_stream.write("Please try again.\n\n")
 
 
-def _write_max_password_attempts(out_stream: TextIO, max_retries: int) -> None:
-    """Write the maximum-attempts failure using only non-sensitive counters."""
-    out_stream.write(
-        f"🚫 Maximum password attempts ({max_retries}) exceeded. Exiting for security.\n"
-    )
+def _write_max_password_attempts(out_stream: TextIO) -> None:
+    """Write a static maximum-attempts failure message."""
+    out_stream.write("🚫 Maximum password attempts exceeded. Exiting for security.\n")
 
 
 def _handle_generate_passphrase_inline(
@@ -471,11 +458,10 @@ def _handle_generate_passphrase_inline(
     strategy = "alphanumeric"
 
     try:
-        passphrase, entropy = generate_passphrase(strategy)
+        passphrase, _ = generate_passphrase(strategy)
         out_stream.write(
             colorize("\n✅ Generated secure passphrase (hidden)", "green") + "\n"
         )
-        out_stream.write(f"Entropy: {entropy:.1f} bits\n")
         out_stream.flush()
 
         stored = _offer_vault_storage(
@@ -598,13 +584,13 @@ def _get_password(
             if remaining > 0:
                 ostream.write("❌ Password does not meet security requirements.\n")
                 _write_password_policy(ostream)
-                _write_retry_status(ostream, attempts, max_retries, remaining)
+                _write_retry_status(ostream)
                 ostream.flush()
                 continue
             else:
                 ostream.write("❌ Password does not meet security requirements.\n")
                 _write_password_policy(ostream)
-                _write_max_password_attempts(ostream, max_retries)
+                _write_max_password_attempts(ostream)
                 ostream.flush()
                 sys.exit(1)
 
@@ -618,12 +604,12 @@ def _get_password(
                     ostream.write(
                         "❌ Passwords do not match (confirmation cancelled)\n"
                     )
-                    _write_retry_status(ostream, attempts, max_retries, remaining)
+                    _write_retry_status(ostream)
                     ostream.flush()
                     continue
                 else:
                     ostream.write("❌ Passwords do not match\n")
-                    _write_max_password_attempts(ostream, max_retries)
+                    _write_max_password_attempts(ostream)
                     ostream.flush()
                     sys.exit(1)
 
@@ -631,12 +617,12 @@ def _get_password(
                 remaining = max_retries - attempts
                 if remaining > 0:
                     ostream.write("❌ Passwords do not match\n")
-                    _write_retry_status(ostream, attempts, max_retries, remaining)
+                    _write_retry_status(ostream)
                     ostream.flush()
                     continue
                 else:
                     ostream.write("❌ Passwords do not match\n")
-                    _write_max_password_attempts(ostream, max_retries)
+                    _write_max_password_attempts(ostream)
                     ostream.flush()
                     sys.exit(1)
 
@@ -644,7 +630,7 @@ def _get_password(
         return pw
 
     # This shouldn't be reached, but just in case
-    _write_max_password_attempts(ostream, max_retries)
+    _write_max_password_attempts(ostream)
     ostream.flush()
     sys.exit(1)
 
@@ -692,11 +678,10 @@ def _handle_generate_passphrase(in_stream: TextIO, out_stream: TextIO) -> None:
     strategy = strategy_map.get(choice, "word")
 
     try:
-        passphrase, entropy = generate_passphrase(strategy)
+        passphrase, _ = generate_passphrase(strategy)
         out_stream.write(
             colorize("\n✅ Generated secure passphrase (hidden)", "green") + "\n"
         )
-        out_stream.write(f"Entropy: {entropy:.1f} bits\n")
         stored = _offer_vault_storage(
             passphrase, in_stream, out_stream, require_storage=True
         )
