@@ -116,6 +116,6 @@ jobs:
       if: matrix.python-version == '3.14'
       continue-on-error: true
       with:
-        file: ./coverage.xml
+        files: ./coverage.xml
         fail_ci_if_error: false
         verbose: true
