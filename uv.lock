@@ -448,14 +448,14 @@ wheels = [
 
 [[package]]
 name = "hypothesis"
-version = "6.146.0"
+version = "6.155.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "sortedcontainers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/dd/77/5673c9ba8d34f2d808e566cbe7d98daa75ec5e9209c7d6672586cc34f57e/hypothesis-6.146.0.tar.gz", hash = "sha256:542b8a6b7c4ab15a3a259893cd646b4e324ac332b4d19901abd68a79790dd963", size = 468651, upload-time = "2025-11-05T06:02:18.187Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f2/55/983b6bc1b6b343a5ff6020388f9d0680ab477be59a731517e6c4a0387100/hypothesis-6.155.7.tar.gz", hash = "sha256:d8d6091753d0669db3c90c5e5b346cb37c72f3dd9378c8413acb1fd5da63f7ea", size = 478291, upload-time = "2026-06-21T05:54:31.573Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ea/ad/49568317b2282d14607cc72242aa595f57298aa49847ae045805cce6071b/hypothesis-6.146.0-py3-none-any.whl", hash = "sha256:aef4a9cd82cdb51173decfc37c16a71c8f89e4b60111bafe39615a4c19de5f57", size = 535602, upload-time = "2025-11-05T06:02:13.822Z" },
+    { url = "https://files.pythonhosted.org/packages/01/f8/c151e196d4f397ed9436a071e52666c70a2f021138dea828b0a461e245db/hypothesis-6.155.7-py3-none-any.whl", hash = "sha256:9f634bdb1f9e9b8ab6ba09431cf2deedb750c96978125a6fb3c5a0f6c6db4131", size = 544762, upload-time = "2026-06-21T05:54:29.506Z" },
 ]
 
 [[package]]
@@ -1194,7 +1194,7 @@ requires-dist = [
     { name = "argon2-cffi", specifier = "==25.1.0" },
     { name = "cryptography", specifier = "==49.0.0" },
     { name = "detect-secrets", marker = "extra == 'dev'", specifier = "==1.5.0" },
-    { name = "hypothesis", marker = "extra == 'dev'", specifier = "==6.146.0" },
+    { name = "hypothesis", marker = "extra == 'dev'", specifier = "==6.155.7" },
     { name = "keyring", marker = "extra == 'dev'", specifier = ">=25.0.0" },
     { name = "keyring", marker = "extra == 'keychain'", specifier = ">=25.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = "==2.1.0" },
