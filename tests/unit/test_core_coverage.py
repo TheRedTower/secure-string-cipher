@@ -13,6 +13,7 @@ Covers:
 from __future__ import annotations
 
 from io import BytesIO
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -142,10 +143,36 @@ class TestEnsureNoSymlink:
 
     def test_relative_path(self, tmp_path):
         """Should handle relative paths."""
-        regular_file = tmp_path / "file.txt"
-        regular_file.write_text("data")
-        # Use the path as-is (relative)
-        _ensure_no_symlink(regular_file, "test")
+        with patch("pathlib.Path.cwd", return_value=tmp_path):
+            _ensure_no_symlink(Path("file.txt"), "test")
+
+    def test_relative_final_component_symlink_rejected(self, tmp_path, monkeypatch):
+        """Should reject a symlink named by a relative path."""
+        target = tmp_path / "target.txt"
+        target.write_text("data")
+        (tmp_path / "link.txt").symlink_to(target)
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.raises(CryptoError, match="symlink"):
+            _ensure_no_symlink(Path("link.txt"), "test")
+
+    def test_relative_parent_symlink_rejected(self, tmp_path, monkeypatch):
+        """Should reject a symlinked parent in a relative path."""
+        real_dir = tmp_path / "real"
+        real_dir.mkdir()
+        (tmp_path / "link-dir").symlink_to(real_dir, target_is_directory=True)
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.raises(CryptoError, match="symlink"):
+            _ensure_no_symlink(Path("link-dir/file.txt"), "test")
+
+    def test_var_platform_symlink_remains_allowlisted(self):
+        """Should preserve the existing macOS /var compatibility handling."""
+        var_path = Path("/var")
+        if not var_path.is_symlink():
+            pytest.skip("/var is not a symlink on this platform")
+
+        _ensure_no_symlink(var_path / "tmp" / "file.txt", "test")
 
 
 # =============================================================================

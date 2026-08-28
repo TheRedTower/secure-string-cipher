@@ -94,6 +94,16 @@ class TestProgressBar:
             pb.update(50)
             # last_print should not have changed (update was skipped)
 
+    def test_empty_completed_progress_renders_one_hundred_percent(self, capsys):
+        """An empty completed operation should render without division by zero."""
+        pb = ProgressBar(0, width=10)
+
+        with patch.object(sys.stdout, "isatty", return_value=True):
+            pb.update(0)
+
+        captured = capsys.readouterr()
+        assert "██████████ 100.0%" in captured.out
+
 
 # =============================================================================
 # Dark Background Detection Tests
