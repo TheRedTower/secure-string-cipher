@@ -1,7 +1,6 @@
 # secure-string-cipher
 
 [![CI](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-85%25-green.svg)](https://github.com/TheRedTower/secure-string-cipher)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
@@ -20,6 +19,8 @@ audited.
 - Large framed SSC2 objects, transactional vault import/restore authentication,
   descriptor-level path hardening, secret `.ssckey` files, compatibility
   fixtures, and cross-platform release CI remain future work.
+
+CI enforces a minimum 85% test coverage threshold on Python 3.14.
 
 ## Features
 
