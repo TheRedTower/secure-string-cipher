@@ -1,6 +1,7 @@
 # API Reference
 
-Complete API documentation for secure-string-cipher.
+Complete API documentation for the current Beta API. The Beta is not a stable
+or audited release contract.
 
 ## Table of Contents
 
@@ -47,6 +48,10 @@ Complete API documentation for secure-string-cipher.
 - [Configuration Constants](#configuration-constants)
 
 ## Core Encryption
+
+File APIs accept whole regular files as opaque bytes up to 100 MiB, regardless
+of internal format. They do not accept directories or large framed SSC2
+objects.
 
 ### encrypt_text
 
@@ -120,7 +125,9 @@ encrypt_file(
     input_path: str,
     output_path: str,
     passphrase: str,
+    *,
     store_filename: bool = True,
+    overwrite: bool = False,
 ) -> None
 ```
 
@@ -129,21 +136,24 @@ encrypt_file(
 - `input_path` (str): Path to the file to encrypt
 - `output_path` (str): Destination path for the encrypted file (must be provided)
 - `passphrase` (str): Password for key derivation
-- `store_filename` (bool): Whether to embed the sanitized original filename in metadata (default: True)
+- `store_filename` (bool, keyword-only): Whether to embed the original basename
+  in metadata (default: True)
+- `overwrite` (bool, keyword-only): Permit final atomic replacement after
+  encryption, flush, and sync succeed (default: False)
 
 **Returns:** None (writes the encrypted file to `output_path`).
 
-**Raises:**
-
-- `CryptoError` if encryption fails
-- `SecurityError` if path validation fails (traversal, symlink attacks)
-- `FileNotFoundError` if file doesn't exist
-- `ValueError` if file exceeds the configured size limit
+**Raises:** `CryptoError` for encryption, file, size, and path-validation
+failures.
 
 **Security/IO notes:**
 
 - `_ensure_no_symlink` rejects symlinked inputs/outputs unless in the allowlist (e.g., `/var`).
-- `StreamProcessor` raises `CryptoError` if the output file already exists (no interactive prompt).
+- Existing outputs are preserved unless `overwrite=True`.
+- Ciphertext is streamed to a same-directory temporary file and published only
+  after GCM finalization, flush, and sync complete.
+- This protects against ordinary operation failures. The path preflight is not
+  descriptor-based and does not claim protection from hostile concurrent races.
 
 **Example:**
 
@@ -170,30 +180,39 @@ from secure_string_cipher import decrypt_file
 
 output_path, metadata = decrypt_file(
     input_path: str,
-    output_path: str | None = None,
+    output_path: str | None,
     passphrase: str,
+    *,
     restore_filename: bool = True,
+    overwrite: bool = False,
 ) -> tuple[str, FileMetadata | None]
 ```
 
 **Parameters:**
 
 - `input_path` (str): Path to the encrypted file
-- `output_path` (str | None): Destination for the decrypted file. If None, the function restores the stored sanitized filename when available; otherwise uses `<input>.dec`.
+- `output_path` (str | None): Explicit destination, or None for automatic
+  selection. Version 5 may restore its authenticated, sanitized filename.
+  Version 4 always uses a deterministic `.dec` fallback because its metadata is
+  not authenticated.
 - `passphrase` (str): Same password used for encryption
-- `restore_filename` (bool): Whether to use the stored filename metadata when present (default: True)
+- `restore_filename` (bool, keyword-only): Whether version 5 may use its stored
+  filename when `output_path` is None (default: True)
+- `overwrite` (bool, keyword-only): Permit atomic replacement only after GCM
+  authentication succeeds (default: False)
 
 **Returns:** Tuple of `(output_path, metadata)` where `metadata` is a `FileMetadata` instance containing `original_filename` (if stored) and base64-encoded `key_commitment`.
 
-**Raises:**
-
-- `CryptoError` if decryption fails
-- `SecurityError` if path validation fails or symlinks are detected
+**Raises:** `CryptoError` for decryption, authentication, file, and
+path-validation failures. Wrong credentials and damaged ciphertext share the
+CLI's generic authentication-failure behavior.
 
 **Security/IO notes:**
 
 - `_ensure_no_symlink` rejects symlinked inputs/outputs unless in the allowlist (e.g., `/var`).
-- `StreamProcessor` raises `CryptoError` if the output file already exists (no interactive prompt).
+- No final plaintext path is published before authentication succeeds.
+- Existing outputs are preserved for wrong passwords, damaged ciphertext, and
+  ordinary write/publication failures.
 
 **Example:**
 
@@ -206,10 +225,15 @@ output_path, metadata = decrypt_file(
     passphrase="MySecurePass123!",
     restore_filename=True,
 )
-print(output_path)  # e.g., "document.pdf" or "document.pdf.enc.dec" if no name stored
+print(output_path)  # e.g., "document.pdf" or "document.pdf.dec"
 print(metadata.original_filename)  # "document.pdf" when stored
 print(metadata.key_commitment)     # base64 string
 ```
+
+`FileMetadata` contains exactly these serialized fields when present:
+`version`, `original_filename`, and `key_commitment`. The current writer emits
+version 5 and authenticates the metadata as AES-GCM additional authenticated
+data. Legacy version 4 metadata is readable but unauthenticated.
 
 ---
 
@@ -278,9 +302,10 @@ assert verify_key_commitment(key, salt, commitment)
 
 Derive a cryptographic key from a key file using Argon2id.
 
-The key file can be any file (PEM public key, SSH key, or random data).
-Its content is hashed with SHA-256 and the result is used as the passphrase for Argon2id.
-This ensures consistent key derivation regardless of file format.
+This legacy mode accepts any regular file. Its bytes are hashed with SHA-256 and
+the digest is used as a symmetric passphrase for Argon2id. It is not RSA,
+public-key, or recipient encryption: anyone with identical file bytes can
+decrypt. Treat it as legacy pending secret `.ssckey` files.
 
 ```python
 from secure_string_cipher import derive_key_from_key_file
@@ -318,7 +343,8 @@ assert key == key2
 
 ### generate_key_pair
 
-Generate an RSA key pair for recipient-based encryption workflows.
+Generate an RSA key pair. The current encrypt/decrypt APIs do not consume this
+pair and do not implement recipient encryption.
 
 ```python
 from secure_string_cipher import generate_key_pair
@@ -740,7 +766,10 @@ except RateLimitError as exc:
     print(f"Too many attempts. Wait {exc.wait_seconds:.1f}s")
 ```
 
-> **Note:** The rate limiter is active by default in the CLI on vault unlock (`ssc vault`), text decryption (`ssc decrypt -t`), and file decryption (`ssc decrypt -f`) operations. Repeated failures trigger exponential backoff.
+> **Note:** The rate limiter is a local CLI throttle on vault unlock
+> (`ssc vault`), text decryption (`ssc decrypt -t`), and file decryption
+> (`ssc decrypt -f`). Repeated failures trigger exponential backoff, but an
+> attacker holding ciphertext can perform offline guesses without this limiter.
 
 **Methods:**
 
@@ -784,7 +813,9 @@ def login(username, password):
 
 ### AuditLogger
 
-Log security events for monitoring and compliance.
+Log security events as editable local JSON. Rotation and redaction are provided,
+but the log has no cryptographic chain or external append-only storage and is
+not tamper-evident.
 
 ```python
 from secure_string_cipher import AuditLogger, AuditEvent, AuditLevel
@@ -930,7 +961,9 @@ progress.finish()
 
 ### secure_overwrite
 
-Securely delete a file by overwriting with random data.
+Best-effort delete a file by overwriting it with zero bytes and unlinking it.
+This cannot guarantee erasure on SSDs, copy-on-write filesystems, snapshots,
+backups, or journaled filesystems.
 
 ```python
 from secure_string_cipher import secure_overwrite
@@ -943,7 +976,7 @@ secure_overwrite(filepath: str) -> None
 ```python
 from secure_string_cipher import secure_overwrite
 
-# Securely delete sensitive file
+# Best-effort overwrite and unlink
 secure_overwrite("plaintext_backup.txt")
 ```
 

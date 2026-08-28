@@ -1,6 +1,8 @@
 # Cryptographic Design Document
 
-This document describes the cryptographic design of secure-string-cipher for third-party security auditors.
+This document describes the current Beta cryptographic design for review. It is
+not a claim that secure-string-cipher has completed an independent audit or is
+stable.
 
 ## Table of Contents
 
@@ -46,9 +48,9 @@ The design prioritizes:
 | **Partitioning oracle attacks** | HMAC-SHA256 key commitment |
 | **Timing attacks on password comparison** | Constant-time comparison |
 | **Vault file tampering** | HMAC-SHA256 integrity verification |
-| **Brute-force password guessing** | Rate limiting with exponential backoff |
-| **Path traversal attacks** | Input validation, symlink detection |
-| **Memory disclosure** | Secure memory wiping via libsodium |
+| **Online CLI password guessing** | Local rate limiting with exponential backoff |
+| **Accidental path misuse** | Best-effort lexical validation and symlink preflight |
+| **Some mutable-buffer residue** | Best-effort clearing via libsodium where available |
 
 ### Out of Scope
 
@@ -59,6 +61,8 @@ The design prioritizes:
 | **Social engineering** | User education, not technical control |
 | **Quantum computing** | AES-256 provides ~128-bit post-quantum security for symmetric encryption; Argon2id output is vulnerable to Grover's algorithm but 256-bit keys maintain adequate security margins |
 | **Traffic analysis** | File sizes visible in encrypted output |
+| **Offline password guessing** | Local CLI rate limiting cannot affect copied ciphertext |
+| **Hostile path races** | Descriptor-level opening is not yet implemented |
 
 ### Assumptions
 
@@ -80,7 +84,8 @@ The design prioritizes:
 | Tag size | 128 bits | Full authentication security |
 | Mode | GCM | AEAD with wide hardware support |
 
-**Implementation:** `cryptography.hazmat.primitives.ciphers.aead.AESGCM`
+**Implementation:** the streaming `Cipher(..., modes.GCM(...))` interface from
+`cryptography`.
 
 **Nonce generation:** Fresh random nonce for each encryption via `secrets.token_bytes(12)`
 
@@ -217,8 +222,8 @@ File encryption uses a structured format with metadata:
 ├─────────────────────────────────────────────────────────────┤
 │ METADATA_LENGTH (2 bytes): Big-endian uint16                │
 ├─────────────────────────────────────────────────────────────┤
-│ METADATA (JSON): version, filename, size, hash,             │
-│                  algorithm, key_commitment                  │
+│ METADATA (JSON): version, original_filename,                │
+│                  key_commitment                             │
 ├─────────────────────────────────────────────────────────────┤
 │ SALT (16 bytes)                                             │
 ├─────────────────────────────────────────────────────────────┤
@@ -292,16 +297,16 @@ def verify_key_commitment(key: bytes, expected: bytes) -> bool:
 
 ## File Format
 
-### Version 4 (Current)
+### Versions 5 and 4
 
 > **Note:** The magic bytes `SSCV2` identify the file format structure (with metadata header).
-> The `version` field in metadata indicates the cryptographic version (4 = Argon2id + key commitment).
+> The current writer emits metadata version 5. Version 4 remains readable.
 
 | Field | Size | Description |
 |-------|------|-------------|
 | Magic | 5 bytes | `SSCV2` (identifies file format structure) |
 | Meta length | 2 bytes | Big-endian uint16 |
-| Metadata | Variable | JSON with version, filename, hash, algorithm, key_commitment |
+| Metadata | Variable | JSON with version, original_filename, key_commitment |
 | Salt | 16 bytes | Argon2id salt |
 | Nonce | 12 bytes | AES-GCM nonce |
 | Ciphertext | Variable | Encrypted file content |
@@ -311,11 +316,8 @@ def verify_key_commitment(key: bytes, expected: bytes) -> bool:
 
 ```json
 {
-  "version": 4,
+  "version": 5,
   "original_filename": "document.pdf",
-  "original_size": 1048576,
-  "content_hash": "base64-encoded-sha256",
-  "algorithm": "argon2id",
   "key_commitment": "base64-encoded-hmac"
 }
 ```
@@ -327,7 +329,11 @@ def verify_key_commitment(key: bytes, expected: bytes) -> bool:
 | 1 | PBKDF2 | No | Legacy, unsupported |
 | 2 | PBKDF2 | No | Legacy, unsupported |
 | 3 | Argon2id | No | Transitional |
-| 4 | Argon2id | Yes | Current |
+| 4 | Argon2id | Yes | Legacy; metadata is not GCM-authenticated and its filename is never trusted for output selection |
+| 5 | Argon2id | Yes | Current writer; metadata is AES-GCM additional authenticated data |
+
+The v4/v5 salt, nonce, tag, KDF parameters, AES-GCM behavior, header ordering,
+and tag placement are otherwise unchanged by the atomic-publication hardening.
 
 ---
 
@@ -383,13 +389,15 @@ All sensitive comparisons use constant-time functions that don't leak informatio
 
 ### Memory Protection
 
-When PyNaCl (libsodium) is available:
+When PyNaCl (libsodium) is available, mutable managed buffers are cleared on a
+best-effort basis:
 
 - `SecureString`: Auto-zeros memory on deletion
 - `SecureBytes`: Auto-zeros memory on deletion
 - Uses `sodium_memzero()` for secure wiping
 
-**Limitation:** Python's garbage collector may create copies. Use `has_secure_memory()` to check availability.
+**Limitation:** Python strings are immutable and the interpreter or libraries
+may create copies. Clearing cannot guarantee removal of every secret copy.
 
 ### Timing Jitter
 
@@ -469,7 +477,9 @@ If a passphrase is compromised, all files encrypted with it can be decrypted. Mi
 
 ### 3. Metadata Leakage
 
-Encrypted file metadata (filename, size) is visible in the encrypted format. Mitigations:
+Encrypted file metadata is visible before authentication. The optional original
+filename is visible, and total object length leaks approximate plaintext size.
+Mitigations:
 
 - Content is fully encrypted
 - Filename can be randomized before encryption
@@ -491,6 +501,21 @@ Keys exist only in software memory. For HSM requirements, consider:
 
 - PKCS#11 integration (not implemented)
 - Hardware tokens (not implemented)
+
+### 6. Beta File and Filesystem Scope
+
+Whole regular files of any internal format are encrypted as opaque bytes up to
+100 MiB. Directories and large framed SSC2 objects are not supported. Final
+outputs are atomically replaced only after successful encryption or
+authenticated decryption, which protects against ordinary operation failures.
+Hostile concurrent path races remain under hardening.
+
+### 7. Legacy Key Files and Local Controls
+
+Legacy key-file mode hashes file bytes into a symmetric passphrase. It is not
+RSA, recipient, or public-key encryption; identical bytes grant decryption.
+Local rate limiting does not stop offline guessing. Audit events are editable
+local JSON rather than a tamper-evident log.
 
 ---
 

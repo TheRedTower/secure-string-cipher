@@ -1,5 +1,8 @@
 # Security Policy
 
+secure-string-cipher is currently **Beta**. It has not completed an independent
+security audit and is not a stable release contract.
+
 ## Supported Versions
 
 We actively support the following versions with security updates:
@@ -77,15 +80,20 @@ This project implements multiple layers of security:
 - **Complexity requirements**: Mixed case, numbers, symbols
 - **Common password detection**: Blocks known weak passwords
 - **Constant-time comparison**: Prevents timing attacks
-- **Rate limiting**: Exponential backoff after failed attempts (5 attempts → 30s lockout)
+- **Local rate limiting**: CLI exponential backoff after failed attempts; copied
+  ciphertext remains available for offline guessing
 
 ### 3. File Security
 
-- **100 MB file size limit** - Prevents DoS attacks
-- **Atomic file writes** - No partial writes on failure
+- **100 MiB file size limit** - Whole regular files are treated as opaque bytes;
+  directories and large SSC2 objects are unsupported
+- **Atomic final publication** - Existing outputs survive ordinary operation and
+  authentication failures; `--force` never pre-deletes them
 - **Secure permissions** - `chmod 600` (owner-only read/write)
-- **Path validation** - Blocks path traversal (`../`, symlinks)
-- **Filename sanitization** - Prevents Unicode attacks, null bytes
+- **Path validation** - Best-effort lexical symlink preflight; hostile races
+  remain pending descriptor-level hardening
+- **Filename sanitization** - Removes traversal components, separators, control
+  characters, and unsupported characters; it does not prevent Unicode homoglyphs
 
 ### 4. Vault Integrity
 
@@ -95,8 +103,8 @@ This project implements multiple layers of security:
 
 ### 5. Runtime Protection
 
-- **Secure memory wiping** - `sodium_memzero()` via libsodium (PyNaCl)
-- **SecureString/SecureBytes classes** - Auto-zero on deletion
+- **Best-effort memory clearing** - Mutable managed buffers use libsodium when
+  available, but Python may retain copied immutable values
 - **Timing jitter** - Adds random delay to security operations
 - **Input sanitization** - All user input validated
 - **Audit logging** - Security events logged with timestamps
@@ -110,6 +118,21 @@ Security-sensitive operations are logged to `~/.secure-cipher/audit.log`:
 - Encryption/decryption operations
 - Vault access events
 - Sensitive data automatically redacted
+
+The log is editable local JSON with rotation. It is not cryptographically
+chained, append-only, or tamper-evident.
+
+### 7. Current Limitations
+
+- Writer metadata version 5 authenticates `version`, `original_filename`, and
+  `key_commitment`. Legacy version 4 metadata is unauthenticated, so its stored
+  filename is never used to select an output path.
+- Legacy key-file mode hashes file bytes into a symmetric passphrase. It is not
+  public-key or recipient encryption; anyone with identical bytes can decrypt.
+- Vault import validates structure only. Authentication with the master password
+  before replacement remains pending.
+- Overwrite-based deletion is best-effort and unreliable on SSD wear levelling,
+  copy-on-write filesystems, snapshots, backups, and journals.
 
 ## For Contributors
 
@@ -216,19 +239,13 @@ pip install pipdeptree
 pipdeptree -p secure-string-cipher
 ```
 
-## Audit History
+## Review Materials
 
-| Date       | Type       | Auditor  | Status    | Notes                   |
-|------------|------------|----------|-----------|-------------------------|
-| 2025-11-06 | Self-Audit | Internal | Completed | Initial security review |
-| 2025-12-02 | Self-Audit | Internal | Completed | Argon2id, key commitment, rate limiting |
-
-## Third-Party Audit
-
-This project maintains audit documentation for third-party security reviews:
+No independent third-party audit has been completed. The project maintains
+materials intended to support future review:
 
 - **[CRYPTOGRAPHY.md](.github/CRYPTOGRAPHY.md)** - Detailed cryptographic design and threat model
-- **[AUDIT_CHECKLIST.md](.github/AUDIT_CHECKLIST.md)** - Checklist for security auditors
+- **[AUDIT_CHECKLIST.md](.github/AUDIT_CHECKLIST.md)** - Review checklist
 
 ## Contact
 

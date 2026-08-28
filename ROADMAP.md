@@ -1,6 +1,20 @@
 # Secure String Cipher roadmap
 
-This roadmap tracks planned architectural work for SSC. The current priority is to preserve the stable v1 encryption core while introducing a controlled v2 managed-key architecture.
+This roadmap tracks planned architectural work for the SSC Beta. The current
+priority is to preserve v4/v5 compatibility while hardening the existing core;
+the project is not yet stable.
+
+## Current Beta Boundary
+
+The current writer emits metadata version 5 and reads legacy version 4. Regular
+files of any internal format are handled as opaque bytes up to 100 MiB.
+Directories and large SSC2 objects are not supported. Version 5 authenticates
+metadata; version 4 does not, and its stored filename is ignored.
+
+The next hardening tranche is transactional vault import/restore,
+released-version compatibility fixtures, strict metadata parsing,
+descriptor-level path opening, real secret `.ssckey` files, and cross-platform
+release CI. Current vault import performs structural validation only.
 
 ---
 
@@ -75,4 +89,5 @@ Potential v3 work:
 - optional SQLite encrypted-record vault backend;
 - tamper-evident audit logging.
 
-v3 should only be designed after the v2 managed-key foundation has fixtures, migration tests, and stable CLI behaviour.
+v3 should only be designed after the v2 managed-key foundation has fixtures,
+migration tests, and a mature CLI contract.

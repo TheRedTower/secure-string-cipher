@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+
+- Added a streaming same-directory atomic writer and routed existing vault byte
+  writes through it.
+- File encryption now publishes only after GCM finalization and sync. File
+  decryption publishes plaintext only after authentication; `--force` permits
+  final atomic replacement and never pre-deletes an existing destination.
+- Version 5 automatic filename restoration occurs only after metadata
+  authentication. Legacy version 4 content remains decryptable, but its
+  unauthenticated filename cannot select a destination.
+- Removed the destructive fixed `.write_test` probe and corrected lexical
+  relative-symlink checks, strict text base64/UTF-8 handling, and empty-file
+  progress.
+
+### Documentation
+
+- Marked the current product Beta and documented current file, metadata,
+  key-file, rate-limit, memory-clearing, audit-log, vault-import, atomicity, and
+  deletion limitations without changing the package version.
+
 ## [1.3.0] - 2026-06-06
 
 ### Added

@@ -5,22 +5,39 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
-A security-focused AES-256-GCM encryption CLI tool with passphrase vault and modern cryptographic defaults.
+A **Beta** AES-256-GCM encryption CLI with a passphrase vault and modern
+cryptographic defaults. Beta means the current v4/v5 format is usable and
+compatibility-sensitive, but the project is not yet stable or independently
+audited.
+
+## Beta Scope
+
+- Regular files are treated as opaque bytes, so any internal file format is
+  supported up to the 100 MiB input limit. Directories are not supported.
+- The current writer emits metadata version 5. Legacy version 4 files remain
+  decryptable, but their unauthenticated stored filenames are never trusted for
+  automatic output selection.
+- Large framed SSC2 objects, transactional vault import/restore authentication,
+  descriptor-level path hardening, secret `.ssckey` files, compatibility
+  fixtures, and cross-platform release CI remain future work.
 
 ## Features
 
 - **AES-256-GCM encryption** for text and files with authenticated encryption
 - **Argon2id key derivation** – memory-hard, GPU/ASIC resistant
 - **Key commitment scheme** – prevents partitioning oracle attacks
-- **Key-file support** – use any file as encryption key via `--key-file` (SHA-256 → Argon2id)
+- **Legacy key-file mode** – hashes any file's bytes into a symmetric passphrase
+  (SHA-256 → Argon2id); this is not public-key or recipient encryption
 - **OS Keychain integration** – store vault in macOS Keychain, Windows Credential Vault, or Linux Secret Service
 - **Hidden password input** – passwords hidden in interactive terminals, visible for scripts/tests
 - **Inline passphrase generation** – type `/gen` at any password prompt
 - **Encrypted passphrase vault** with HMAC-SHA256 integrity verification
-- **Secure memory handling** via libsodium (PyNaCl) when available
+- **Best-effort memory clearing** via mutable buffers and libsodium when available
 - **Timing-safe operations** – constant-time comparisons prevent side-channel attacks
-- **Rate limiting** – exponential backoff on failed decrypt/vault attempts
-- **Secure shred** – multi-pass overwrite file deletion
+- **Local CLI rate limiting** – exponential backoff on failed decrypt/vault attempts;
+  it cannot prevent offline password guessing
+- **Best-effort shred** – overwrite then unlink; unreliable on SSDs, COW,
+  snapshots, and journaled filesystems
 - Chunked file streaming (256 KiB) for low memory usage
 - Automatic vault backups (last 5 kept)
 
@@ -109,12 +126,15 @@ ssc store backup-key --generate
 ssc vault list
 ssc vault delete old-key
 ssc vault export backup.json
-ssc vault import backup.json  # validates header and integrity before replacing
+ssc vault import backup.json  # structural validation only; see limitations below
 ```
 
 **Exit codes:** 0=success, 1=input error, 2=auth error, 3=vault error, 4=file error
 
 **Security:** Passwords are never passed via command line arguments (prevents shell history exposure). All passwords are prompted interactively or retrieved from the vault.
+
+`--force` permits final atomic replacement only after encryption completes or
+decryption authenticates. It never pre-deletes the existing destination.
 
 ### Interactive CLI (`ssc start`)
 
@@ -279,8 +299,16 @@ from secure_string_cipher import encrypt_file, decrypt_file
 # Encrypt a file (explicit output path)
 encrypt_file("document.pdf", "document.pdf.enc", "MySecurePass123!")
 
+# Replace only after complete encryption and sync
+encrypt_file("document.pdf", "document.pdf.enc", "MySecurePass123!", overwrite=True)
+
 # Decrypt it (explicit output path)
-output_path, metadata = decrypt_file("document.pdf.enc", "document.pdf", "MySecurePass123!")
+output_path, metadata = decrypt_file(
+    "document.pdf.enc",
+    "document.pdf",
+    "MySecurePass123!",
+    overwrite=True,
+)
 ```
 
 > File operations refuse symlinked inputs/outputs (except system-managed paths like /var) to prevent path hijacking.
@@ -350,16 +378,32 @@ if has_secure_memory():
 | **Key Derivation** | Argon2id | 64MB memory, 3 iterations, parallelism 4 |
 | **Key Commitment** | HMAC-SHA256 | Prevents partitioning oracle attacks |
 | **Vault Integrity** | HMAC-SHA256 | Detects tampering before decryption |
-| **Memory Security** | libsodium | `sodium_memzero()` via PyNaCl |
+| **Memory Clearing** | Best effort | Mutable buffers/libsodium where available; Python may retain copies |
 | **Timing Safety** | Constant-time | All password/hash comparisons |
-| **Rate Limiting** | Exponential backoff | Active on vault unlock, text decrypt, and file decrypt |
-| **Vault Import** | SSCVAULT validation | Header, hex salt, and HMAC separators verified; `0o600` enforced |
+| **Rate Limiting** | Local exponential backoff | CLI throttle only; offline guessing remains possible |
+| **Vault Import** | Structural SSCVAULT checks | Cryptographic validation before replacement is pending |
 
-**Additional protections:** Path traversal prevention, symlink attack detection, atomic writes, user-only file permissions (600), 12-character minimum password with complexity requirements.
+**Additional protections:** best-effort symlink preflight checks, atomic final
+publication, user-only file permissions (`0o600`), and a 12-character password
+policy. Atomic publication protects against ordinary operation failures;
+hostile concurrent path races require descriptor-level hardening and are not
+claimed to be prevented.
 
 **Password input:** When running interactively, passwords are hidden (using `getpass`). When stdin is piped or redirected (scripts, automation, tests), passwords are visible. This allows both secure interactive use and scriptable automation.
 
-**Python memory limitations:** Even with libsodium, Python strings are immutable and GC may copy objects. Use `has_secure_memory()` to check libsodium availability.
+**Python memory limitations:** Memory clearing is best-effort. Even with
+libsodium, Python strings are immutable and the runtime may copy objects. Use
+`has_secure_memory()` to check libsodium availability.
+
+**Local records and deletion limitations:** The audit/event log is editable
+local JSON and is not tamper-evident. Overwrite-based deletion cannot reliably
+erase data from SSD wear levelling, copy-on-write storage, snapshots, backups,
+or journaled filesystems.
+
+**Legacy key-file limitation:** Anyone with identical key-file bytes can derive
+the same symmetric passphrase and decrypt. PEM or public-key-shaped input does
+not create RSA, recipient, or public-key encryption. Treat this mode as legacy
+pending the secret `.ssckey` design.
 
 ## Development
 
