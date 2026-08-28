@@ -14,7 +14,6 @@ import binascii
 import json
 import os
 import secrets
-import tempfile
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,6 +27,7 @@ from cryptography.hazmat.primitives.ciphers import (
     algorithms,
     modes,
 )
+from cryptography.hazmat.primitives.ciphers.base import AEADDecryptionContext
 
 from .atomic_io import atomic_binary_writer
 from .config import (
@@ -688,21 +688,65 @@ def encrypt_file(
         raise CryptoError(f"Encryption failed: {e}") from e
 
 
+def _decrypt_stream(
+    reader: BinaryIO,
+    decryptor: AEADDecryptionContext,
+    writer: BinaryIO | None = None,
+) -> None:
+    """Decrypt a ciphertext stream while retaining its trailing GCM tag."""
+    buffer = bytearray()
+    for chunk in iter(lambda: reader.read(CHUNK_SIZE), b""):
+        buffer.extend(chunk)
+        if len(buffer) > TAG_SIZE:
+            emit_len = len(buffer) - TAG_SIZE
+            plaintext = decryptor.update(memoryview(buffer)[:emit_len])
+            if writer is not None:
+                writer.write(plaintext)
+            del buffer[:emit_len]
+
+    if len(buffer) < TAG_SIZE:
+        raise CryptoError("File too short - not a valid encrypted file")
+
+    tail_view = memoryview(buffer)
+    ciphertext_tail = tail_view[:-TAG_SIZE]
+    tag = bytes(tail_view[-TAG_SIZE:])
+
+    if ciphertext_tail:
+        plaintext = decryptor.update(ciphertext_tail)
+        if writer is not None:
+            writer.write(plaintext)
+
+    final_plaintext = decryptor.finalize_with_tag(tag)
+    if writer is not None:
+        writer.write(final_plaintext)
+
+
+def _decryption_fallback_path(input_path: str) -> Path:
+    """Return a deterministic .dec path without consulting file metadata."""
+    path = Path(input_path)
+    if path.suffix == ".enc":
+        return path.with_suffix(".dec")
+    return path.with_name(path.name + ".dec")
+
+
 def decrypt_file(
     input_path: str,
     output_path: str | None,
     passphrase: str,
     *,
     restore_filename: bool = True,
+    overwrite: bool = False,
 ) -> tuple[str, FileMetadata | None]:
     """
     Decrypt a file using AES-256-GCM with Argon2id and key commitment verification.
 
     Args:
         input_path: Path to encrypted file
-        output_path: Path for decrypted output (if None, uses original filename or input_path + ".dec")
+        output_path: Path for decrypted output (if None, uses an authenticated
+            v5 filename or a deterministic .dec fallback)
         passphrase: Decryption password
         restore_filename: If True and output_path is None, attempt to restore original filename
+        overwrite: If True, atomically replace an existing output after authentication
 
     Returns:
         Tuple of (actual_output_path, metadata)
@@ -746,38 +790,6 @@ def decrypt_file(
 
             salt, nonce = header[:SALT_SIZE], header[SALT_SIZE:]
 
-            # Determine output path
-            if output_path is None:
-                if restore_filename and metadata and metadata.original_filename:
-                    # Sanitize the stored filename for security
-                    safe_name = sanitize_filename(metadata.original_filename)
-                    # Use sanitized name if it's valid (not empty after sanitization)
-                    if safe_name:
-                        # Use the sanitized original filename in the same directory as input
-                        output_dir = os.path.dirname(input_path) or "."
-                        output_path = os.path.join(output_dir, safe_name)
-                    else:
-                        # Fallback if filename is empty after sanitization
-                        output_path = input_path + ".dec"
-                else:
-                    output_path = input_path + ".dec"
-
-            output_path_obj = Path(output_path)
-            _ensure_no_symlink(output_path_obj, "output")
-            _ensure_no_symlink(output_path_obj.parent, "output parent")
-            if output_path_obj.exists():
-                raise CryptoError(
-                    f"Output file already exists: {output_path_obj}. "
-                    "Delete it first or choose a different path."
-                )
-            if not output_path_obj.parent.exists():
-                raise CryptoError(
-                    f"Output directory does not exist: {output_path_obj.parent}"
-                )
-
-            temp_fd: int | None = None
-            temp_path: str | None = None
-
             # Wrap key in SecureBytes to ensure it's wiped after use
             from .secure_memory import SecureBytes
 
@@ -807,52 +819,43 @@ def decrypt_file(
                 if metadata.version >= 5:
                     decryptor.authenticate_additional_data(meta_bytes)
 
-                try:
-                    temp_fd, temp_path = tempfile.mkstemp(
-                        prefix=f".{output_path_obj.name}.",
-                        suffix=".tmp",
-                        dir=output_path_obj.parent,
-                    )
-                    os.chmod(temp_path, 0o600)
-                    buffer = bytearray()
-                    with os.fdopen(temp_fd, "wb") as w:
-                        temp_fd = None
+                ciphertext_start = f.tell()
 
-                        for chunk in iter(lambda: f.read(CHUNK_SIZE), b""):
-                            buffer.extend(chunk)
-                            if len(buffer) > TAG_SIZE:
-                                emit_len = len(buffer) - TAG_SIZE
-                                if emit_len:
-                                    w.write(
-                                        decryptor.update(memoryview(buffer)[:emit_len])
-                                    )
-                                    del buffer[:emit_len]
+                if output_path is None:
+                    # Authenticate before allowing stored metadata to select a path.
+                    _decrypt_stream(f, decryptor)
 
-                        if len(buffer) < TAG_SIZE:
-                            raise CryptoError(
-                                "File too short - not a valid encrypted file"
-                            )
+                    if (
+                        restore_filename
+                        and metadata.version >= 5
+                        and metadata.original_filename
+                    ):
+                        safe_name = sanitize_filename(metadata.original_filename)
+                        output_dir = Path(input_path).parent
+                        output_path_obj = output_dir / safe_name
+                    else:
+                        # Version 4 metadata is unauthenticated and never selects a path.
+                        output_path_obj = _decryption_fallback_path(input_path)
 
-                        tail_view = memoryview(buffer)
-                        ciphertext_tail = tail_view[:-TAG_SIZE]
-                        tag = bytes(tail_view[-TAG_SIZE:])
+                    f.seek(ciphertext_start)
+                    decryptor = Cipher(
+                        algorithms.AES(secure_key.data),
+                        modes.GCM(nonce),
+                        backend=default_backend(),
+                    ).decryptor()
+                    if metadata.version >= 5:
+                        decryptor.authenticate_additional_data(meta_bytes)
+                else:
+                    output_path_obj = Path(output_path)
 
-                        if ciphertext_tail:
-                            w.write(decryptor.update(ciphertext_tail))
-
-                        w.write(decryptor.finalize_with_tag(tag))
-                        w.flush()
-                        os.fsync(w.fileno())
-
-                    os.replace(temp_path, output_path_obj)
-                    temp_path = None
-                finally:
-                    if temp_fd is not None:
-                        with suppress(OSError):
-                            os.close(temp_fd)
-                    if temp_path is not None:
-                        with suppress(OSError):
-                            os.unlink(temp_path)
+                _ensure_no_symlink(output_path_obj, "output")
+                _ensure_no_symlink(output_path_obj.parent, "output parent")
+                with atomic_binary_writer(
+                    output_path_obj,
+                    overwrite=overwrite,
+                    mode=0o600,
+                ) as writer:
+                    _decrypt_stream(f, decryptor, writer)
 
         return str(output_path_obj), metadata
 

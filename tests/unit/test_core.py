@@ -13,6 +13,7 @@ import contextlib
 import json
 import os
 import tempfile
+from pathlib import Path
 from typing import Final
 from unittest.mock import patch
 
@@ -573,7 +574,7 @@ class TestFileEncryption:
             enc_path, None, TEST_PASSWORDS["VALID"], restore_filename=False
         )
 
-        assert actual_path == enc_path + ".dec"
+        assert actual_path == str(Path(enc_path).with_suffix(".dec"))
         assert (
             metadata.original_filename == "original.txt"
         )  # Still accessible but not used
@@ -602,6 +603,28 @@ class TestFileEncryption:
         assert not output_file.exists()
         assert list(tmp_path.glob(".output.txt.*.tmp")) == []
 
+    def test_v5_hostile_filename_cannot_replace_victim(self, tmp_path):
+        """Unauthenticated v5 metadata must not select or replace a victim path."""
+        input_file = tmp_path / "input.txt"
+        encrypted_file = tmp_path / "input.txt.enc"
+        victim = tmp_path / "victim.txt"
+        input_file.write_text("secret data")
+        victim.write_bytes(b"victim bytes")
+
+        encrypt_file(str(input_file), str(encrypted_file), TEST_PASSWORDS["VALID"])
+        _tamper_metadata(encrypted_file, "original_filename", victim.name)
+
+        with pytest.raises(CryptoError):
+            decrypt_file(
+                str(encrypted_file),
+                None,
+                TEST_PASSWORDS["VALID"],
+                overwrite=True,
+            )
+
+        assert victim.read_bytes() == b"victim bytes"
+        assert list(tmp_path.glob(".victim.txt.*.tmp")) == []
+
     def test_v4_file_decryption_remains_compatible(self, tmp_path, monkeypatch):
         """Test legacy v4 files remain readable without metadata AAD."""
         from secure_string_cipher import core
@@ -625,6 +648,154 @@ class TestFileEncryption:
         assert output_file.read_text() == "legacy data"
         assert metadata is not None
         assert metadata.version == 4
+
+    def test_v4_stored_filename_never_selects_output_path(self, tmp_path, monkeypatch):
+        """Legacy unauthenticated filenames must be ignored for automatic output."""
+        from secure_string_cipher import core
+
+        input_file = tmp_path / "legacy.txt"
+        encrypted_file = tmp_path / "legacy.txt.enc"
+        victim = tmp_path / "victim.txt"
+        fallback = tmp_path / "legacy.txt.dec"
+        input_file.write_text("legacy data")
+        victim.write_bytes(b"victim bytes")
+
+        monkeypatch.setattr(core, "METADATA_VERSION", 4)
+        encrypt_file(str(input_file), str(encrypted_file), TEST_PASSWORDS["VALID"])
+        _tamper_metadata(encrypted_file, "original_filename", victim.name)
+
+        actual_path, metadata = decrypt_file(
+            str(encrypted_file),
+            None,
+            TEST_PASSWORDS["VALID"],
+            overwrite=True,
+        )
+
+        assert actual_path == str(fallback)
+        assert fallback.read_text() == "legacy data"
+        assert victim.read_bytes() == b"victim bytes"
+        assert metadata is not None
+        assert metadata.version == 4
+
+    def test_wrong_password_force_preserves_explicit_output(self, tmp_path):
+        """Wrong credentials must not alter an explicitly forced destination."""
+        source = tmp_path / "input.txt"
+        encrypted = tmp_path / "input.txt.enc"
+        output = tmp_path / "output.txt"
+        source.write_text("secret data")
+        output.write_bytes(b"existing plaintext")
+        encrypt_file(str(source), str(encrypted), TEST_PASSWORDS["VALID"])
+
+        with pytest.raises(CryptoError):
+            decrypt_file(
+                str(encrypted),
+                str(output),
+                TEST_PASSWORDS["NO_SYMBOLS"],
+                overwrite=True,
+            )
+
+        assert output.read_bytes() == b"existing plaintext"
+        assert list(tmp_path.glob(".output.txt.*.tmp")) == []
+
+    def test_corrupt_tag_force_preserves_explicit_output(self, tmp_path):
+        """A damaged authentication tag must preserve a forced destination."""
+        source = tmp_path / "input.txt"
+        encrypted = tmp_path / "input.txt.enc"
+        output = tmp_path / "output.txt"
+        source.write_text("secret data")
+        output.write_bytes(b"existing plaintext")
+        encrypt_file(str(source), str(encrypted), TEST_PASSWORDS["VALID"])
+        damaged = bytearray(encrypted.read_bytes())
+        damaged[-1] ^= 1
+        encrypted.write_bytes(damaged)
+
+        with pytest.raises(CryptoError):
+            decrypt_file(
+                str(encrypted),
+                str(output),
+                TEST_PASSWORDS["VALID"],
+                overwrite=True,
+            )
+
+        assert output.read_bytes() == b"existing plaintext"
+        assert list(tmp_path.glob(".output.txt.*.tmp")) == []
+
+    def test_valid_force_replaces_only_at_atomic_publication(self, tmp_path):
+        """The old destination remains visible until authenticated publication."""
+        source = tmp_path / "input.txt"
+        encrypted = tmp_path / "input.txt.enc"
+        output = tmp_path / "output.txt"
+        source.write_bytes(b"new plaintext")
+        output.write_bytes(b"old plaintext")
+        encrypt_file(str(source), str(encrypted), TEST_PASSWORDS["VALID"])
+        real_replace = os.replace
+
+        def guarded_replace(source_path, destination_path):
+            assert Path(destination_path).read_bytes() == b"old plaintext"
+            real_replace(source_path, destination_path)
+
+        with patch("secure_string_cipher.atomic_io.os.replace", guarded_replace):
+            actual_path, _ = decrypt_file(
+                str(encrypted),
+                str(output),
+                TEST_PASSWORDS["VALID"],
+                overwrite=True,
+            )
+
+        assert actual_path == str(output)
+        assert output.read_bytes() == b"new plaintext"
+
+    @pytest.mark.parametrize("failure_point", ["fsync", "replace"])
+    @pytest.mark.parametrize("existing", [True, False])
+    def test_decrypt_publication_failure_never_commits_plaintext(
+        self, tmp_path, failure_point, existing
+    ):
+        """Publication failures must preserve old plaintext or leave none."""
+        source = tmp_path / "input.txt"
+        encrypted = tmp_path / "input.txt.enc"
+        output = tmp_path / "output.txt"
+        source.write_bytes(b"new plaintext")
+        encrypt_file(str(source), str(encrypted), TEST_PASSWORDS["VALID"])
+        if existing:
+            output.write_bytes(b"existing plaintext")
+
+        with (
+            patch(
+                f"secure_string_cipher.atomic_io.os.{failure_point}",
+                side_effect=OSError("injected failure"),
+            ),
+            pytest.raises(CryptoError, match="Decryption failed"),
+        ):
+            decrypt_file(
+                str(encrypted),
+                str(output),
+                TEST_PASSWORDS["VALID"],
+                overwrite=True,
+            )
+
+        if existing:
+            assert output.read_bytes() == b"existing plaintext"
+        else:
+            assert not output.exists()
+        assert list(tmp_path.glob(".output.txt.*.tmp")) == []
+
+    def test_existing_destination_without_force_is_preserved(self, tmp_path):
+        """Authenticated decryption must still refuse an existing destination."""
+        source = tmp_path / "input.txt"
+        encrypted = tmp_path / "input.txt.enc"
+        output = tmp_path / "output.txt"
+        source.write_text("secret data")
+        output.write_bytes(b"existing plaintext")
+        encrypt_file(str(source), str(encrypted), TEST_PASSWORDS["VALID"])
+
+        with pytest.raises(CryptoError, match="already exists"):
+            decrypt_file(
+                str(encrypted),
+                str(output),
+                TEST_PASSWORDS["VALID"],
+            )
+
+        assert output.read_bytes() == b"existing plaintext"
 
     def test_failed_decrypt_removes_temporary_plaintext(self, tmp_path):
         """Test authentication failure removes temporary plaintext."""

@@ -6,8 +6,6 @@ Covers:
 - _get_vault initialization flow
 - _get_password_from_vault
 - _get_password_from_key_file
-- _load_file_metadata
-- _determine_output_path
 - _validate_vault_format
 - cmd_decrypt paths
 - cmd_store
@@ -666,6 +664,34 @@ class TestCmdDecryptPaths:
         with pytest.raises(SystemExit) as exc_info:
             cmd_decrypt(args)
         assert exc_info.value.code == EXIT_AUTH_ERROR
+
+    @patch("secure_string_cipher.cli_args._prompt_password")
+    def test_decrypt_force_wrong_password_preserves_explicit_output(
+        self, mock_prompt, tmp_path
+    ):
+        """CLI force decryption must preserve output on authentication failure."""
+        mock_prompt.return_value = "WrongPass1!@#xyz"
+        source = tmp_path / "test.txt"
+        enc_file = tmp_path / "test.txt.enc"
+        output = tmp_path / "output.txt"
+        source.write_text("secret data")
+        output.write_bytes(b"existing plaintext")
+        encrypt_file(str(source), str(enc_file), "StrongPass1!@#ab")
+        args = argparse.Namespace(
+            text=None,
+            file=str(enc_file),
+            vault=None,
+            key_file=None,
+            force=True,
+            output=str(output),
+            restore_filename=True,
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_decrypt(args)
+
+        assert exc_info.value.code == EXIT_AUTH_ERROR
+        assert output.read_bytes() == b"existing plaintext"
 
     @patch("secure_string_cipher.cli_args._prompt_password")
     def test_decrypt_file_output_exists_no_force(self, mock_prompt, tmp_path):

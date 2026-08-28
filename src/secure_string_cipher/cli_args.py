@@ -18,10 +18,9 @@ from typing import NoReturn
 from . import __version__
 from .audit_log import AuditEvent, get_audit_logger
 from .cli import main as run_interactive_menu
-from .config import METADATA_MAGIC, load_vault_settings, set_vault_backend
+from .config import load_vault_settings, set_vault_backend
 from .core import (
     CryptoError,
-    FileMetadata,
     _ensure_no_symlink,
     decrypt_bytes,
     decrypt_file,
@@ -34,7 +33,6 @@ from .core import (
 from .passphrase_generator import generate_passphrase
 from .passphrase_manager import PassphraseVault
 from .rate_limiter import PersistentRateLimiter
-from .security import sanitize_filename
 from .timing_safe import check_password_strength
 from .utils import colorize, secure_overwrite
 
@@ -296,71 +294,6 @@ def _get_password_from_key_file(key_file_path: str) -> str:
         _exit_error(EXIT_FILE_ERROR, _key_file_error_message(e))
 
 
-def _load_file_metadata(input_path: Path) -> FileMetadata:
-    """Load unencrypted metadata from an encrypted file.
-
-    Args:
-        input_path: Encrypted file path
-
-    Returns:
-        Parsed FileMetadata
-
-    Raises:
-        CryptoError: When the file is malformed or missing required headers
-    """
-
-    with open(input_path, "rb") as f:
-        magic = f.read(len(METADATA_MAGIC))
-        if magic != METADATA_MAGIC:
-            raise CryptoError(
-                "Invalid file format: missing magic header. "
-                "This file may have been encrypted with an older version."
-            )
-
-        meta_len_bytes = f.read(2)
-        if len(meta_len_bytes) != 2:
-            raise CryptoError("Invalid file: truncated metadata length")
-        meta_len = int.from_bytes(meta_len_bytes, "big")
-        if meta_len > 65535:
-            raise CryptoError("Invalid file: metadata too large")
-
-        meta_bytes = f.read(meta_len)
-        if len(meta_bytes) != meta_len:
-            raise CryptoError("Invalid file: truncated metadata")
-
-    return FileMetadata.from_bytes(meta_bytes)
-
-
-def _determine_output_path(filepath: Path, restore_filename: bool) -> Path:
-    """Choose output path using metadata when available.
-
-    Prefers restoring the original filename stored in metadata when
-    `restore_filename` is True; otherwise falls back to deterministic names
-    that avoid overwriting the original file.
-    """
-
-    metadata: FileMetadata | None = None
-    if restore_filename:
-        try:
-            metadata = _load_file_metadata(filepath)
-        except CryptoError:
-            metadata = None
-
-    if restore_filename and metadata and metadata.original_filename:
-        safe_name = sanitize_filename(metadata.original_filename)
-        if safe_name:
-            output_dir = filepath.parent or Path(".")
-            return output_dir / safe_name
-
-    if not restore_filename and filepath.suffix == ".enc":
-        return filepath.with_suffix(".dec")
-
-    if filepath.suffix == ".enc":
-        return filepath.with_suffix("")
-
-    return filepath.with_name(filepath.name + ".dec")
-
-
 # =============================================================================
 # Command: start (interactive)
 # =============================================================================
@@ -522,18 +455,16 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
         if not filepath.exists():
             _exit_error(EXIT_FILE_ERROR, f"File not found: {args.file}")
 
-        # Determine intended output path (surface filesystem errors as file-exit)
+        # Explicit destinations can be checked without consulting file metadata.
         try:
             _ensure_no_symlink(filepath, "input")
             if output_arg:
                 output_path = Path(output_arg)
-            else:
-                output_path = _determine_output_path(filepath, restore_filename)
+                _ensure_no_symlink(output_path, "output")
         except (OSError, PermissionError, CryptoError):
             _exit_error(EXIT_FILE_ERROR, "File error.")
 
-        # Check overwrite
-        if output_path.exists() and not args.force:
+        if output_path is not None and output_path.exists() and not args.force:
             _exit_error(
                 EXIT_FILE_ERROR,
                 f"{output_path} already exists.\nRun again with --force to overwrite.",
@@ -614,32 +545,13 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
         if not filepath_obj.exists():
             _exit_error(EXIT_FILE_ERROR, f"File not found: {args.file}")
 
-        # Determine intended output path (surface filesystem errors as file-exit)
-        try:
-            _ensure_no_symlink(filepath_obj, "input")
-            if output_arg:
-                output_path = Path(output_arg)
-            else:
-                output_path = _determine_output_path(filepath_obj, restore_filename)
-        except (OSError, PermissionError, CryptoError):
-            _exit_error(EXIT_FILE_ERROR, "File error.")
-
-        # Check overwrite
-        if output_path.exists():
-            if not args.force:
-                _exit_error(
-                    EXIT_FILE_ERROR,
-                    f"{output_path} already exists.\nRun again with --force to overwrite.",
-                )
-            # Remove existing file for overwrite
-            output_path.unlink()
-
         try:
             actual_output, _ = decrypt_file(
                 str(filepath_obj),
                 str(output_path) if output_path else None,
                 password,
                 restore_filename=restore_filename,
+                overwrite=args.force,
             )
             _cli_limiter.record_attempt("decrypt_file", str(filepath_obj), success=True)
             _audit_encryption(
@@ -647,7 +559,12 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
             )
             _print_info(f"✓ Decrypted to {actual_output}")
             return EXIT_SUCCESS
-        except CryptoError:
+        except CryptoError as exc:
+            if str(exc).startswith("Output file already exists:"):
+                _exit_error(
+                    EXIT_FILE_ERROR,
+                    "Output file already exists.\nRun again with --force to overwrite.",
+                )
             _cli_limiter.record_attempt(
                 "decrypt_file", str(filepath_obj), success=False
             )
