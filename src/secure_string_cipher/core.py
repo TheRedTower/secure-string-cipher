@@ -29,6 +29,7 @@ from cryptography.hazmat.primitives.ciphers import (
     modes,
 )
 
+from .atomic_io import atomic_binary_writer
 from .config import (
     ARGON2_HASH_LENGTH,
     ARGON2_MEMORY_COST,
@@ -607,6 +608,7 @@ def encrypt_file(
     passphrase: str,
     *,
     store_filename: bool = True,
+    overwrite: bool = False,
 ) -> None:
     """
     Encrypt a file using AES-256-GCM with Argon2id and key commitment.
@@ -619,6 +621,7 @@ def encrypt_file(
         output_path: Path for encrypted output
         passphrase: Encryption password
         store_filename: If True, store original filename in metadata
+        overwrite: If True, atomically replace an existing output after success
 
     Raises:
         CryptoError: If encryption fails
@@ -651,32 +654,34 @@ def encrypt_file(
             if len(meta_bytes) > 65535:
                 raise CryptoError("Metadata too large")
 
-            with (
-                StreamProcessor(input_path, "rb") as r,
-                StreamProcessor(output_path, "wb") as w,
-            ):
-                # Write header: MAGIC + metadata length (2 bytes big-endian) + metadata
-                w.write(METADATA_MAGIC)
-                w.write(len(meta_bytes).to_bytes(2, "big"))
-                w.write(meta_bytes)
+            with StreamProcessor(input_path, "rb") as r:
+                with atomic_binary_writer(
+                    output_path,
+                    overwrite=overwrite,
+                    mode=0o600,
+                ) as w:
+                    # Write header: MAGIC + metadata length (2 bytes big-endian) + metadata
+                    w.write(METADATA_MAGIC)
+                    w.write(len(meta_bytes).to_bytes(2, "big"))
+                    w.write(meta_bytes)
 
-                # Write encryption header
-                w.write(salt + nonce)
+                    # Write encryption header
+                    w.write(salt + nonce)
 
-                # Encrypt data
-                encryptor = Cipher(
-                    algorithms.AES(secure_key.data),
-                    modes.GCM(nonce),
-                    backend=default_backend(),
-                ).encryptor()
-                if metadata.version >= 5:
-                    encryptor.authenticate_additional_data(meta_bytes)
+                    # Encrypt data
+                    encryptor = Cipher(
+                        algorithms.AES(secure_key.data),
+                        modes.GCM(nonce),
+                        backend=default_backend(),
+                    ).encryptor()
+                    if metadata.version >= 5:
+                        encryptor.authenticate_additional_data(meta_bytes)
 
-                for chunk in iter(lambda: r.read(CHUNK_SIZE), b""):
-                    w.write(encryptor.update(chunk))
-                    add_timing_jitter()
+                    for chunk in iter(lambda: r.read(CHUNK_SIZE), b""):
+                        w.write(encryptor.update(chunk))
+                        add_timing_jitter()
 
-                w.write(encryptor.finalize() + encryptor.tag)
+                    w.write(encryptor.finalize() + encryptor.tag)
     except CryptoError:
         raise
     except Exception as e:

@@ -463,12 +463,13 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
         filepath_obj = Path(filepath)
         output_path = filepath_obj.with_suffix(filepath_obj.suffix + ".enc")
 
-        # Remove file for overwrite
-        if output_path.exists() and args.force:
-            output_path.unlink()
-
         try:
-            encrypt_file(str(filepath_obj), str(output_path), password)
+            encrypt_file(
+                str(filepath_obj),
+                str(output_path),
+                password,
+                overwrite=args.force,
+            )
             _audit_encryption(
                 AuditEvent.ENCRYPT_FILE, True, file_path=str(filepath_obj)
             )

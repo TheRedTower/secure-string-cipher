@@ -14,6 +14,7 @@ import json
 import os
 import tempfile
 from typing import Final
+from unittest.mock import patch
 
 import pytest
 
@@ -415,6 +416,113 @@ class TestFileEncryption:
         assert actual_path == dec_path
         assert metadata is not None
         assert metadata.original_filename is None
+
+    def test_encrypt_refuses_existing_output_and_preserves_bytes(self, tmp_path):
+        """The default encryption path must not replace an existing output."""
+        source = tmp_path / "input.bin"
+        output = tmp_path / "output.enc"
+        source.write_bytes(b"plaintext")
+        output.write_bytes(b"existing ciphertext")
+
+        with pytest.raises(CryptoError, match="already exists"):
+            encrypt_file(str(source), str(output), TEST_PASSWORDS["VALID"])
+
+        assert output.read_bytes() == b"existing ciphertext"
+        assert list(tmp_path.glob(".output.enc.*.tmp")) == []
+
+    def test_encrypt_overwrite_replaces_with_decryptable_ciphertext(self, tmp_path):
+        """Overwrite should publish only a complete, decryptable ciphertext."""
+        source = tmp_path / "input.bin"
+        output = tmp_path / "output.enc"
+        decrypted = tmp_path / "decrypted.bin"
+        source.write_bytes(b"replacement plaintext")
+        output.write_bytes(b"existing ciphertext")
+
+        encrypt_file(
+            str(source),
+            str(output),
+            TEST_PASSWORDS["VALID"],
+            overwrite=True,
+        )
+        decrypt_file(str(output), str(decrypted), TEST_PASSWORDS["VALID"])
+
+        assert decrypted.read_bytes() == b"replacement plaintext"
+        assert list(tmp_path.glob(".output.enc.*.tmp")) == []
+
+    @pytest.mark.parametrize("existing", [True, False])
+    def test_encrypt_midstream_failure_never_publishes_partial_output(
+        self, tmp_path, existing
+    ):
+        """A failure after ciphertext writes must preserve or omit the final path."""
+        source = tmp_path / "input.bin"
+        output = tmp_path / "output.enc"
+        source.write_bytes(b"plaintext" * 1024)
+        if existing:
+            output.write_bytes(b"existing ciphertext")
+
+        with (
+            patch(
+                "secure_string_cipher.timing_safe.add_timing_jitter",
+                side_effect=RuntimeError("injected failure"),
+            ),
+            pytest.raises(CryptoError, match="Encryption failed"),
+        ):
+            encrypt_file(
+                str(source),
+                str(output),
+                TEST_PASSWORDS["VALID"],
+                overwrite=True,
+            )
+
+        if existing:
+            assert output.read_bytes() == b"existing ciphertext"
+        else:
+            assert not output.exists()
+        assert list(tmp_path.glob(".output.enc.*.tmp")) == []
+
+    @pytest.mark.parametrize("failure_point", ["fsync", "replace"])
+    @pytest.mark.parametrize("existing", [True, False])
+    def test_encrypt_publication_failure_never_commits_output(
+        self, tmp_path, failure_point, existing
+    ):
+        """Publication failures must preserve old output or leave none."""
+        source = tmp_path / "input.bin"
+        output = tmp_path / "output.enc"
+        source.write_bytes(b"plaintext")
+        if existing:
+            output.write_bytes(b"existing ciphertext")
+
+        with (
+            patch(
+                f"secure_string_cipher.atomic_io.os.{failure_point}",
+                side_effect=OSError("injected failure"),
+            ),
+            pytest.raises(CryptoError, match="Encryption failed"),
+        ):
+            encrypt_file(
+                str(source),
+                str(output),
+                TEST_PASSWORDS["VALID"],
+                overwrite=True,
+            )
+
+        if existing:
+            assert output.read_bytes() == b"existing ciphertext"
+        else:
+            assert not output.exists()
+        assert list(tmp_path.glob(".output.enc.*.tmp")) == []
+
+    def test_empty_file_encryption_succeeds(self, tmp_path):
+        """Empty files should produce complete authenticated ciphertext."""
+        source = tmp_path / "empty.bin"
+        encrypted = tmp_path / "empty.bin.enc"
+        decrypted = tmp_path / "empty.out"
+        source.write_bytes(b"")
+
+        encrypt_file(str(source), str(encrypted), TEST_PASSWORDS["VALID"])
+        decrypt_file(str(encrypted), str(decrypted), TEST_PASSWORDS["VALID"])
+
+        assert decrypted.read_bytes() == b""
 
     def test_decrypt_restore_filename(self, temp_files, tmp_path):
         """Test decryption restores original filename."""

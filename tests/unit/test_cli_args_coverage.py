@@ -427,6 +427,36 @@ class TestCmdEncryptPaths:
         result = cmd_encrypt(args)
         assert result == EXIT_SUCCESS
 
+    @patch("secure_string_cipher.cli_args._prompt_password")
+    def test_encrypt_file_force_failure_preserves_existing_output(
+        self, mock_prompt, tmp_path
+    ):
+        """A forced CLI encryption failure must not remove the old output."""
+        mock_prompt.return_value = "StrongPass1!@#ab"
+        source = tmp_path / "file.txt"
+        source.write_text("data")
+        output = tmp_path / "file.txt.enc"
+        output.write_bytes(b"existing ciphertext")
+        args = argparse.Namespace(
+            text=None,
+            file=str(source),
+            vault=None,
+            key_file=None,
+            force=True,
+        )
+
+        with (
+            patch(
+                "secure_string_cipher.cli_args.encrypt_file",
+                side_effect=CryptoError("injected failure"),
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encrypt(args)
+
+        assert exc_info.value.code == EXIT_AUTH_ERROR
+        assert output.read_bytes() == b"existing ciphertext"
+
     def test_encrypt_with_key_file(self, tmp_path):
         """Should encrypt using key file."""
         key_file = tmp_path / "test.key"
