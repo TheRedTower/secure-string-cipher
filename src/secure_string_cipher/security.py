@@ -14,6 +14,8 @@ import unicodedata
 from collections.abc import Iterator
 from pathlib import Path
 
+from .atomic_io import atomic_binary_writer
+
 
 class SecurityError(Exception):
     """Raised when a security policy is violated."""
@@ -527,45 +529,8 @@ def secure_atomic_write(
     if not os.access(parent_dir, os.W_OK):
         raise SecurityError(f"Parent directory is not writable: {parent_dir}")
 
-    # This ensures same filesystem for atomic rename
-    temp_fd = None
-    temp_path = None
-
     try:
-        temp_fd, temp_path = tempfile.mkstemp(
-            prefix=f".{destination.name}.",
-            suffix=".tmp",
-            dir=parent_dir,
-        )
-
-        os.chmod(temp_path, 0o600)
-
-        stat_info = os.stat(temp_path)
-        actual_perms = stat_info.st_mode & 0o777
-        if actual_perms != 0o600:
-            raise SecurityError(
-                "Failed to set owner-only permissions 0o600 on temp file. "
-                f"Got {oct(actual_perms)}"
-            )
-
-        os.write(temp_fd, content)
-
-        os.fsync(temp_fd)
-
-        os.close(temp_fd)
-        temp_fd = None
-
-        # Atomic rename to destination
-        # On POSIX systems, this is atomic even if destination exists
-        os.replace(temp_path, destination)
-
+        with atomic_binary_writer(destination, overwrite=True, mode=mode) as writer:
+            writer.write(content)
     except Exception as e:
-        if temp_fd is not None:
-            with contextlib.suppress(OSError):
-                os.close(temp_fd)
-
-        if temp_path and os.path.exists(temp_path):
-            with contextlib.suppress(OSError):
-                os.unlink(temp_path)
-
         raise SecurityError(f"Secure atomic write failed: {e}") from e

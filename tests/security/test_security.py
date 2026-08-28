@@ -758,9 +758,11 @@ class TestSecureAtomicWrite:
         # Write initial content
         dest.write_bytes(original_content)
 
-        # Try to write with an error condition
-        # We'll mock os.write to raise an exception
-        with patch("os.write", side_effect=OSError("Disk full")):
+        # Fail before publication after all content has been buffered.
+        with patch(
+            "secure_string_cipher.atomic_io.os.fsync",
+            side_effect=OSError("Disk full"),
+        ):
             with pytest.raises(SecurityError):
                 secure_atomic_write(dest, b"new content")
 
