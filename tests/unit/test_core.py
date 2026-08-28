@@ -208,6 +208,23 @@ class TestTextEncryption:
             decrypt_text("invalid base64!", TEST_PASSWORDS["VALID"])
         assert "Text decryption failed" in str(exc_info.value)
 
+    @pytest.mark.parametrize("separator", [" ", "\n", "\t", "!"])
+    def test_strict_base64_rejects_extra_characters(self, separator):
+        """Text tokens must be canonical base64 without ignored characters."""
+        encrypted = encrypt_text("strict", TEST_PASSWORDS["VALID"])
+
+        with pytest.raises(CryptoError, match="invalid base64"):
+            decrypt_text(
+                encrypted[:4] + separator + encrypted[4:], TEST_PASSWORDS["VALID"]
+            )
+
+    def test_authenticated_invalid_utf8_is_rejected(self):
+        """The text API must not silently discard authenticated binary bytes."""
+        encrypted = encrypt_bytes(b"\xff\xfe", TEST_PASSWORDS["VALID"]).decode("ascii")
+
+        with pytest.raises(CryptoError, match="invalid UTF-8"):
+            decrypt_text(encrypted, TEST_PASSWORDS["VALID"])
+
     def test_encryption_produces_different_output(self):
         """Test that same text encrypted twice produces different output (random salt)."""
         text = "Test message"
@@ -261,6 +278,17 @@ class TestStreamProcessor:
 
             assert sp.bytes_processed == len(test_data)
             assert data == test_data
+
+    def test_existing_write_test_file_is_untouched(self, tmp_path):
+        """Opening a real output must not probe or alter .write_test."""
+        sentinel = tmp_path / ".write_test"
+        sentinel.write_bytes(b"legitimate data")
+        output = tmp_path / "output.bin"
+
+        with StreamProcessor(str(output), "wb") as stream:
+            stream.write(b"payload")
+
+        assert sentinel.read_bytes() == b"legitimate data"
 
 
 class TestFileMetadata:

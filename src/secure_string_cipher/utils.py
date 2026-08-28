@@ -55,9 +55,11 @@ class ProgressBar:
             return
 
         self.last_print = now
-        filled = int(self.width * current / self.total)
+        progress = 1.0 if self.total <= 0 else current / self.total
+
+        filled = int(self.width * progress)
         bar = "█" * filled + "░" * (self.width - filled)
-        percent = current / self.total * 100
+        percent = progress * 100
 
         print(f"\r{bar} {percent:0.1f}%", end="", flush=True)
         if current >= self.total:

@@ -10,6 +10,7 @@ This module provides AES-256-GCM encryption with:
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import os
 import secrets
@@ -49,9 +50,13 @@ _SYSTEM_SYMLINK_ALLOWLIST = {Path("/var")}
 
 
 def _ensure_no_symlink(path: Path, role: str) -> None:
-    """Reject symlinked paths unless explicitly allowlisted."""
+    """Reject lexical symlink components unless explicitly allowlisted.
 
-    absolute_path = path if path.is_absolute() else path.resolve(strict=False)
+    This is a best-effort preflight check. It does not replace descriptor-based
+    opening for protection against path changes made by concurrent processes.
+    """
+
+    absolute_path = path if path.is_absolute() else Path.cwd() / path
 
     for current in [absolute_path, *absolute_path.parents]:
         # Stop once we reach filesystem root
@@ -139,15 +144,12 @@ class StreamProcessor:
                     "Delete it first or choose a different path."
                 )
 
-            try:
-                directory = os.path.dirname(self.path) or "."
-                _ensure_no_symlink(Path(directory), "output parent")
-                test_file = os.path.join(directory, ".write_test")
-                with open(test_file, "wb") as f:
-                    f.write(b"test")
-                os.unlink(test_file)
-            except OSError as e:
-                raise CryptoError(f"Cannot write to directory: {e}") from e
+            directory = Path(os.path.dirname(self.path) or ".")
+            _ensure_no_symlink(directory, "output parent")
+            if not directory.exists():
+                raise CryptoError(f"Output directory does not exist: {directory}")
+            if not directory.is_dir():
+                raise CryptoError(f"Output parent is not a directory: {directory}")
 
     def __enter__(self) -> StreamProcessor:
         """
@@ -579,13 +581,15 @@ def decrypt_text(token: str, passphrase: str) -> str:
         CryptoError: If decryption fails or key commitment verification fails
     """
     try:
-        encrypted = base64.b64decode(token)
-    except ValueError:
+        encrypted = base64.b64decode(token, validate=True)
+    except (binascii.Error, ValueError):
         raise CryptoError("Text decryption failed: invalid base64") from None
 
     try:
         decrypted = _decrypt_data(encrypted, passphrase)
-        return decrypted.decode("utf-8", "ignore")
+        return decrypted.decode("utf-8")
+    except UnicodeDecodeError:
+        raise CryptoError("Text decryption failed: invalid UTF-8 plaintext") from None
     except CryptoError:
         raise
     except Exception as e:
