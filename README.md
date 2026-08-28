@@ -1,11 +1,12 @@
 # secure-string-cipher
 
 [![CI](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-85%25-green.svg)](https://github.com/TheRedTower/secure-string-cipher)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
 A security-focused AES-256-GCM encryption CLI tool with passphrase vault and modern cryptographic defaults.
+
+CI enforces a minimum 85% test coverage threshold on Python 3.14.
 
 ## Features
 
