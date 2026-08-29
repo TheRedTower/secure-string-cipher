@@ -11,10 +11,16 @@ files of any internal format are handled as opaque bytes up to 100 MiB.
 Directories and large SSC2 objects are not supported. Version 5 authenticates
 metadata; version 4 does not, and its stored filename is ignored.
 
-The next hardening tranche is transactional vault import/restore,
-released-version compatibility fixtures, strict metadata parsing,
-descriptor-level path opening, real secret `.ssckey` files, and cross-platform
-release CI. Current vault import performs structural validation only.
+Stabilization tranche 2 adds authenticated transactional vault import/restore,
+immutable released-writer v4/v5 fixtures, strict metadata parsing, a
+cryptography 50 compatibility pin, and a focused Ubuntu/macOS/Windows CI job.
+Remote cross-platform results must still be observed on the protected branch
+before a release decision.
+
+The next hardening priorities are descriptor-level path opening, a reviewed
+cross-process vault locking design, real secret `.ssckey` files, broader
+keychain integration tests against actual OS credential stores, and an
+independent third-party security audit.
 
 ---
 

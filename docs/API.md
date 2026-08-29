@@ -435,12 +435,18 @@ Encrypted storage for passphrases with HMAC integrity verification.
 ```python
 from secure_string_cipher import PassphraseVault
 
-vault = PassphraseVault(vault_path: str | None = None)
+vault = PassphraseVault(
+    vault_path: str | None = None,
+    backend: str | None = None,
+)
 ```
 
 **Parameters:**
 
 - `vault_path` (str, optional): Custom path for vault file. Default: `~/.secure-cipher/passphrase_vault.enc`
+- `backend` (str, optional): `"file"`, `"keychain"`, or `None` to use the
+  persisted/environment/default backend selection. A usable keychain is the
+  default when no explicit selection exists; otherwise the file backend is used.
 
 #### Methods
 
@@ -485,6 +491,48 @@ Update an existing passphrase.
 ```python
 vault.update_passphrase(label: str, new_passphrase: str, master_password: str) -> None
 ```
+
+##### import_raw_vault
+
+Validate and transactionally replace the configured active vault.
+
+```python
+backup_identifier = vault.import_raw_vault(
+    vault_contents: str | bytes,
+    master_password: str,
+    *,
+    backup_current: bool = True,
+) -> str | None
+```
+
+Validation (strict six-line framing, HMAC, authenticated decryption, and JSON
+schema) completes before active-backend mutation. When an active vault exists,
+the default creates an exact encrypted backup first. Publication is read back,
+byte-compared, and revalidated. A post-write failure attempts to restore the
+prior raw value and raises a generic transaction error reporting whether
+rollback succeeded. The returned value is the stable identifier of the
+pre-replacement backup, or `None` if none was created.
+
+Filesystem publication uses atomic replacement. Native credential stores do
+not expose a multi-record atomic transaction, so rollback for those backends is
+best effort. No cross-process lock is implemented.
+
+##### list_backup_records / validate_backup / restore_from_backup
+
+```python
+records = vault.list_backup_records() -> list[VaultBackup]
+vault.validate_backup(backup_identifier: str, master_password: str) -> None
+previous_identifier = vault.restore_from_backup(
+    backup_identifier: str,
+    master_password: str,
+) -> str | None
+```
+
+`VaultBackup` records expose `identifier`, UTC `created_at`, and `path`. Restore
+requires the exact identifier, validates the selected record before mutation,
+uses the same transaction as import, and never automatically removes the
+selected restore source. Five backups are retained; collision-resistant names
+combine a UTC microsecond timestamp with a random suffix.
 
 **Example:**
 

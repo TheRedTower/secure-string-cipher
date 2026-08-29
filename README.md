@@ -16,11 +16,13 @@ audited.
 - The current writer emits metadata version 5. Legacy version 4 files remain
   decryptable, but their unauthenticated stored filenames are never trusted for
   automatic output selection.
-- Large framed SSC2 objects, transactional vault import/restore authentication,
-  descriptor-level path hardening, secret `.ssckey` files, compatibility
-  fixtures, and cross-platform release CI remain future work.
+- Large framed SSC2 objects, descriptor-level path hardening, cross-process
+  vault locking, real secret `.ssckey` files, and a third-party security audit
+  remain future work.
 
-CI enforces a minimum 85% test coverage threshold on Python 3.14.
+CI enforces a minimum 85% test coverage threshold on Python 3.14. The workflow
+also defines focused file/vault safety gates on Ubuntu, macOS, and Windows with
+Python 3.12; see the stabilization handoff for the latest recorded results.
 
 ## Features
 
@@ -52,6 +54,8 @@ CI enforces a minimum 85% test coverage threshold on Python 3.14.
 - [Cryptographic Design](.github/CRYPTOGRAPHY.md) — Design document for security auditors
 - [Dependency Audit](AUDITS/DEPENDENCY_AUDIT.md) — Supply-chain security audit report
 - [Changelog](CHANGELOG.md) — Release history
+- [Stabilization tranche 2](docs/SSC_STABILIZATION_TRANCHE_2.md) — Local audit
+  evidence, compatibility fixtures, transaction guarantees, and remaining gates
 
 ## Quick Start
 
@@ -127,7 +131,9 @@ ssc store backup-key --generate
 ssc vault list
 ssc vault delete old-key
 ssc vault export backup.json
-ssc vault import backup.json  # structural validation only; see limitations below
+ssc vault import backup.json  # authenticates before confirmation/replacement
+ssc vault backups             # list exact stable backup identifiers
+ssc vault restore BACKUP_ID   # authenticate and transactionally restore
 ```
 
 **Exit codes:** 0=success, 1=input error, 2=auth error, 3=vault error, 4=file error
@@ -213,7 +219,13 @@ The vault stores passphrases encrypted with your master password at `~/.secure-c
 - **Manual storage** – Option 6 for existing passphrases
 - **Retrieve/manage** – Options 7-9 for lookup, listing, and deletion
 
-All vault operations use HMAC integrity verification and maintain automatic backups.
+Vault candidates are fully decoded and authenticated before import or restore.
+The transaction service snapshots the active raw vault, safely publishes a
+collision-resistant backup, writes through the configured file/keychain
+backend, reads back and revalidates, and rolls back on post-write failure.
+Filesystem writes use atomic replacement; native credential-store rollback is
+best effort because those stores do not expose a multi-record transaction.
+There is no cross-process vault lock, so simultaneous processes can still race.
 
 ### OS Keychain Integration
 
@@ -382,13 +394,14 @@ if has_secure_memory():
 | **Memory Clearing** | Best effort | Mutable buffers/libsodium where available; Python may retain copies |
 | **Timing Safety** | Constant-time | All password/hash comparisons |
 | **Rate Limiting** | Local exponential backoff | CLI throttle only; offline guessing remains possible |
-| **Vault Import** | Structural SSCVAULT checks | Cryptographic validation before replacement is pending |
+| **Vault Import/Restore** | Full HMAC, decrypt, JSON-schema, read-back verification | Filesystem atomic publication; credential-store rollback is best effort |
 
 **Additional protections:** best-effort symlink preflight checks, atomic final
 publication, user-only file permissions (`0o600`), and a 12-character password
 policy. Atomic publication protects against ordinary operation failures;
 hostile concurrent path races require descriptor-level hardening and are not
-claimed to be prevented.
+claimed to be prevented. The temporary file is synced before replacement;
+parent-directory sync after replacement is best effort on supported platforms.
 
 **Password input:** When running interactively, passwords are hidden (using `getpass`). When stdin is piped or redirected (scripts, automation, tests), passwords are visible. This allows both secure interactive use and scriptable automation.
 

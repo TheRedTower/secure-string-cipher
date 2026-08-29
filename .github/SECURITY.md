@@ -88,7 +88,9 @@ This project implements multiple layers of security:
 - **100 MiB file size limit** - Whole regular files are treated as opaque bytes;
   directories and large SSC2 objects are unsupported
 - **Atomic final publication** - Existing outputs survive ordinary operation and
-  authentication failures; `--force` never pre-deletes them
+  authentication failures; `--force` never pre-deletes them. Same-directory
+  temporary files are synced before replacement; parent-directory sync after
+  replacement is best effort
 - **Secure permissions** - `chmod 600` (owner-only read/write)
 - **Path validation** - Best-effort lexical symlink preflight; hostile races
   remain pending descriptor-level hardening
@@ -98,8 +100,16 @@ This project implements multiple layers of security:
 ### 4. Vault Integrity
 
 - **HMAC-SHA256 verification** - Detects tampering before decryption
-- **Automatic backups** - Last 5 backups in `~/.secure-cipher/backups/`
-- **Backup on modification** - Backup created before any vault change
+- **Authenticated import/restore** - Strict framing, HMAC, encrypted payload,
+  and decrypted JSON schema are validated before active-backend mutation
+- **Transactional verification** - Current raw state is retained and backed up,
+  replacement is read back and revalidated, and post-write failures attempt
+  rollback
+- **Automatic backups** - Five collision-resistant, stable identifiers are
+  retained; a selected restore source and the new pre-replacement snapshot are
+  protected from the same operation's rotation
+- **Backend scope** - File publication is atomic. Native credential stores do
+  not expose a multi-record transaction, so rollback there is best effort
 
 ### 5. Runtime Protection
 
@@ -129,10 +139,21 @@ chained, append-only, or tamper-evident.
   filename is never used to select an output path.
 - Legacy key-file mode hashes file bytes into a symmetric passphrase. It is not
   public-key or recipient encryption; anyone with identical bytes can decrypt.
-- Vault import validates structure only. Authentication with the master password
-  before replacement remains pending.
+- Vault import and restore authenticate before mutation and verify after
+  publication. Two simultaneous vault processes can still race because no
+  cross-process lock exists.
 - Overwrite-based deletion is best-effort and unreliable on SSD wear levelling,
   copy-on-write filesystems, snapshots, backups, and journals.
+
+### 8. Tested Platform Boundary
+
+The main CI workflow runs the general suite on Ubuntu with Python 3.12, 3.13,
+and 3.14, and defines a focused safety matrix on Ubuntu, macOS, and Windows with
+Python 3.12. The focused gate covers atomic publication, failure cleanup,
+wrong-password preservation, empty/binary files, metadata restoration, and the
+authentic v4/v5 fixtures. A workflow definition is not evidence of a successful
+remote run; the stabilization handoff records that status separately. Real OS
+keychain services are not exercised by these isolated CI tests.
 
 ## For Contributors
 
@@ -255,5 +276,5 @@ materials intended to support future review:
 
 ---
 
-**Last updated:** May 29, 2026
-**Version:** 2.2
+**Last updated:** August 29, 2026
+**Version:** 2.3 Beta

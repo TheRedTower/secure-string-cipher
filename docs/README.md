@@ -18,6 +18,8 @@ Welcome to the secure-string-cipher documentation.
 - [Cryptographic Design](../.github/CRYPTOGRAPHY.md) — Detailed cryptographic design document for security auditors
 - [Audit Checklist](../.github/AUDIT_CHECKLIST.md) — Security audit checklist for releases
 - [Dependency Audit](../AUDITS/DEPENDENCY_AUDIT.md) — Supply-chain security audit report
+- [Fast-Track Implementation](FAST_TRACK_IMPLEMENTATION.md) — Historical first safety sprint
+- [Stabilization Tranche 2](SSC_STABILIZATION_TRANCHE_2.md) — Current local evidence, package checks, review decisions, and deferred gates
 
 ### Development
 

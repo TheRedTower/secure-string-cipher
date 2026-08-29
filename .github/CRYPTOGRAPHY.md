@@ -335,6 +335,13 @@ def verify_key_commitment(key: bytes, expected: bytes) -> bool:
 The v4/v5 salt, nonce, tag, KDF parameters, AES-GCM behavior, header ordering,
 and tag placement are otherwise unchanged by the atomic-publication hardening.
 
+Authentic immutable compatibility fixtures are stored under
+`tests/fixtures/legacy/`. Version 4 was produced by tag `v1.2.10` at commit
+`f7e3fc797e737ddfdd2a27d28cafec6dc5d710cb`; version 5 was produced by tag
+`v1.3.0` at commit `f7ff04c4d5a0adc0cbdc3cb841d5048f2f14dcac`.
+The manifest records producer environments and SHA-256 hashes. Their shared
+1,094,205-byte binary payload crosses four 256 KiB streaming chunks.
+
 ---
 
 ## Vault Security
@@ -344,34 +351,44 @@ The passphrase vault stores encrypted passphrases for user convenience.
 ### Vault Structure
 
 ```text
-┌─────────────────────────────────────┐
-│ HMAC (32 bytes)                     │
-├─────────────────────────────────────┤
-│ SALT (16 bytes)                     │
-├─────────────────────────────────────┤
-│ NONCE (12 bytes)                    │
-├─────────────────────────────────────┤
-│ CIPHERTEXT (encrypted JSON)         │
-├─────────────────────────────────────┤
-│ TAG (16 bytes)                      │
-└─────────────────────────────────────┘
+SSCVAULT
+<32-byte HMAC salt as 64 lowercase hex characters>
+---DATA---
+<strict Base64 encrypted-text token>
+---HMAC---
+<32-byte HMAC as 64 lowercase hex characters>
 ```
 
-### Integrity Verification
+The decrypted encrypted-text payload must be one JSON object with unique string
+keys and string values. The released six-line format has no version, size, or
+entry-count field; readers do not invent limits that would reject an authentic
+released vault. Import file buffering is separately limited to 100 MiB.
 
-Before any vault operation:
+### Integrity Verification and Recovery
 
-1. Read HMAC from file header
-2. Compute HMAC over remaining file content
-3. Compare using constant-time comparison
-4. Reject if mismatch (tampering detected)
+Candidate validation is side-effect free and completes before active storage is
+read or written:
+
+1. Parse exactly six lines with strict separators, lowercase hex, and Base64.
+2. Derive the HMAC key with Argon2id and compare HMACs in constant time.
+3. Authenticate/decrypt the encrypted-text token.
+4. Strictly decode the JSON object and reject duplicates or non-string entries.
+5. Retain and back up the current raw active vault.
+6. Publish through the configured backend, read back exact contents, and run the
+   same validation again.
+7. On any post-write failure, restore the retained raw value (or prior absence)
+   and report whether rollback succeeded.
 
 ### Backup Strategy
 
-- Automatic backup before any modification
-- Last 5 backups retained in `~/.secure-cipher/backups/`
-- Backups named with ISO 8601 timestamps
-- Same file permissions (0600)
+- Collision-resistant identifiers combine UTC microseconds with a random suffix.
+- The newest five records are retained; the selected restore source and newly
+  published pre-replacement snapshot are protected during rotation.
+- Backups contain the exact raw encrypted vault representation, use atomic
+  no-overwrite publication, and use mode `0600` on POSIX.
+- File-backend active writes are atomically replaced. Native credential stores
+  provide no multi-record transaction, so rollback there is best effort.
+- No cross-process vault lock exists; simultaneous processes can still race.
 
 ---
 
@@ -508,7 +525,9 @@ Whole regular files of any internal format are encrypted as opaque bytes up to
 100 MiB. Directories and large framed SSC2 objects are not supported. Final
 outputs are atomically replaced only after successful encryption or
 authenticated decryption, which protects against ordinary operation failures.
-Hostile concurrent path races remain under hardening.
+Temporary files are synced before replacement. Parent-directory sync after
+replacement is best effort. Hostile concurrent path races remain under
+hardening.
 
 ### 7. Legacy Key Files and Local Controls
 
@@ -516,6 +535,13 @@ Legacy key-file mode hashes file bytes into a symmetric passphrase. It is not
 RSA, recipient, or public-key encryption; identical bytes grant decryption.
 Local rate limiting does not stop offline guessing. Audit events are editable
 local JSON rather than a tamper-evident log.
+
+### 8. Vault Concurrency and Native Backends
+
+Vault import/restore verifies before and after publication and attempts rollback
+after post-write failure. File writes use same-directory atomic replacement;
+keychain/native credential-store rollback is best effort. There is no
+cross-process vault lock, and CI does not exercise real OS credential services.
 
 ---
 

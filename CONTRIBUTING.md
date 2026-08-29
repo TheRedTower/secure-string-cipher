@@ -48,8 +48,8 @@ uv sync --extra dev --locked
 
 # Run tools through the locked environment
 uv run --locked ruff check src tests
-uv run --locked mypy src tests
-uv run --locked pytest tests/ --maxfail=3 -n auto
+uv run --locked mypy src
+uv run --locked pytest tests/ --cov=secure_string_cipher --cov-fail-under=85
 
 # Optional: Make targets wrap the same commands
 make format  # Auto-fix formatting
@@ -70,7 +70,7 @@ See [DEVELOPER.md](DEVELOPER.md) for detailed workflow, troubleshooting, and rel
 ## Testing
 
 * Write tests for new features
-* CI coverage gate: 75% (current: ~79%)
+* CI coverage gate: 85%
 * Include positive and negative test cases
 * Test edge cases and error conditions
 * Use parameterized tests when appropriate
@@ -80,12 +80,12 @@ See [DEVELOPER.md](DEVELOPER.md) for detailed workflow, troubleshooting, and rel
 ```bash
 # Direct (CI-parity)
 uv run --locked ruff check src tests
-uv run --locked mypy src tests
-uv run --locked pytest tests/ --maxfail=3 -n auto
+uv run --locked mypy src
+uv run --locked pytest tests/ --cov=secure_string_cipher --cov-fail-under=85
 
 # Optional make wrappers
 make test-quick   # Fast tests (~10s) - for development iteration
-make test         # Full suite (826 tests, ~80s)
+make test         # Full suite
 make test-cov     # Full suite with coverage report
 ```
 
