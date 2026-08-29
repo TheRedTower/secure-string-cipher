@@ -14,9 +14,10 @@ import binascii
 import json
 import os
 import secrets
+import unicodedata
 from contextlib import suppress
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import TracebackType
 from typing import BinaryIO
 
@@ -38,7 +39,9 @@ from .config import (
     CHUNK_SIZE,
     FILENAME_MAX_LENGTH,
     KEY_COMMITMENT_CONTEXT,
+    KEY_COMMITMENT_SIZE,
     MAX_FILE_SIZE,
+    MAX_METADATA_LENGTH,
     METADATA_MAGIC,
     METADATA_VERSION,
     NONCE_SIZE,
@@ -349,9 +352,44 @@ def verify_key_commitment(key: bytes, expected_commitment: bytes) -> bool:
 #
 # The metadata JSON contains:
 #   - original_filename: The original filename before encryption
-#   - version: Metadata format version (always 4 for current implementation)
+#   - version: Supported metadata format version (4 or 5)
 #   - key_commitment: Base64-encoded HMAC-SHA256 commitment binding ciphertext to key
 # =============================================================================
+
+
+class _MetadataValidationError(CryptoError):
+    """Generic public metadata error with a non-secret diagnostic category."""
+
+    def __init__(self, category: str, *, detail: str | None = None) -> None:
+        super().__init__("Invalid metadata format")
+        self.category = category
+        self.detail = detail
+
+
+def _metadata_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Build a JSON object while rejecting duplicate member names."""
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _MetadataValidationError("duplicate_key", detail=key)
+        result[key] = value
+    return result
+
+
+def _validate_stored_filename(filename: str) -> None:
+    """Reject stored names that could be interpreted as filesystem paths."""
+    posix_path = PurePosixPath(filename)
+    windows_path = PureWindowsPath(filename)
+    if (
+        filename in {".", ".."}
+        or "/" in filename
+        or "\\" in filename
+        or posix_path.is_absolute()
+        or windows_path.is_absolute()
+        or bool(windows_path.drive)
+        or any(unicodedata.category(char)[0] == "C" for char in filename)
+    ):
+        raise _MetadataValidationError("unsafe_filename")
 
 
 @dataclass
@@ -376,18 +414,64 @@ class FileMetadata:
 
     @classmethod
     def from_bytes(cls, data: bytes) -> FileMetadata:
-        """Deserialize metadata from JSON bytes."""
+        """Strictly deserialize supported v4/v5 metadata."""
+        if len(data) > MAX_METADATA_LENGTH:
+            raise _MetadataValidationError("oversized")
+
         try:
-            obj = json.loads(data.decode("utf-8"))
-            version = obj.get("version", METADATA_VERSION)
-            key_commitment = obj.get("key_commitment")
-            return cls(
-                original_filename=obj.get("original_filename"),
-                version=version,
-                key_commitment=key_commitment,
+            text = data.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as error:
+            raise _MetadataValidationError("invalid_utf8") from error
+
+        try:
+            obj = json.loads(text, object_pairs_hook=_metadata_object)
+        except _MetadataValidationError:
+            raise
+        except json.JSONDecodeError as error:
+            raise _MetadataValidationError("invalid_json") from error
+
+        if not isinstance(obj, dict):
+            raise _MetadataValidationError("non_object")
+
+        allowed_fields = {"version", "original_filename", "key_commitment"}
+        if unknown_fields := set(obj) - allowed_fields:
+            raise _MetadataValidationError(
+                "unknown_field", detail=sorted(unknown_fields)[0]
             )
-        except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            raise CryptoError(f"Invalid metadata format: {e}") from e
+
+        if "version" not in obj:
+            raise _MetadataValidationError("missing_version")
+        version = obj["version"]
+        if type(version) is not int:
+            raise _MetadataValidationError("invalid_version_type")
+        if version not in {4, 5}:
+            raise _MetadataValidationError("unsupported_version")
+
+        if "key_commitment" not in obj:
+            raise _MetadataValidationError("missing_key_commitment")
+        key_commitment = obj["key_commitment"]
+        if not isinstance(key_commitment, str):
+            raise _MetadataValidationError("invalid_key_commitment_type")
+        try:
+            commitment_bytes = base64.b64decode(key_commitment, validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise _MetadataValidationError("invalid_key_commitment_base64") from error
+        if len(commitment_bytes) != KEY_COMMITMENT_SIZE:
+            raise _MetadataValidationError("invalid_key_commitment_length")
+
+        original_filename = obj.get("original_filename")
+        if original_filename is not None:
+            if not isinstance(original_filename, str):
+                raise _MetadataValidationError("invalid_filename_type")
+            if len(original_filename) > FILENAME_MAX_LENGTH:
+                raise _MetadataValidationError("filename_too_long")
+            _validate_stored_filename(original_filename)
+
+        return cls(
+            original_filename=original_filename,
+            version=version,
+            key_commitment=key_commitment,
+        )
 
 
 # =============================================================================
@@ -774,7 +858,7 @@ def decrypt_file(
                 raise CryptoError("Invalid file: truncated metadata length")
             meta_len = int.from_bytes(meta_len_bytes, "big")
 
-            if meta_len > 65535:
+            if meta_len > MAX_METADATA_LENGTH:
                 raise CryptoError("Invalid file: metadata too large")
 
             meta_bytes = f.read(meta_len)
@@ -797,15 +881,19 @@ def decrypt_file(
                 # Verify key commitment
                 if metadata.key_commitment is not None:
                     try:
-                        expected_commitment = base64.b64decode(metadata.key_commitment)
+                        expected_commitment = base64.b64decode(
+                            metadata.key_commitment, validate=True
+                        )
+                        if len(expected_commitment) != KEY_COMMITMENT_SIZE:
+                            raise CryptoError("Invalid key commitment format")
                         if not verify_key_commitment(
                             bytes(secure_key.data), expected_commitment
                         ):
                             raise CryptoError(
                                 "Key commitment verification failed - wrong password or tampered file"
                             )
-                    except (ValueError, TypeError) as e:
-                        raise CryptoError(f"Invalid key commitment format: {e}") from e
+                    except (binascii.Error, ValueError, TypeError) as e:
+                        raise CryptoError("Invalid key commitment format") from e
                 else:
                     raise CryptoError(
                         "File missing key commitment - may have been tampered with"
