@@ -172,22 +172,23 @@ class TestPassphraseVaultErrors:
             assert vault.list_labels("CorrectMaster123!") == ["existing"]
 
     @pytest.mark.parametrize(
-        ("raw_contents", "message"),
+        "raw_contents",
         [
-            ("LEGACY\nsalt\n---DATA---\ndata\n---HMAC---\nhmac", "Unrecognized"),
-            ("SSCVAULT\nsalt\nBAD\npayload\n---HMAC---\nhmac", "format"),
-            ("SSCVAULT\nnot-hex\n---DATA---\npayload\n---HMAC---\nhmac", "salt"),
-            ("SSCVAULT\nabcdef\n---DATA---\npayload\nNOHMAC\nhmac", "missing HMAC"),
+            "LEGACY\nsalt\n---DATA---\ndata\n---HMAC---\nhmac",
+            "SSCVAULT\nsalt\nBAD\npayload\n---HMAC---\nhmac",
+            "SSCVAULT\nnot-hex\n---DATA---\npayload\n---HMAC---\nhmac",
+            "SSCVAULT\nabcdef\n---DATA---\npayload\nNOHMAC\nhmac",
         ],
     )
-    def test_load_vault_rejects_malformed_raw_contents(
-        self, tmp_path, raw_contents, message
-    ):
+    def test_load_vault_rejects_malformed_raw_contents(self, tmp_path, raw_contents):
         """Should reject malformed vault storage before decryption."""
         vault = PassphraseVault(vault_path=str(tmp_path / "vault.enc"))
         vault.vault_path.write_text(raw_contents)
 
-        with pytest.raises(ValueError, match=message):
+        with pytest.raises(
+            ValueError,
+            match="Wrong master password or corrupted vault file",
+        ):
             vault.list_labels("master")
 
     def test_load_vault_rejects_invalid_decrypted_json(self, tmp_path):
@@ -206,7 +207,10 @@ class TestPassphraseVaultErrors:
             f"{vault_hmac}"
         )
 
-        with pytest.raises(ValueError, match="corrupted"):
+        with pytest.raises(
+            ValueError,
+            match="Wrong master password or corrupted vault file",
+        ):
             vault.list_labels(master)
 
 

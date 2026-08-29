@@ -23,6 +23,7 @@ Storage Backends:
       python -m pip install 'secure-string-cipher[keychain]'
 """
 
+import base64
 import hashlib
 import hmac
 import json
@@ -31,7 +32,6 @@ import secrets
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import cast
 
 from .config import (
     VAULT_BACKEND_FILE,
@@ -45,10 +45,99 @@ from .security import secure_atomic_write
 # Vault format constants
 _VAULT_HEADER = "SSCVAULT"
 _HMAC_SALT_SIZE = 32  # 256 bits
+_VAULT_HMAC_SIZE = 32
+_VAULT_FAILURE_MESSAGE = (
+    "Failed to decrypt vault. Wrong master password or corrupted vault file."
+)
 
 # Backend type literals
 BACKEND_FILE = VAULT_BACKEND_FILE
 BACKEND_KEYCHAIN = VAULT_BACKEND_KEYCHAIN
+
+
+class _DuplicateVaultEntry(ValueError):
+    """Internal signal for duplicate decrypted vault entry names."""
+
+
+def _vault_entries_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Build a JSON object while rejecting duplicate member names."""
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateVaultEntry
+        result[key] = value
+    return result
+
+
+def _compute_vault_hmac(data: str, master_password: str, salt: bytes) -> str:
+    """Compute the current vault format's Argon2id-derived HMAC."""
+    key = derive_key(master_password, salt)
+    return hmac.new(key, data.encode(), hashlib.sha256).hexdigest()
+
+
+def validate_raw_vault(
+    vault_contents: str | bytes, master_password: str
+) -> dict[str, str]:
+    """Validate and decode supplied current-format vault contents.
+
+    This function is side-effect free: it does not access a storage backend or
+    mutate active vault state. The legacy current format has no version field,
+    encoded size bound, or entry-count bound, so this reader does not invent
+    limits that could reject an existing valid vault.
+
+    All validation failures intentionally expose one generic message.
+    """
+    try:
+        if isinstance(vault_contents, bytes):
+            vault_contents = vault_contents.decode("utf-8", errors="strict")
+
+        lines = vault_contents.split("\n")
+        if (
+            len(lines) != 6
+            or lines[0] != _VAULT_HEADER
+            or lines[2] != "---DATA---"
+            or lines[4] != "---HMAC---"
+        ):
+            raise ValueError
+
+        salt_hex = lines[1]
+        if len(salt_hex) != _HMAC_SALT_SIZE * 2 or any(
+            char not in "0123456789abcdef" for char in salt_hex
+        ):
+            raise ValueError
+        hmac_salt = bytes.fromhex(salt_hex)
+        if len(hmac_salt) != _HMAC_SALT_SIZE:
+            raise ValueError
+
+        encrypted_vault = lines[3]
+        base64.b64decode(encrypted_vault, validate=True)
+
+        stored_hmac = lines[5]
+        if len(stored_hmac) != _VAULT_HMAC_SIZE * 2 or any(
+            char not in "0123456789abcdef" for char in stored_hmac
+        ):
+            raise ValueError
+        if len(bytes.fromhex(stored_hmac)) != _VAULT_HMAC_SIZE:
+            raise ValueError
+
+        computed_hmac = _compute_vault_hmac(encrypted_vault, master_password, hmac_salt)
+        if not hmac.compare_digest(computed_hmac, stored_hmac):
+            raise ValueError
+
+        decrypted_json = decrypt_text(encrypted_vault, master_password)
+        entries = json.loads(
+            decrypted_json,
+            object_pairs_hook=_vault_entries_object,
+        )
+        if not isinstance(entries, dict) or any(
+            type(label) is not str or type(passphrase) is not str
+            for label, passphrase in entries.items()
+        ):
+            raise ValueError
+
+        return dict(entries)
+    except Exception:
+        raise ValueError(_VAULT_FAILURE_MESSAGE) from None
 
 
 class PassphraseVault:
@@ -131,8 +220,7 @@ class PassphraseVault:
         Returns:
             Hex-encoded HMAC
         """
-        key = derive_key(master_password, salt)
-        return hmac.new(key, data.encode(), hashlib.sha256).hexdigest()
+        return _compute_vault_hmac(data, master_password, salt)
 
     def _create_backup(self) -> None:
         """Create a timestamped backup of the vault file.
@@ -171,76 +259,19 @@ class PassphraseVault:
             vault_contents = self._keychain.load_vault()
             if vault_contents is None:
                 return {}
-            vault_contents = vault_contents.strip()
         else:
             if not self.vault_path.exists():
                 return {}
             try:
                 with open(self.vault_path) as f:
-                    vault_contents = f.read().strip()
+                    vault_contents = f.read()
             except Exception:
-                raise ValueError(
-                    "Failed to decrypt vault. Wrong master password or corrupted vault file."
-                ) from None
+                raise ValueError(_VAULT_FAILURE_MESSAGE) from None
 
         if not vault_contents:
             return {}
 
-        try:
-            # Parse vault format: SSCVAULT / hmac_salt_hex / ---DATA--- / encrypted / ---HMAC--- / hmac
-            lines = vault_contents.split("\n")
-
-            if not vault_contents.startswith(_VAULT_HEADER + "\n"):
-                raise ValueError(
-                    "Unrecognized vault format. This vault may be from an older version."
-                )
-
-            if len(lines) < 6 or lines[2] != "---DATA---":
-                raise ValueError("Corrupted vault file format")
-
-            hmac_salt_hex = lines[1]
-            try:
-                hmac_salt = bytes.fromhex(hmac_salt_hex)
-            except ValueError:
-                raise ValueError("Corrupted vault file: invalid HMAC salt") from None
-
-            # Find data and HMAC sections
-            data_start = 3
-            hmac_separator_idx = None
-            for i, line in enumerate(lines[data_start:], start=data_start):
-                if line == "---HMAC---":
-                    hmac_separator_idx = i
-                    break
-
-            if hmac_separator_idx is None:
-                raise ValueError("Corrupted vault file: missing HMAC")
-
-            encrypted_vault = "\n".join(lines[data_start:hmac_separator_idx])
-            stored_hmac = "\n".join(lines[hmac_separator_idx + 1 :])
-
-            # Verify HMAC with Argon2id-derived key.
-            # NOTE: We intentionally do NOT attempt decryption here to avoid
-            # a timing side-channel (Argon2id key derivation is ~50-100ms,
-            # easily distinguishable from a fast HMAC failure).
-            computed_hmac = self._compute_hmac(
-                encrypted_vault, master_password, hmac_salt
-            )
-            if not hmac.compare_digest(computed_hmac, stored_hmac):
-                raise ValueError(
-                    "Wrong master password or corrupted vault file"
-                ) from None
-
-            decrypted_json = decrypt_text(encrypted_vault, master_password)
-            return cast(dict[str, str], json.loads(decrypted_json))
-
-        except json.JSONDecodeError:
-            raise ValueError("Vault file is corrupted. Check backups.") from None
-        except ValueError:
-            raise
-        except Exception:
-            raise ValueError(
-                "Failed to decrypt vault. Wrong master password or corrupted vault file."
-            ) from None
+        return validate_raw_vault(vault_contents, master_password)
 
     def _save_vault(self, vault_data: dict[str, str], master_password: str) -> None:
         """Encrypt and save the vault with Argon2id HMAC.
@@ -456,13 +487,13 @@ class PassphraseVault:
             raise ValueError("No file vault found to migrate.")
 
         with open(self.vault_path) as f:
-            vault_contents = f.read().strip()
+            vault_contents = f.read()
 
         if not vault_contents:
             raise ValueError("Vault file is empty.")
 
-        # Verify we can decrypt it (validates master password)
-        self._load_vault(master_password)
+        # Validate the supplied candidate without consulting active backend state.
+        validate_raw_vault(vault_contents, master_password)
 
         # Store in keychain
         keychain = KeychainVaultBackend()
@@ -485,17 +516,8 @@ class PassphraseVault:
         if vault_contents is None:
             raise ValueError("No keychain vault found to migrate.")
 
-        # Verify we can decrypt it (validates master password)
-        # Temporarily switch to keychain to load
-        old_backend = self._backend
-        old_keychain = self._keychain
-        self._backend = BACKEND_KEYCHAIN
-        self._keychain = keychain
-        try:
-            self._load_vault(master_password)
-        finally:
-            self._backend = old_backend
-            self._keychain = old_keychain
+        # Validate the supplied candidate without changing the active backend.
+        validate_raw_vault(vault_contents, master_password)
 
         # Write to file
         self.vault_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
