@@ -12,6 +12,7 @@ Covers:
 
 from __future__ import annotations
 
+import base64
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -29,6 +30,8 @@ from secure_string_cipher.core import (
     encrypt_text,
     generate_key_pair,
 )
+
+TEST_COMMITMENT = base64.b64encode(b"k" * 32).decode("ascii")
 
 # =============================================================================
 # StreamProcessor edge cases
@@ -247,21 +250,26 @@ class TestFileMetadata:
 
     def test_metadata_round_trip(self):
         """Should serialize and deserialize correctly."""
-        meta = FileMetadata(original_filename="test.txt")
+        meta = FileMetadata(
+            original_filename="test.txt", key_commitment=TEST_COMMITMENT
+        )
         raw = meta.to_bytes()
         restored = FileMetadata.from_bytes(raw)
         assert restored.original_filename == "test.txt"
 
     def test_metadata_no_filename(self):
         """Should handle metadata without filename."""
-        meta = FileMetadata(original_filename=None)
+        meta = FileMetadata(original_filename=None, key_commitment=TEST_COMMITMENT)
         raw = meta.to_bytes()
         restored = FileMetadata.from_bytes(raw)
         assert restored.original_filename is None
 
     def test_metadata_unicode_filename(self):
         """Should handle unicode filenames."""
-        meta = FileMetadata(original_filename="日本語ファイル.txt")
+        meta = FileMetadata(
+            original_filename="日本語ファイル.txt",
+            key_commitment=TEST_COMMITMENT,
+        )
         raw = meta.to_bytes()
         restored = FileMetadata.from_bytes(raw)
         assert restored.original_filename == "日本語ファイル.txt"

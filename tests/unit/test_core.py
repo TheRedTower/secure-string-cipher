@@ -9,6 +9,7 @@ Tests cover:
 - Key commitment verification
 """
 
+import base64
 import contextlib
 import json
 import os
@@ -46,6 +47,7 @@ TEST_PASSWORDS: Final = {
     "NO_SYMBOLS": "ABCDabcd1234",
     "COMMON_PATTERNS": ["Password123!@#", "Admin123!@#$", "Qwerty123!@#"],
 }
+TEST_COMMITMENT: Final = base64.b64encode(b"k" * 32).decode("ascii")
 
 
 def _tamper_metadata(
@@ -305,7 +307,13 @@ class TestFileMetadata:
 
     def test_metadata_from_bytes(self):
         """Test metadata deserializes from JSON bytes."""
-        data = b'{"version":4,"original_filename":"hello.txt"}'
+        data = json.dumps(
+            {
+                "version": 4,
+                "original_filename": "hello.txt",
+                "key_commitment": TEST_COMMITMENT,
+            }
+        ).encode()
         meta = FileMetadata.from_bytes(data)
         assert meta.original_filename == "hello.txt"
         assert meta.version == 4
@@ -315,7 +323,7 @@ class TestFileMetadata:
         original = FileMetadata(
             original_filename="document.pdf",
             version=4,
-            key_commitment="abc123",
+            key_commitment=TEST_COMMITMENT,
         )
         serialized = original.to_bytes()
         restored = FileMetadata.from_bytes(serialized)
@@ -325,7 +333,11 @@ class TestFileMetadata:
 
     def test_metadata_without_filename(self):
         """Test metadata without original filename."""
-        meta = FileMetadata(original_filename=None, version=4)
+        meta = FileMetadata(
+            original_filename=None,
+            version=4,
+            key_commitment=TEST_COMMITMENT,
+        )
         data = meta.to_bytes()
         restored = FileMetadata.from_bytes(data)
         assert restored.original_filename is None
@@ -339,7 +351,11 @@ class TestFileMetadata:
     def test_metadata_filename_truncation(self):
         """Test that very long filenames are truncated."""
         long_name = "a" * 500  # Longer than FILENAME_MAX_LENGTH (255)
-        meta = FileMetadata(original_filename=long_name, version=4)
+        meta = FileMetadata(
+            original_filename=long_name,
+            version=4,
+            key_commitment=TEST_COMMITMENT,
+        )
         serialized = meta.to_bytes()
         restored = FileMetadata.from_bytes(serialized)
         assert len(restored.original_filename) == 255
