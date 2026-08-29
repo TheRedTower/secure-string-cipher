@@ -6,7 +6,6 @@ Covers:
 - _get_vault initialization flow
 - _get_password_from_vault
 - _get_password_from_key_file
-- _validate_vault_format
 - cmd_decrypt paths
 - cmd_store
 - cmd_vault_list, cmd_vault_delete, cmd_vault_export
@@ -40,7 +39,6 @@ _get_password_from_key_file = cli_args._get_password_from_key_file
 _get_password_from_vault = cli_args._get_password_from_vault
 _get_vault = cli_args._get_vault
 _prompt_password_with_validation = cli_args._prompt_password_with_validation
-_validate_vault_format = cli_args._validate_vault_format
 cmd_decrypt = cli_args.cmd_decrypt
 cmd_encrypt = cli_args.cmd_encrypt
 cmd_shred = cli_args.cmd_shred
@@ -68,47 +66,6 @@ class _BinaryOutput:
 
     def isatty(self):
         return False
-
-
-# =============================================================================
-# _validate_vault_format
-# =============================================================================
-
-
-class TestValidateVaultFormat:
-    """Tests for vault format validation."""
-
-    def test_valid_format(self):
-        """Should accept valid vault format."""
-        content = (
-            "SSCVAULT\nabcdef01\n---DATA---\nencrypted_data\n---HMAC---\nhmac_value"
-        )
-        assert _validate_vault_format(content) is True
-
-    def test_too_few_lines(self):
-        """Should reject content with too few lines."""
-        content = "SSCVAULT\ndata"
-        assert _validate_vault_format(content) is False
-
-    def test_missing_header(self):
-        """Should reject content without SSCVAULT header."""
-        content = "INVALID\nabcdef01\n---DATA---\ndata\n---HMAC---\nhmac"
-        assert _validate_vault_format(content) is False
-
-    def test_missing_data_separator(self):
-        """Should reject content without ---DATA--- separator."""
-        content = "SSCVAULT\nabcdef01\nNOSEP\ndata\n---HMAC---\nhmac"
-        assert _validate_vault_format(content) is False
-
-    def test_missing_hmac_separator(self):
-        """Should reject content without ---HMAC--- separator."""
-        content = "SSCVAULT\nabcdef01\n---DATA---\ndata\nno_hmac\nvalue"
-        assert _validate_vault_format(content) is False
-
-    def test_invalid_hex_salt(self):
-        """Should reject content with non-hex salt."""
-        content = "SSCVAULT\nNOT_HEX_$$$\n---DATA---\ndata\n---HMAC---\nhmac"
-        assert _validate_vault_format(content) is False
 
 
 # =============================================================================
@@ -1059,24 +1016,36 @@ class TestCmdVaultImport:
             cmd_vault_import(args)
         assert exc_info.value.code == EXIT_FILE_ERROR
 
-    def test_import_invalid_format(self, tmp_path):
-        """Should exit on invalid vault format."""
+    @patch(
+        "secure_string_cipher.cli_args._prompt_master_password",
+        return_value="Public-Test-Only-Master-2026!",
+    )
+    def test_import_invalid_format(self, mock_master, tmp_path):
+        """Should exit when full vault validation fails."""
         bad_file = tmp_path / "bad.vault"
         bad_file.write_text("not a valid vault")
 
         args = argparse.Namespace(file=str(bad_file))
         with pytest.raises(SystemExit) as exc_info:
             cmd_vault_import(args)
-        assert exc_info.value.code == EXIT_FILE_ERROR
+        assert exc_info.value.code == EXIT_AUTH_ERROR
 
+    @patch("secure_string_cipher.cli_args.validate_raw_vault")
+    @patch("secure_string_cipher.cli_args.read_bounded_vault_file")
+    @patch(
+        "secure_string_cipher.cli_args._prompt_master_password",
+        return_value="Public-Test-Only-Master-2026!",
+    )
     @patch("secure_string_cipher.cli_args.PassphraseVault")
-    def test_import_success_no_existing(self, mock_vault_cls, tmp_path):
-        """Should import vault when no existing vault."""
+    def test_import_success_no_existing(
+        self, mock_vault_cls, mock_master, mock_read, mock_validate, tmp_path
+    ):
+        """Should transactionally import when no active vault exists."""
         mock_vault = MagicMock()
         mock_vault_cls.return_value = mock_vault
-        vault_path = tmp_path / "vault.dat"
-        mock_vault.vault_path = vault_path
         mock_vault.vault_exists.return_value = False
+        mock_vault.import_raw_vault.return_value = None
+        mock_read.return_value = b"authenticated raw vault"
 
         import_file = tmp_path / "backup.vault"
         import_file.write_text(
@@ -1087,7 +1056,15 @@ class TestCmdVaultImport:
         result = cmd_vault_import(args)
 
         assert result == EXIT_SUCCESS
-        mock_vault.write_raw_vault.assert_called_once()
+        mock_validate.assert_called_once_with(
+            b"authenticated raw vault", "Public-Test-Only-Master-2026!"
+        )
+        mock_vault.import_raw_vault.assert_called_once_with(
+            b"authenticated raw vault",
+            "Public-Test-Only-Master-2026!",
+            backup_current=True,
+        )
+        mock_vault.write_raw_vault.assert_not_called()
 
 
 # =============================================================================
@@ -1297,62 +1274,94 @@ class TestCmdVaultManagement:
     def test_backups_prints_empty_message(self, mock_vault_cls, capsys):
         """Should print a clear message when no backups exist."""
         mock_vault = MagicMock()
-        mock_vault.list_backups.return_value = []
+        mock_vault.list_backup_records.return_value = []
         mock_vault_cls.return_value = mock_vault
 
         result = cmd_vault_backups(argparse.Namespace())
 
         assert result == EXIT_SUCCESS
         assert "No backups" in capsys.readouterr().out
-        mock_vault_cls.assert_called_once_with(backend="file")
+        mock_vault_cls.assert_called_once_with()
 
     @patch("secure_string_cipher.cli_args.PassphraseVault")
     def test_backups_prints_indexed_list(self, mock_vault_cls, capsys):
-        """Should print available backups with indexes."""
+        """Should print stable identifiers and creation times."""
         mock_vault = MagicMock()
-        mock_vault.list_backups.return_value = ["/backup/new.enc", "/backup/old.enc"]
+        newer = MagicMock()
+        newer.identifier = "vault_backup_new.enc"
+        newer.created_at.isoformat.return_value = "2026-08-29T12:00:00+00:00"
+        older = MagicMock()
+        older.identifier = "vault_backup_old.enc"
+        older.created_at.isoformat.return_value = "2026-08-28T12:00:00+00:00"
+        mock_vault.list_backup_records.return_value = [newer, older]
         mock_vault_cls.return_value = mock_vault
 
         result = cmd_vault_backups(argparse.Namespace())
 
         assert result == EXIT_SUCCESS
         output = capsys.readouterr().out
-        assert "[0] /backup/new.enc" in output
-        assert "[1] /backup/old.enc" in output
+        assert "vault_backup_new.enc  2026-08-29T12:00:00+00:00" in output
+        assert "vault_backup_old.enc  2026-08-28T12:00:00+00:00" in output
 
+    @patch("builtins.input", return_value="y")
+    @patch(
+        "secure_string_cipher.cli_args._prompt_master_password",
+        return_value="Public-Test-Only-Master-2026!",
+    )
     @patch("secure_string_cipher.cli_args.PassphraseVault")
-    def test_restore_success(self, mock_vault_cls):
+    def test_restore_success(self, mock_vault_cls, mock_master, mock_input):
         """Should restore a selected backup."""
         mock_vault = MagicMock()
-        mock_vault.vault_path = "/vault.enc"
+        mock_vault.vault_exists.return_value = True
+        mock_vault.restore_from_backup.return_value = "vault_backup_previous.enc"
         mock_vault_cls.return_value = mock_vault
 
-        result = cmd_vault_restore(argparse.Namespace(index=2))
+        result = cmd_vault_restore(
+            argparse.Namespace(identifier="vault_backup_selected.enc")
+        )
 
         assert result == EXIT_SUCCESS
-        mock_vault.restore_from_backup.assert_called_once_with(2)
+        mock_vault.validate_backup.assert_called_once_with(
+            "vault_backup_selected.enc", "Public-Test-Only-Master-2026!"
+        )
+        mock_vault.restore_from_backup.assert_called_once_with(
+            "vault_backup_selected.enc", "Public-Test-Only-Master-2026!"
+        )
 
+    @patch(
+        "secure_string_cipher.cli_args._prompt_master_password",
+        return_value="Public-Test-Only-Master-2026!",
+    )
     @patch("secure_string_cipher.cli_args.PassphraseVault")
-    def test_restore_value_error(self, mock_vault_cls):
+    def test_restore_value_error(self, mock_vault_cls, mock_master):
         """Should map restore validation failures to vault errors."""
         mock_vault = MagicMock()
-        mock_vault.restore_from_backup.side_effect = ValueError("no backups")
+        mock_vault.validate_backup.side_effect = cli_args.VaultTransactionError(
+            "candidate_validation_failed", "validation failed"
+        )
         mock_vault_cls.return_value = mock_vault
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_vault_restore(argparse.Namespace(index=0))
-        assert exc_info.value.code == EXIT_VAULT_ERROR
+            cmd_vault_restore(argparse.Namespace(identifier="missing.enc"))
+        assert exc_info.value.code == EXIT_AUTH_ERROR
 
+    @patch(
+        "secure_string_cipher.cli_args._prompt_master_password",
+        return_value="Public-Test-Only-Master-2026!",
+    )
     @patch("secure_string_cipher.cli_args.PassphraseVault")
-    def test_restore_os_error(self, mock_vault_cls):
-        """Should map filesystem restore failures to file errors."""
+    def test_restore_transaction_error(self, mock_vault_cls, mock_master):
+        """Should map transactional restore failures to vault errors."""
         mock_vault = MagicMock()
-        mock_vault.restore_from_backup.side_effect = OSError("denied")
+        mock_vault.vault_exists.return_value = False
+        mock_vault.restore_from_backup.side_effect = cli_args.VaultTransactionError(
+            "publication_failed", "previous vault restored", rollback_succeeded=True
+        )
         mock_vault_cls.return_value = mock_vault
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_vault_restore(argparse.Namespace(index=0))
-        assert exc_info.value.code == EXIT_FILE_ERROR
+            cmd_vault_restore(argparse.Namespace(identifier="selected.enc"))
+        assert exc_info.value.code == EXIT_VAULT_ERROR
 
 
 # =============================================================================

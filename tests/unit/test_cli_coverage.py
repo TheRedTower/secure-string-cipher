@@ -602,40 +602,56 @@ class TestHandleManageVault:
 
     @patch("secure_string_cipher.cli.PassphraseVault")
     def test_import_invalid_format(self, mock_vault_cls, tmp_path):
-        """Should error on invalid vault format."""
+        """Should error when full candidate validation fails."""
         mock_vault = MagicMock()
         mock_vault_cls.return_value = mock_vault
 
         bad_file = tmp_path / "bad_vault.txt"
         bad_file.write_text("not a vault file")
 
-        in_stream = StringIO(f"4\n{bad_file}\n")
+        in_stream = StringIO(f"4\n{bad_file}\nPublic-Test-Only-Master-2026!\n")
         out_stream = StringIO()
 
         _handle_manage_vault(in_stream, out_stream)
 
-        assert "Invalid vault format" in out_stream.getvalue()
+        assert "Error importing vault" in out_stream.getvalue()
 
+    @patch("secure_string_cipher.cli.validate_raw_vault")
+    @patch("secure_string_cipher.cli.read_bounded_vault_file")
     @patch("secure_string_cipher.cli.PassphraseVault")
-    def test_import_success_no_existing(self, mock_vault_cls, tmp_path):
-        """Should import vault successfully when no existing vault."""
+    def test_import_success_no_existing(
+        self, mock_vault_cls, mock_read, mock_validate, tmp_path
+    ):
+        """Should delegate a validated candidate to the transaction service."""
         mock_vault = MagicMock()
         mock_vault_cls.return_value = mock_vault
         mock_vault.vault_exists.return_value = False
+        mock_vault.import_raw_vault.return_value = None
+        mock_read.return_value = b"authenticated raw vault"
 
         import_file = tmp_path / "import.dat"
         import_file.write_text("SSCVAULT\ndata\nmore_data")
 
-        in_stream = StringIO(f"4\n{import_file}\n")
+        in_stream = StringIO(f"4\n{import_file}\nPublic-Test-Only-Master-2026!\n")
         out_stream = StringIO()
 
         _handle_manage_vault(in_stream, out_stream)
 
         assert "imported" in out_stream.getvalue().lower()
-        mock_vault.write_raw_vault.assert_called_once()
+        mock_validate.assert_called_once_with(
+            b"authenticated raw vault", "Public-Test-Only-Master-2026!"
+        )
+        mock_vault.import_raw_vault.assert_called_once_with(
+            b"authenticated raw vault",
+            "Public-Test-Only-Master-2026!",
+            backup_current=True,
+        )
+        mock_vault.write_raw_vault.assert_not_called()
 
+    @patch("secure_string_cipher.cli.validate_raw_vault")
+    @patch("secure_string_cipher.cli.read_bounded_vault_file")
     @patch("secure_string_cipher.cli.PassphraseVault")
-    def test_import_cancelled(self, mock_vault_cls, tmp_path):
+    def test_import_cancelled(self, mock_vault_cls, mock_read, mock_validate, tmp_path):
         """Should cancel import when user declines replacement."""
         mock_vault = MagicMock()
         mock_vault_cls.return_value = mock_vault
@@ -646,13 +662,16 @@ class TestHandleManageVault:
 
         import_file = tmp_path / "import.dat"
         import_file.write_text("SSCVAULT\ndata\nmore_data")
+        mock_read.return_value = b"authenticated raw vault"
 
-        in_stream = StringIO(f"4\n{import_file}\nno\n")
+        in_stream = StringIO(f"4\n{import_file}\nPublic-Test-Only-Master-2026!\nno\n")
         out_stream = StringIO()
 
         _handle_manage_vault(in_stream, out_stream)
 
         assert "cancelled" in out_stream.getvalue().lower()
+        mock_vault.import_raw_vault.assert_not_called()
+        mock_vault.write_raw_vault.assert_not_called()
 
     @patch("secure_string_cipher.cli.PassphraseVault")
     def test_reset_no_vault(self, mock_vault_cls):

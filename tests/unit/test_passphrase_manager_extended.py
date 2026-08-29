@@ -10,7 +10,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from secure_string_cipher.core import encrypt_text
-from secure_string_cipher.passphrase_manager import PassphraseVault
+from secure_string_cipher.passphrase_manager import (
+    PassphraseVault,
+    VaultTransactionError,
+)
 
 
 def _mock_keyring_with_storage():
@@ -81,27 +84,25 @@ class TestPassphraseVaultBackups:
     def test_list_and_restore_backup_success(self, tmp_path):
         """Should list newest backups first and restore selected backup."""
         vault = PassphraseVault(vault_path=str(tmp_path / "vault.enc"))
-        old_backup = vault.backup_dir / "vault_backup_20250101_000000.enc"
-        new_backup = vault.backup_dir / "vault_backup_20250102_000000.enc"
-        old_backup.write_text("old raw vault")
-        new_backup.write_text("new raw vault")
+        master = "MasterPassword123!@#"
+        vault.store_passphrase("first", "one", master)
+        vault.store_passphrase("second", "two", master)
+        selected = vault.list_backup_records()[0]
 
-        assert vault.list_backups() == [str(new_backup), str(old_backup)]
+        vault.restore_from_backup(selected.identifier, master)
 
-        vault.restore_from_backup(1)
-
-        assert vault.vault_path.read_text() == "old raw vault"
+        assert vault.list_labels(master) == ["first"]
+        assert selected.path.exists()
 
     def test_restore_backup_errors(self, tmp_path):
         """Should reject restore when no backup exists or index is invalid."""
         vault = PassphraseVault(vault_path=str(tmp_path / "vault.enc"))
 
-        with pytest.raises(ValueError, match="No backups"):
-            vault.restore_from_backup()
+        with pytest.raises(VaultTransactionError, match="not found"):
+            vault.restore_from_backup("missing.enc", "MasterPassword123!@#")
 
-        (vault.backup_dir / "vault_backup_20250101_000000.enc").write_text("raw")
-        with pytest.raises(ValueError, match="out of range"):
-            vault.restore_from_backup(1)
+        with pytest.raises(VaultTransactionError, match="not found"):
+            vault.restore_from_backup("../outside.enc", "MasterPassword123!@#")
 
 
 class TestPassphraseVaultErrors:

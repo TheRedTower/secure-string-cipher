@@ -19,7 +19,11 @@ from .core import (
     encrypt_text,
 )
 from .passphrase_generator import generate_passphrase
-from .passphrase_manager import PassphraseVault
+from .passphrase_manager import (
+    PassphraseVault,
+    read_bounded_vault_file,
+    validate_raw_vault,
+)
 from .rate_limiter import RateLimiter
 from .security import sanitize_filename
 from .timing_safe import check_password_strength
@@ -847,12 +851,17 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
             out_stream.flush()
             return
         try:
-            content = path.read_text()
-            # Basic validation
-            if not content.startswith("SSCVAULT\n"):
-                out_stream.write("Error: Invalid vault format.\n")
+            out_stream.write(f"Candidate: {path}\n")
+            out_stream.write(f"Target backend: {vault.backend}\n")
+            master_pw = _read_password(
+                "Candidate vault master password: ", in_stream, out_stream
+            )
+            if not master_pw:
+                out_stream.write("Error: Master password cannot be empty\n")
                 out_stream.flush()
                 return
+            candidate_contents = read_bounded_vault_file(path)
+            validate_raw_vault(candidate_contents, master_pw)
             if vault.vault_exists():
                 out_stream.write(
                     "⚠️  Existing vault will be replaced. Continue? (yes/no): "
@@ -863,10 +872,14 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
                     out_stream.write("Import cancelled.\n")
                     out_stream.flush()
                     return
-            vault.write_raw_vault(content)
+            backup_identifier = vault.import_raw_vault(
+                candidate_contents, master_pw, backup_current=True
+            )
             out_stream.write(
                 colorize("\n✅ Vault imported successfully!", "green") + "\n"
             )
+            if backup_identifier is not None:
+                out_stream.write(f"Previous vault backup: {backup_identifier}\n")
             out_stream.flush()
         except Exception:
             out_stream.write("Error importing vault.\n")

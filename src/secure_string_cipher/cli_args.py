@@ -31,7 +31,12 @@ from .core import (
     encrypt_text,
 )
 from .passphrase_generator import generate_passphrase
-from .passphrase_manager import PassphraseVault
+from .passphrase_manager import (
+    PassphraseVault,
+    VaultTransactionError,
+    read_bounded_vault_file,
+    validate_raw_vault,
+)
 from .rate_limiter import PersistentRateLimiter
 from .timing_safe import check_password_strength
 from .utils import colorize, secure_overwrite
@@ -706,49 +711,25 @@ def cmd_vault_export(args: argparse.Namespace) -> int:
         _exit_error(EXIT_AUTH_ERROR, "Wrong master password.")
 
 
-def _validate_vault_format(content: str) -> bool:
-    """Validate imported vault file format.
-
-    Checks for SSCVAULT header, HMAC salt, data separator,
-    encrypted payload, and HMAC separator.
-    """
-    lines = content.strip().split("\n")
-    if len(lines) < 6:
-        return False
-    if not lines[0].startswith("SSCVAULT"):
-        return False
-    if lines[2] != "---DATA---":
-        return False
-    if "---HMAC---" not in lines:
-        return False
-    # Validate salt is hex
-    try:
-        bytes.fromhex(lines[1])
-    except ValueError:
-        return False
-    return True
-
-
 def cmd_vault_import(args: argparse.Namespace) -> int:
-    """Import vault from backup."""
+    """Validate and transactionally import a vault backup."""
     import_path = Path(args.file)
 
     if not import_path.exists():
         _exit_error(EXIT_FILE_ERROR, f"File not found: {args.file}")
 
     vault = PassphraseVault()
+    print(f"Candidate: {import_path}")
+    print(f"Target backend: {vault.backend}")
+    master = _prompt_master_password()
 
-    # Validate vault format before replacing
     try:
-        content = import_path.read_text()
-    except OSError:
+        content = read_bounded_vault_file(import_path)
+        validate_raw_vault(content, master)
+    except VaultTransactionError:
         _exit_error(EXIT_FILE_ERROR, "Cannot read import file.")
-
-    if not _validate_vault_format(content):
-        _exit_error(
-            EXIT_FILE_ERROR,
-            "Invalid vault format. File does not appear to be a valid vault backup.",
-        )
+    except ValueError:
+        _exit_error(EXIT_AUTH_ERROR, "Vault validation failed.")
 
     # Confirm if vault exists
     if vault.vault_exists():
@@ -758,16 +739,25 @@ def cmd_vault_import(args: argparse.Namespace) -> int:
             _exit_error(EXIT_INPUT_ERROR, "Import cancelled.")
 
     try:
-        vault.write_raw_vault(content)
+        backup_identifier = vault.import_raw_vault(content, master, backup_current=True)
         _audit_vault(AuditEvent.VAULT_STORE, True, vault)
-        _print_info("✓ Vault imported successfully")
+        _print_info("✓ Vault imported successfully.")
+        if backup_identifier is not None:
+            _print_info(f"Previous vault backup: {backup_identifier}")
         return EXIT_SUCCESS
-    except OSError:
-        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error="import_failed")
-        _exit_error(EXIT_FILE_ERROR, "Import failed.")
-    except Exception:
-        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error="import_failed")
-        _exit_error(EXIT_VAULT_ERROR, "Import failed.")
+    except VaultTransactionError as error:
+        audit_category = (
+            "rollback_failed"
+            if error.rollback_succeeded is False
+            else "transaction_failed"
+        )
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=audit_category)
+        if error.rollback_succeeded is False:
+            _exit_error(
+                EXIT_VAULT_ERROR,
+                "Import failed and rollback failed; active vault may be inconsistent.",
+            )
+        _exit_error(EXIT_VAULT_ERROR, "Import failed; active vault was preserved.")
 
 
 def cmd_vault_reset(args: argparse.Namespace) -> int:
@@ -868,33 +858,56 @@ def cmd_vault_backend(args: argparse.Namespace) -> int:
 
 
 def cmd_vault_backups(args: argparse.Namespace) -> int:
-    """List file-vault backups."""
-    vault = PassphraseVault(backend="file")
-    backups = vault.list_backups()
+    """List configured-vault backups without decrypted content."""
+    vault = PassphraseVault()
+    backups = vault.list_backup_records()
     if not backups:
         print("No backups available.")
         return EXIT_SUCCESS
 
     print("Available backups:")
-    for index, backup in enumerate(backups):
-        print(f"  [{index}] {backup}")
+    for backup in backups:
+        print(f"  {backup.identifier}  {backup.created_at.isoformat()}")
     return EXIT_SUCCESS
 
 
 def cmd_vault_restore(args: argparse.Namespace) -> int:
-    """Restore a file-vault backup by index."""
-    vault = PassphraseVault(backend="file")
+    """Validate and transactionally restore an exact backup identifier."""
+    vault = PassphraseVault()
+    print(f"Backup: {args.identifier}")
+    print(f"Target backend: {vault.backend}")
+    master = _prompt_master_password()
     try:
-        vault.restore_from_backup(args.index)
+        vault.validate_backup(args.identifier, master)
+    except VaultTransactionError:
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error="validation_failed")
+        _exit_error(EXIT_AUTH_ERROR, "Restore validation failed.")
+
+    if vault.vault_exists():
+        print("Existing vault will be replaced. Continue? (y/n): ", end="", flush=True)
+        if input().strip().lower() != "y":
+            _exit_error(EXIT_INPUT_ERROR, "Restore cancelled.")
+
+    try:
+        backup_identifier = vault.restore_from_backup(args.identifier, master)
         _audit_vault(AuditEvent.VAULT_STORE, True, vault)
-        _print_info(f"✓ Restored backup [{args.index}] to {vault.vault_path}")
+        _print_info(f"✓ Restored backup: {args.identifier}")
+        if backup_identifier is not None:
+            _print_info(f"Previous vault backup: {backup_identifier}")
         return EXIT_SUCCESS
-    except ValueError:
-        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error="restore_failed")
-        _exit_error(EXIT_VAULT_ERROR, "Restore failed.")
-    except OSError:
-        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error="restore_failed")
-        _exit_error(EXIT_FILE_ERROR, "Restore failed.")
+    except VaultTransactionError as error:
+        audit_category = (
+            "rollback_failed"
+            if error.rollback_succeeded is False
+            else "transaction_failed"
+        )
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=audit_category)
+        if error.rollback_succeeded is False:
+            _exit_error(
+                EXIT_VAULT_ERROR,
+                "Restore failed and rollback failed; active vault may be inconsistent.",
+            )
+        _exit_error(EXIT_VAULT_ERROR, "Restore failed; active vault was preserved.")
 
 
 def cmd_vault(args: argparse.Namespace) -> int:
@@ -1220,13 +1233,12 @@ Examples:
     # vault restore
     vault_restore_parser = vault_subparsers.add_parser(
         "restore",
-        help="Restore a file-vault backup by index",
+        help="Restore a vault backup by exact identifier",
     )
     vault_restore_parser.add_argument(
-        "index",
-        metavar="INDEX",
-        type=int,
-        help="Backup index from `ssc vault backups`",
+        "identifier",
+        metavar="BACKUP_ID",
+        help="Exact backup identifier from `ssc vault backups`",
     )
     vault_restore_parser.set_defaults(func=cmd_vault_restore)
 

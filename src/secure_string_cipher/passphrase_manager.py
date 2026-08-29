@@ -29,11 +29,13 @@ import hmac
 import json
 import os
 import secrets
-import shutil
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
+from .atomic_io import atomic_binary_writer
 from .config import (
+    MAX_FILE_SIZE,
     VAULT_BACKEND_FILE,
     VAULT_BACKEND_KEYCHAIN,
     get_default_backup_dir,
@@ -49,10 +51,95 @@ _VAULT_HMAC_SIZE = 32
 _VAULT_FAILURE_MESSAGE = (
     "Failed to decrypt vault. Wrong master password or corrupted vault file."
 )
+_BACKUP_ATTEMPTS = 10
 
 # Backend type literals
 BACKEND_FILE = VAULT_BACKEND_FILE
 BACKEND_KEYCHAIN = VAULT_BACKEND_KEYCHAIN
+
+
+@dataclass(frozen=True)
+class VaultBackup:
+    """Stable backup identity and filesystem creation time."""
+
+    identifier: str
+    created_at: datetime
+    path: Path
+
+
+class VaultTransactionError(ValueError):
+    """Generic transaction failure with non-secret recovery state."""
+
+    def __init__(
+        self,
+        category: str,
+        message: str,
+        *,
+        rollback_attempted: bool = False,
+        rollback_succeeded: bool | None = None,
+        backup_identifier: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.category = category
+        self.rollback_attempted = rollback_attempted
+        self.rollback_succeeded = rollback_succeeded
+        self.backup_identifier = backup_identifier
+
+
+def read_bounded_vault_file(path: str | Path) -> bytes:
+    """Read a candidate vault into the existing 100 MiB bounded buffer."""
+    candidate_path = Path(path)
+    try:
+        if candidate_path.is_symlink() or not candidate_path.is_file():
+            raise ValueError
+        if candidate_path.stat().st_size > MAX_FILE_SIZE:
+            raise VaultTransactionError(
+                "candidate_too_large",
+                "Vault candidate exceeds the allowed input size.",
+            )
+        contents = candidate_path.read_bytes()
+        if len(contents) > MAX_FILE_SIZE:
+            raise VaultTransactionError(
+                "candidate_too_large",
+                "Vault candidate exceeds the allowed input size.",
+            )
+        return contents
+    except VaultTransactionError:
+        raise
+    except Exception:
+        raise VaultTransactionError(
+            "candidate_read_failed", "Vault candidate could not be read."
+        ) from None
+
+
+def _bounded_candidate_text(vault_contents: str | bytes) -> str:
+    """Normalize a bounded raw candidate to strict UTF-8 text."""
+    try:
+        if isinstance(vault_contents, bytes):
+            if len(vault_contents) > MAX_FILE_SIZE:
+                raise VaultTransactionError(
+                    "candidate_too_large",
+                    "Vault candidate exceeds the allowed input size.",
+                )
+            return vault_contents.decode("utf-8", errors="strict")
+        if len(vault_contents.encode("utf-8")) > MAX_FILE_SIZE:
+            raise VaultTransactionError(
+                "candidate_too_large",
+                "Vault candidate exceeds the allowed input size.",
+            )
+        return vault_contents
+    except VaultTransactionError:
+        raise
+    except UnicodeError:
+        raise VaultTransactionError(
+            "candidate_validation_failed", "Vault candidate validation failed."
+        ) from None
+
+
+def _new_backup_identifier() -> str:
+    """Return a UTC microsecond and random-suffix backup identifier."""
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
+    return f"vault_backup_{timestamp}_{secrets.token_hex(4)}.enc"
 
 
 class _DuplicateVaultEntry(ValueError):
@@ -222,24 +309,64 @@ class PassphraseVault:
         """
         return _compute_vault_hmac(data, master_password, salt)
 
-    def _create_backup(self) -> None:
+    def _publish_backup(
+        self,
+        vault_contents: str,
+        *,
+        preserve_identifiers: frozenset[str] = frozenset(),
+    ) -> str:
+        """Publish exact raw vault contents under a collision-resistant name."""
+        raw = vault_contents.encode("utf-8")
+        if self.backup_dir.is_symlink():
+            raise ValueError("Unsafe backup directory.")
+        self.backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        for _ in range(_BACKUP_ATTEMPTS):
+            identifier = _new_backup_identifier()
+            backup_path = self.backup_dir / identifier
+            if backup_path.exists() or backup_path.is_symlink():
+                continue
+            try:
+                with atomic_binary_writer(
+                    backup_path, overwrite=False, mode=0o600
+                ) as writer:
+                    writer.write(raw)
+            except Exception:
+                if backup_path.exists() or backup_path.is_symlink():
+                    continue
+                raise
+            self._rotate_backups(
+                preserve_identifiers=preserve_identifiers | frozenset({identifier})
+            )
+            return identifier
+        raise ValueError("Unable to allocate a unique vault backup identifier.")
+
+    def _rotate_backups(
+        self, *, preserve_identifiers: frozenset[str] = frozenset()
+    ) -> None:
+        """Retain five backups without removing an active restore source."""
+        backups = sorted(
+            self.backup_dir.glob("vault_backup_*.enc"),
+            key=lambda path: path.stat().st_mtime_ns,
+            reverse=True,
+        )
+        protected = [path for path in backups if path.name in preserve_identifiers]
+        unprotected = [
+            path for path in backups if path.name not in preserve_identifiers
+        ]
+        retained = set(protected + unprotected[: max(0, 5 - len(protected))])
+        for old_backup in backups:
+            if old_backup in retained:
+                continue
+            old_backup.unlink()
+
+    def _create_backup(self) -> str | None:
         """Create a timestamped backup of the vault file.
 
         Keeps last 5 backups and removes older ones.
         """
         if self._backend != BACKEND_FILE or not self.vault_path.exists():
-            return
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_path = self.backup_dir / f"vault_backup_{timestamp}.enc"
-
-        shutil.copy2(self.vault_path, backup_path)
-        os.chmod(backup_path, 0o600)
-
-        backups = sorted(self.backup_dir.glob("vault_backup_*.enc"))
-        if len(backups) > 5:
-            for old_backup in backups[:-5]:
-                old_backup.unlink()
+            return None
+        return self._publish_backup(self.vault_path.read_text())
 
     def _load_vault(self, master_password: str) -> dict[str, str]:
         """Load and decrypt the vault with integrity verification.
@@ -471,6 +598,102 @@ class PassphraseVault:
         if self.vault_path.exists():
             self.vault_path.unlink()
 
+    def import_raw_vault(
+        self,
+        vault_contents: str | bytes,
+        master_password: str,
+        *,
+        backup_current: bool = True,
+    ) -> str | None:
+        """Validate, publish, verify, and if necessary roll back a raw vault.
+
+        Filesystem writes use atomic publication. Credential-store writes use
+        best-effort rollback because native backends do not expose a transaction.
+
+        Returns:
+            The backup identifier for the previous active vault, if created.
+        """
+        candidate = _bounded_candidate_text(vault_contents)
+        return self._transact_raw_vault(
+            candidate,
+            master_password,
+            backup_current=backup_current,
+        )
+
+    def _transact_raw_vault(
+        self,
+        candidate: str,
+        master_password: str,
+        *,
+        backup_current: bool,
+        preserve_backup_identifiers: frozenset[str] = frozenset(),
+    ) -> str | None:
+        """Publish a normalized raw candidate with verification and rollback."""
+        try:
+            expected_entries = validate_raw_vault(candidate, master_password)
+        except ValueError:
+            raise VaultTransactionError(
+                "candidate_validation_failed", "Vault candidate validation failed."
+            ) from None
+
+        try:
+            previous_raw = self.read_raw_vault()
+        except Exception:
+            raise VaultTransactionError(
+                "active_read_failed",
+                "Vault transaction failed before publication.",
+            ) from None
+
+        backup_identifier = None
+        if previous_raw is not None and backup_current:
+            try:
+                backup_identifier = self._publish_backup(
+                    previous_raw,
+                    preserve_identifiers=preserve_backup_identifiers,
+                )
+            except Exception:
+                raise VaultTransactionError(
+                    "backup_failed",
+                    "Vault transaction failed before publication.",
+                ) from None
+
+        try:
+            self.write_raw_vault(candidate)
+            published_raw = self.read_raw_vault()
+            if published_raw is None or published_raw != candidate:
+                raise ValueError
+            published_entries = validate_raw_vault(published_raw, master_password)
+            if published_entries != expected_entries:
+                raise ValueError
+        except Exception:
+            try:
+                if previous_raw is None:
+                    self.delete_vault_storage()
+                    if self.read_raw_vault() is not None:
+                        raise ValueError
+                else:
+                    self.write_raw_vault(previous_raw)
+                    if self.read_raw_vault() != previous_raw:
+                        raise ValueError
+            except Exception:
+                raise VaultTransactionError(
+                    "rollback_failed",
+                    "Vault transaction failed and rollback failed; active vault may be inconsistent.",
+                    rollback_attempted=True,
+                    rollback_succeeded=False,
+                    backup_identifier=backup_identifier,
+                ) from None
+
+            raise VaultTransactionError(
+                "publication_failed",
+                "Vault transaction failed; previous vault restored.",
+                rollback_attempted=True,
+                rollback_succeeded=True,
+                backup_identifier=backup_identifier,
+            ) from None
+
+        return backup_identifier
+
     def migrate_to_keychain(self, master_password: str) -> None:
         """Migrate vault data from file backend to keychain.
 
@@ -523,35 +746,65 @@ class PassphraseVault:
         self.vault_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         secure_atomic_write(self.vault_path, vault_contents.encode("utf-8"), mode=0o600)
 
+    def list_backup_records(self) -> list[VaultBackup]:
+        """List backups by stable identifier and filesystem creation time."""
+        records = []
+        for path in self.backup_dir.glob("vault_backup_*.enc"):
+            if path.is_symlink() or not path.is_file():
+                continue
+            created_at = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+            records.append(VaultBackup(path.name, created_at, path))
+        return sorted(records, key=lambda record: record.created_at, reverse=True)
+
     def list_backups(self) -> list[str]:
         """List available backup files.
 
         Returns:
             List of backup file paths sorted by date (newest first)
         """
-        backups = sorted(self.backup_dir.glob("vault_backup_*.enc"), reverse=True)
-        return [str(b) for b in backups]
+        return [str(record.path) for record in self.list_backup_records()]
 
-    def restore_from_backup(self, backup_index: int = 0) -> None:
-        """Restore vault from a backup file.
+    def _read_backup(self, backup_identifier: str) -> bytes:
+        """Resolve an exact stable identifier and read it with the import bound."""
+        if Path(backup_identifier).name != backup_identifier:
+            raise VaultTransactionError(
+                "backup_not_found", "Selected vault backup was not found."
+            )
+        records = {record.identifier: record for record in self.list_backup_records()}
+        record = records.get(backup_identifier)
+        if record is None:
+            raise VaultTransactionError(
+                "backup_not_found", "Selected vault backup was not found."
+            )
+        return read_bounded_vault_file(record.path)
+
+    def validate_backup(self, backup_identifier: str, master_password: str) -> None:
+        """Validate a selected backup without changing active storage."""
+        candidate = self._read_backup(backup_identifier)
+        try:
+            validate_raw_vault(candidate, master_password)
+        except ValueError:
+            raise VaultTransactionError(
+                "candidate_validation_failed", "Vault candidate validation failed."
+            ) from None
+
+    def restore_from_backup(
+        self, backup_identifier: str, master_password: str
+    ) -> str | None:
+        """Transactionally restore an exactly identified backup.
 
         Args:
-            backup_index: Index of backup to restore (0 = most recent)
+            backup_identifier: Exact identifier returned by list_backup_records().
+            master_password: Password for the selected backup.
 
-        Raises:
-            ValueError: If no backups available or index out of range
+        Returns:
+            Identifier of the backup made from the prior active vault, if any.
         """
-        backups = sorted(self.backup_dir.glob("vault_backup_*.enc"), reverse=True)
-
-        if not backups:
-            raise ValueError("No backups available")
-
-        if backup_index >= len(backups):
-            raise ValueError(
-                f"Backup index {backup_index} out of range. "
-                f"Only {len(backups)} backup(s) available."
-            )
-
-        backup_file = backups[backup_index]
-        shutil.copy2(backup_file, self.vault_path)
-        os.chmod(self.vault_path, 0o600)
+        candidate = self._read_backup(backup_identifier)
+        candidate_text = _bounded_candidate_text(candidate)
+        return self._transact_raw_vault(
+            candidate_text,
+            master_password,
+            backup_current=True,
+            preserve_backup_identifiers=frozenset({backup_identifier}),
+        )
