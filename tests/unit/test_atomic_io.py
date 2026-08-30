@@ -148,6 +148,17 @@ def test_output_mode_is_owner_only(tmp_path: Path) -> None:
     assert destination.stat().st_mode & 0o777 == 0o600
 
 
+def test_permissive_output_mode_is_rejected_before_creation(tmp_path: Path) -> None:
+    destination = tmp_path / "output.bin"
+
+    with pytest.raises(CryptoError, match="owner-only mode 0o600"):
+        with atomic_binary_writer(destination, mode=0o644):
+            pytest.fail("writer must not be yielded")
+
+    assert not destination.exists()
+    assert _temporary_files(tmp_path, destination) == []
+
+
 def test_missing_parent_fails_cleanly(tmp_path: Path) -> None:
     destination = tmp_path / "missing" / "output.bin"
 

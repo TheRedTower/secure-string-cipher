@@ -60,7 +60,7 @@ BACKEND_KEYCHAIN = VAULT_BACKEND_KEYCHAIN
 
 @dataclass(frozen=True)
 class VaultBackup:
-    """Stable backup identity and filesystem creation time."""
+    """Stable backup identity and filesystem modification time used for ordering."""
 
     identifier: str
     created_at: datetime

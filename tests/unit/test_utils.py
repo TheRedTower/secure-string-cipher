@@ -104,6 +104,19 @@ class TestProgressBar:
         captured = capsys.readouterr()
         assert "██████████ 100.0%" in captured.out
 
+    @pytest.mark.parametrize(
+        ("current", "expected"),
+        [(-1, "░░░░░░░░░░ 0.0%"), (101, "██████████ 100.0%")],
+    )
+    def test_progress_is_clamped_to_display_bounds(self, current, expected, capsys):
+        """Buffered callers cannot render below zero or beyond completion."""
+        pb = ProgressBar(100, width=10)
+
+        with patch.object(sys.stdout, "isatty", return_value=True):
+            pb.update(current)
+
+        assert expected in capsys.readouterr().out
+
 
 # =============================================================================
 # Dark Background Detection Tests

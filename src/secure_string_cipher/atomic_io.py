@@ -58,11 +58,15 @@ def atomic_binary_writer(
 ) -> Iterator[BinaryIO]:
     """Yield a binary stream that is atomically published on successful exit.
 
-    The destination is checked lexically and is never resolved through a
-    symlink. The no-overwrite checks are best-effort preflight checks; they do
-    not protect against a hostile concurrent process racing destination
-    creation.
+    This helper uses the destination path lexically and does not resolve it.
+    It does not inspect symlinked parent components; callers remain responsible
+    for enforcing any broader path policy. The no-overwrite checks are
+    best-effort preflight checks and do not protect against a hostile concurrent
+    process racing destination creation.
     """
+    if mode != 0o600:
+        raise CryptoError("Atomic binary writes require owner-only mode 0o600")
+
     destination_path = Path(destination)
     parent = destination_path.parent
 
@@ -85,9 +89,9 @@ def atomic_binary_writer(
         )
         temporary_path = Path(temporary_name)
         if hasattr(os, "fchmod"):
-            os.fchmod(fd, mode)
+            os.fchmod(fd, 0o600)
         else:  # pragma: no cover - Windows fallback
-            os.chmod(temporary_path, mode)
+            os.chmod(temporary_path, 0o600)
 
         writer = os.fdopen(fd, "wb")
         fd = None

@@ -55,7 +55,7 @@ class ProgressBar:
             return
 
         self.last_print = now
-        progress = 1.0 if self.total <= 0 else current / self.total
+        progress = 1.0 if self.total <= 0 else max(0.0, min(1.0, current / self.total))
 
         filled = int(self.width * progress)
         bar = "█" * filled + "░" * (self.width - filled)
