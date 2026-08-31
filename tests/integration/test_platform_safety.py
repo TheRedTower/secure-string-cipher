@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import argparse
+import io
 import os
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from secure_string_cipher import cli_args
 from secure_string_cipher.core import decrypt_file, encrypt_file
 from secure_string_cipher.utils import CryptoError
 
@@ -25,6 +28,33 @@ def _create_symlink_or_skip(
         link.symlink_to(target, target_is_directory=target_is_directory)
     except (NotImplementedError, OSError) as error:
         pytest.skip(f"runner cannot create symbolic links: {error}")
+
+
+def test_vault_export_bypasses_text_newline_translation() -> None:
+    """Binary export must retain LF framing and omit a terminal newline."""
+    raw = "SSCVAULT\nsalt\n---DATA---\ntoken\n---HMAC---\ndigest"
+    backing = io.BytesIO()
+    translated_stdout = io.TextIOWrapper(backing, encoding="utf-8", newline="\r\n")
+    vault = MagicMock()
+    vault.list_labels.return_value = ["label"]
+    vault.read_raw_vault.return_value = raw
+
+    try:
+        with (
+            patch("secure_string_cipher.cli_args._get_vault", return_value=vault),
+            patch(
+                "secure_string_cipher.cli_args._prompt_master_password",
+                return_value=PLATFORM_TEST_CREDENTIAL,
+            ),
+            patch.object(cli_args.sys, "stdout", translated_stdout),
+        ):
+            assert (
+                cli_args.cmd_vault_export(argparse.Namespace()) == cli_args.EXIT_SUCCESS
+            )
+        translated_stdout.flush()
+        assert backing.getvalue() == raw.encode("utf-8")
+    finally:
+        translated_stdout.detach()
 
 
 @pytest.mark.parametrize(

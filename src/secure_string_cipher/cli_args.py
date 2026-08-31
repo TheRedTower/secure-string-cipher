@@ -40,6 +40,7 @@ from .passphrase_manager import (
 from .rate_limiter import PersistentRateLimiter
 from .timing_safe import check_password_strength
 from .utils import colorize, secure_overwrite
+from .vault_transport import canonicalize_cli_vault_candidate
 
 # Global rate limiter for CLI authentication attempts
 _cli_limiter = PersistentRateLimiter()
@@ -700,7 +701,8 @@ def cmd_vault_export(args: argparse.Namespace) -> int:
 
         content = vault.read_raw_vault()
         if content is not None:
-            print(content)
+            sys.stdout.buffer.write(content.encode("utf-8"))
+            sys.stdout.buffer.flush()
             _audit_vault(AuditEvent.VAULT_LIST, True, vault)
             _print_info("✓ Vault exported (pipe to file to save)")
             return EXIT_SUCCESS
@@ -725,6 +727,7 @@ def cmd_vault_import(args: argparse.Namespace) -> int:
 
     try:
         content = read_bounded_vault_file(import_path)
+        content = canonicalize_cli_vault_candidate(content)
         validate_raw_vault(content, master)
     except VaultTransactionError:
         _exit_error(EXIT_FILE_ERROR, "Cannot read import file.")

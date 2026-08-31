@@ -21,6 +21,7 @@ from .core import (
 from .passphrase_generator import generate_passphrase
 from .passphrase_manager import (
     PassphraseVault,
+    VaultTransactionError,
     read_bounded_vault_file,
     validate_raw_vault,
 )
@@ -28,6 +29,7 @@ from .rate_limiter import RateLimiter
 from .security import sanitize_filename
 from .timing_safe import check_password_strength
 from .utils import colorize, secure_overwrite
+from .vault_transport import canonicalize_cli_vault_candidate
 
 # Security: Maximum password retry attempts before exiting
 MAX_PASSWORD_RETRIES = 5
@@ -803,7 +805,7 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
     out_stream.write("\nSelect action:\n")
     out_stream.write("  1. Update passphrase\n")
     out_stream.write("  2. Delete passphrase\n")
-    out_stream.write("  3. Export vault\n")
+    out_stream.write("  3. Display vault for manual copy\n")
     out_stream.write("  4. Import vault\n")
     out_stream.write("  5. Reset vault (delete all)\n")
     out_stream.write("  6. Cancel\n")
@@ -837,9 +839,11 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
                 out_stream.write("Error: No vault found.\n")
                 out_stream.flush()
                 return
-            out_stream.write(colorize("\n✅ Vault exported:", "green") + "\n")
+            out_stream.write(colorize("\n✅ Vault contents:", "green") + "\n")
             out_stream.write(content + "\n")
-            out_stream.write("\n💡 Copy the above output to save as a backup file.\n")
+            out_stream.write(
+                "\n💡 For a byte-exact backup, run: ssc vault export > backup.txt\n"
+            )
             out_stream.flush()
         except Exception:
             out_stream.write("Error exporting vault.\n")
@@ -859,18 +863,36 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
             out_stream.write(f"Error: File not found: {import_path}\n")
             out_stream.flush()
             return
+        out_stream.write(f"Candidate: {path}\n")
+        out_stream.write(f"Target backend: {vault.backend}\n")
         try:
-            out_stream.write(f"Candidate: {path}\n")
-            out_stream.write(f"Target backend: {vault.backend}\n")
             master_pw = _read_password(
                 "Candidate vault master password: ", in_stream, out_stream
             )
-            if not master_pw:
-                out_stream.write("Error: Master password cannot be empty\n")
-                out_stream.flush()
-                return
-            candidate_contents = read_bounded_vault_file(path)
+        except Exception:
+            out_stream.write("Error importing vault.\n")
+            out_stream.flush()
+            return
+        if not master_pw:
+            out_stream.write("Error: Master password cannot be empty\n")
+            out_stream.flush()
+            return
+
+        try:
+            candidate_contents = canonicalize_cli_vault_candidate(
+                read_bounded_vault_file(path)
+            )
             validate_raw_vault(candidate_contents, master_pw)
+        except VaultTransactionError:
+            out_stream.write("Error: Cannot read import file.\n")
+            out_stream.flush()
+            return
+        except ValueError:
+            out_stream.write("Error: Vault validation failed.\n")
+            out_stream.flush()
+            return
+
+        try:
             if vault.vault_exists():
                 out_stream.write(
                     "⚠️  Existing vault will be replaced. Continue? (yes/no): "
@@ -881,18 +903,42 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
                     out_stream.write("Import cancelled.\n")
                     out_stream.flush()
                     return
-            backup_identifier = vault.import_raw_vault(
-                candidate_contents, master_pw, backup_current=True
-            )
-            out_stream.write(
-                colorize("\n✅ Vault imported successfully!", "green") + "\n"
-            )
-            if backup_identifier is not None:
-                out_stream.write(f"Previous vault backup: {backup_identifier}\n")
-            out_stream.flush()
         except Exception:
             out_stream.write("Error importing vault.\n")
             out_stream.flush()
+            return
+
+        try:
+            backup_identifier = vault.import_raw_vault(
+                candidate_contents, master_pw, backup_current=True
+            )
+        except VaultTransactionError as error:
+            if error.rollback_succeeded is False:
+                message = (
+                    "Import failed and rollback failed; "
+                    "active vault may be inconsistent."
+                )
+            elif error.rollback_succeeded is True:
+                message = (
+                    "Import failed; rollback succeeded and the previous vault "
+                    "was restored."
+                )
+            else:
+                message = (
+                    "Import failed before publication; active vault was not changed."
+                )
+            out_stream.write(f"Error: {message}\n")
+            out_stream.flush()
+            return
+        except Exception:
+            out_stream.write("Error importing vault.\n")
+            out_stream.flush()
+            return
+
+        out_stream.write(colorize("\n✅ Vault imported successfully!", "green") + "\n")
+        if backup_identifier is not None:
+            out_stream.write(f"Previous vault backup: {backup_identifier}\n")
+        out_stream.flush()
         return
 
     if choice == "5":

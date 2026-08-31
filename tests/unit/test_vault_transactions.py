@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import io
 import json
 import os
 from pathlib import Path
@@ -223,6 +224,8 @@ def _invalid_candidates() -> list[object]:
             _build_raw('{"label":1}').encode(), CANDIDATE_MASTER, id="json-schema"
         ),
         pytest.param(raw[:-1], CANDIDATE_MASTER, id="hmac-truncated"),
+        pytest.param(raw + b"\n", CANDIDATE_MASTER, id="terminal-lf"),
+        pytest.param(raw + b"\r\n", CANDIDATE_MASTER, id="terminal-crlf"),
         *[
             pytest.param(candidate, CANDIDATE_MASTER, id=case)
             for candidate, case in boundaries
@@ -494,11 +497,12 @@ def test_failed_restore_preserves_selected_backup_active_bytes_and_cleans_temps(
     assert list(vault.backup_dir.glob(".*.tmp")) == []
 
 
-def test_cli_import_uses_configured_backend_and_transaction_service(
-    tmp_path: Path,
+@pytest.mark.parametrize("ending", [b"", b"\n", b"\r\n"])
+def test_cli_import_canonicalizes_one_legacy_transport_ending(
+    tmp_path: Path, ending: bytes
 ) -> None:
     candidate = tmp_path / "candidate.vault"
-    candidate.write_bytes(_fixture_raw())
+    candidate.write_bytes(_fixture_raw() + ending)
     vault = MagicMock()
     vault.backend = "keychain"
     vault.vault_exists.return_value = False
@@ -520,6 +524,104 @@ def test_cli_import_uses_configured_backend_and_transaction_service(
     vault.import_raw_vault.assert_called_once_with(
         _fixture_raw(), CANDIDATE_MASTER, backup_current=True
     )
+
+
+@pytest.mark.parametrize(
+    "candidate_bytes",
+    [
+        _fixture_raw() + b"\n\n",
+        _fixture_raw() + b"\r\n\r\n",
+        _fixture_raw() + b"\r",
+        _fixture_raw() + b" ",
+        _fixture_raw() + b"\t",
+        b"\n" + _fixture_raw(),
+        _fixture_raw().replace(b"\n", b"\r\n"),
+    ],
+)
+def test_cli_import_rejects_other_transport_changes_before_confirmation(
+    tmp_path: Path, candidate_bytes: bytes
+) -> None:
+    candidate = tmp_path / "candidate.vault"
+    candidate.write_bytes(candidate_bytes)
+    vault = MagicMock()
+    vault.backend = "file"
+
+    with (
+        patch("secure_string_cipher.cli_args.PassphraseVault", return_value=vault),
+        patch(
+            "secure_string_cipher.cli_args._prompt_master_password",
+            return_value=CANDIDATE_MASTER,
+        ),
+        pytest.raises(SystemExit) as caught,
+    ):
+        cli_args.cmd_vault_import(argparse.Namespace(file=str(candidate)))
+
+    assert caught.value.code == cli_args.EXIT_AUTH_ERROR
+    vault.vault_exists.assert_not_called()
+    vault.import_raw_vault.assert_not_called()
+
+
+def test_cli_export_to_import_round_trip_is_byte_exact(tmp_path: Path) -> None:
+    raw = _fixture_raw()
+    export_vault = MagicMock()
+    export_vault.list_labels.return_value = sorted(EXPECTED_ENTRIES)
+    export_vault.read_raw_vault.return_value = raw.decode("utf-8")
+
+    class BinaryCapture:
+        def __init__(self) -> None:
+            self.buffer = io.BytesIO()
+
+        def isatty(self) -> bool:
+            return False
+
+    capture = BinaryCapture()
+    with (
+        patch("secure_string_cipher.cli_args._get_vault", return_value=export_vault),
+        patch(
+            "secure_string_cipher.cli_args._prompt_master_password",
+            return_value=CANDIDATE_MASTER,
+        ),
+        patch.object(cli_args.sys, "stdout", capture),
+    ):
+        assert cli_args.cmd_vault_export(argparse.Namespace()) == cli_args.EXIT_SUCCESS
+
+    exported = capture.buffer.getvalue()
+    assert exported == raw
+
+    candidate = tmp_path / "round-trip.vault"
+    candidate.write_bytes(exported)
+    import_vault = MagicMock()
+    import_vault.backend = "file"
+    import_vault.vault_exists.return_value = False
+    import_vault.import_raw_vault.return_value = None
+    with (
+        patch(
+            "secure_string_cipher.cli_args.PassphraseVault", return_value=import_vault
+        ),
+        patch(
+            "secure_string_cipher.cli_args._prompt_master_password",
+            return_value=CANDIDATE_MASTER,
+        ),
+    ):
+        assert (
+            cli_args.cmd_vault_import(argparse.Namespace(file=str(candidate)))
+            == cli_args.EXIT_SUCCESS
+        )
+
+    import_vault.import_raw_vault.assert_called_once_with(
+        raw, CANDIDATE_MASTER, backup_current=True
+    )
+
+
+def test_transaction_preserves_previous_raw_bytes_while_publishing_canonical() -> None:
+    previous = _build_raw('{"previous":"value"}', ACTIVE_MASTER) + "\r\n"
+    canonical_candidate = _fixture_raw().decode("utf-8")
+    vault = RecordingVault(previous)
+
+    vault.import_raw_vault(canonical_candidate, CANDIDATE_MASTER)
+
+    assert vault.backups == [previous]
+    assert vault.raw == canonical_candidate
 
 
 def test_cli_import_cancellation_causes_no_writes(tmp_path: Path) -> None:

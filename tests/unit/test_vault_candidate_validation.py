@@ -171,7 +171,9 @@ def test_noncanonical_encrypted_token_pad_bits_fail_with_valid_hmac() -> None:
     _assert_generic_failure("\n".join(lines))
 
 
-@pytest.mark.parametrize("whitespace", ["\n", " ", "\t", "\r", "\u2003"])
+@pytest.mark.parametrize(
+    "whitespace", ["\n", "\r\n", "\n\n", " ", "\t", "\r", "\u2003"]
+)
 @pytest.mark.parametrize("position", ["prefix", "suffix"])
 def test_surrounding_unauthenticated_whitespace_is_rejected(
     valid_raw: str, whitespace: str, position: str

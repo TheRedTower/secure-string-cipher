@@ -36,6 +36,7 @@ from secure_string_cipher.cli import (
     _write_filename_sanitization_notice,
     main,
 )
+from secure_string_cipher.passphrase_manager import VaultTransactionError
 
 # =============================================================================
 # _print_banner error paths
@@ -629,7 +630,7 @@ class TestHandleManageVault:
 
         _handle_manage_vault(in_stream, out_stream)
 
-        assert "Error importing vault" in out_stream.getvalue()
+        assert "Vault validation failed" in out_stream.getvalue()
 
     @patch("secure_string_cipher.cli.validate_raw_vault")
     @patch("secure_string_cipher.cli.read_bounded_vault_file")
@@ -642,7 +643,7 @@ class TestHandleManageVault:
         mock_vault_cls.return_value = mock_vault
         mock_vault.vault_exists.return_value = False
         mock_vault.import_raw_vault.return_value = None
-        mock_read.return_value = b"authenticated raw vault"
+        mock_read.return_value = b"authenticated raw vault\r\n"
 
         import_file = tmp_path / "import.dat"
         import_file.write_text("SSCVAULT\ndata\nmore_data")
@@ -662,6 +663,77 @@ class TestHandleManageVault:
             backup_current=True,
         )
         mock_vault.write_raw_vault.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("rollback_succeeded", "expected"),
+        [
+            (False, "rollback failed; active vault may be inconsistent"),
+            (True, "rollback succeeded and the previous vault was restored"),
+            (None, "failed before publication; active vault was not changed"),
+        ],
+    )
+    @patch("secure_string_cipher.cli.validate_raw_vault")
+    @patch("secure_string_cipher.cli.read_bounded_vault_file")
+    @patch("secure_string_cipher.cli.PassphraseVault")
+    def test_import_reports_transaction_recovery_state_without_error_details(
+        self,
+        mock_vault_cls,
+        mock_read,
+        mock_validate,
+        rollback_succeeded,
+        expected,
+        tmp_path,
+    ):
+        """Interactive import must expose recovery state without exception text."""
+        mock_vault = MagicMock()
+        mock_vault_cls.return_value = mock_vault
+        mock_vault.vault_exists.return_value = False
+        secret_detail = (  # pragma: allowlist secret
+            "do-not-print-transaction-detail"
+        )
+        mock_vault.import_raw_vault.side_effect = VaultTransactionError(
+            "transaction_failure",
+            secret_detail,
+            rollback_attempted=rollback_succeeded is not None,
+            rollback_succeeded=rollback_succeeded,
+        )
+        mock_read.return_value = b"authenticated raw vault"
+        import_file = tmp_path / "import.dat"
+        import_file.write_bytes(b"placeholder")
+        in_stream = StringIO(f"4\n{import_file}\nPublic-Test-Only-Master-2026!\n")
+        out_stream = StringIO()
+
+        _handle_manage_vault(in_stream, out_stream)
+
+        rendered = out_stream.getvalue()
+        assert expected in rendered
+        assert secret_detail not in rendered
+        mock_validate.assert_called_once()
+
+    @patch("secure_string_cipher.cli.validate_raw_vault")
+    @patch("secure_string_cipher.cli.read_bounded_vault_file")
+    @patch("secure_string_cipher.cli.PassphraseVault")
+    def test_import_backend_existence_failure_is_contained(
+        self, mock_vault_cls, mock_read, mock_validate, tmp_path
+    ):
+        """Backend failures before confirmation must not escape the menu handler."""
+        mock_vault = MagicMock()
+        mock_vault_cls.return_value = mock_vault
+        backend_detail = "do-not-print-backend-detail"
+        mock_vault.vault_exists.side_effect = OSError(backend_detail)
+        mock_read.return_value = b"authenticated raw vault"
+        import_file = tmp_path / "import.dat"
+        import_file.write_bytes(b"placeholder")
+        in_stream = StringIO(f"4\n{import_file}\nPublic-Test-Only-Master-2026!\n")
+        out_stream = StringIO()
+
+        _handle_manage_vault(in_stream, out_stream)
+
+        rendered = out_stream.getvalue()
+        assert "Error importing vault" in rendered
+        assert backend_detail not in rendered
+        mock_validate.assert_called_once()
+        mock_vault.import_raw_vault.assert_not_called()
 
     @patch("secure_string_cipher.cli.validate_raw_vault")
     @patch("secure_string_cipher.cli.read_bounded_vault_file")

@@ -954,7 +954,7 @@ class TestCmdVaultExport:
 
     @patch("secure_string_cipher.cli_args._prompt_master_password")
     @patch("secure_string_cipher.cli_args._get_vault")
-    def test_export_success(self, mock_get_vault, mock_prompt_master, capsys):
+    def test_export_success(self, mock_get_vault, mock_prompt_master, capsysbinary):
         """Should export vault content."""
         mock_vault = MagicMock()
         mock_get_vault.return_value = mock_vault
@@ -966,7 +966,7 @@ class TestCmdVaultExport:
         result = cmd_vault_export(args)
 
         assert result == EXIT_SUCCESS
-        assert "SSCVAULT\ndata" in capsys.readouterr().out
+        assert capsysbinary.readouterr().out == b"SSCVAULT\ndata"
         mock_vault.read_raw_vault.assert_called_once()
 
     @patch("secure_string_cipher.cli_args._prompt_master_password")
@@ -1065,6 +1065,53 @@ class TestCmdVaultImport:
             backup_current=True,
         )
         mock_vault.write_raw_vault.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("rollback_succeeded", "expected"),
+        [
+            (False, "rollback failed; active vault may be inconsistent"),
+            (True, "active vault was preserved"),
+            (None, "active vault was preserved"),
+        ],
+    )
+    def test_import_transaction_errors_report_safe_recovery_state(
+        self, tmp_path, capsys, rollback_succeeded, expected
+    ):
+        """Argument CLI must distinguish rollback failure without error details."""
+        import_file = tmp_path / "backup.vault"
+        import_file.write_bytes(b"placeholder")
+        vault = MagicMock()
+        vault.backend = "file"
+        vault.vault_exists.return_value = False
+        secret_detail = (  # pragma: allowlist secret
+            "do-not-print-transaction-detail"
+        )
+        vault.import_raw_vault.side_effect = cli_args.VaultTransactionError(
+            "transaction_failure",
+            secret_detail,
+            rollback_attempted=rollback_succeeded is not None,
+            rollback_succeeded=rollback_succeeded,
+        )
+
+        with (
+            patch("secure_string_cipher.cli_args.PassphraseVault", return_value=vault),
+            patch(
+                "secure_string_cipher.cli_args._prompt_master_password",
+                return_value="Public-Test-Only-Master-2026!",
+            ),
+            patch(
+                "secure_string_cipher.cli_args.read_bounded_vault_file",
+                return_value=b"authenticated raw vault",
+            ),
+            patch("secure_string_cipher.cli_args.validate_raw_vault"),
+            pytest.raises(SystemExit) as caught,
+        ):
+            cmd_vault_import(argparse.Namespace(file=str(import_file)))
+
+        assert caught.value.code == EXIT_VAULT_ERROR
+        rendered = capsys.readouterr().err
+        assert expected in rendered
+        assert secret_detail not in rendered
 
 
 # =============================================================================

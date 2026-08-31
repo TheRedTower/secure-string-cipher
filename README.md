@@ -130,8 +130,8 @@ ssc store backup-key --generate
 # Vault management
 ssc vault list
 ssc vault delete old-key
-ssc vault export backup.json
-ssc vault import backup.json  # authenticates before confirmation/replacement
+ssc vault export > backup.txt
+ssc vault import backup.txt  # authenticates before confirmation/replacement
 ssc vault backups             # list exact stable backup identifiers
 ssc vault restore BACKUP_ID   # authenticate and transactionally restore
 ```
@@ -139,6 +139,10 @@ ssc vault restore BACKUP_ID   # authenticate and transactionally restore
 **Exit codes:** 0=success, 1=input error, 2=auth error, 3=vault error, 4=file error
 
 **Security:** Passwords are never passed via command line arguments (prevents shell history exposure). All passwords are prompted interactively or retrieved from the vault.
+
+`ssc vault export` writes canonical six-line UTF-8 bytes with no BOM or terminal
+newline. The CLI importer also recovers files created by older redirected exports
+with exactly one terminal LF or CRLF; direct vault APIs remain byte-strict.
 
 `--force` permits final atomic replacement only after encryption completes or
 decryption authenticates. It never pre-deletes the existing destination.
