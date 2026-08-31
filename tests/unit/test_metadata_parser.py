@@ -161,8 +161,10 @@ def test_overlong_filename_is_rejected() -> None:
         "name\u202e.bin",
     ],
 )
-def test_unsafe_filename_forms_are_rejected(filename: str) -> None:
-    _assert_category(_metadata_bytes(filename=filename), "unsafe_filename")
+def test_path_shaped_filename_is_preserved_as_bounded_metadata(filename: str) -> None:
+    metadata = FileMetadata.from_bytes(_metadata_bytes(filename=filename))
+
+    assert metadata.original_filename == filename
 
 
 @pytest.mark.parametrize("commitment", [None, 1, True, [], {}])
@@ -179,6 +181,20 @@ def test_wrong_commitment_types_are_rejected(commitment: object) -> None:
 def test_non_strict_base64_is_rejected(commitment: str) -> None:
     _assert_category(
         _metadata_bytes(commitment=commitment), "invalid_key_commitment_base64"
+    )
+
+
+def test_noncanonical_commitment_pad_bits_are_rejected() -> None:
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    index = len(COMMITMENT.rstrip("=")) - 1
+    canonical_value = alphabet.index(COMMITMENT[index])
+    alternate = (
+        COMMITMENT[:index] + alphabet[canonical_value ^ 1] + COMMITMENT[index + 1 :]
+    )
+
+    assert base64.b64decode(alternate, validate=True) == base64.b64decode(COMMITMENT)
+    _assert_category(
+        _metadata_bytes(commitment=alternate), "invalid_key_commitment_base64"
     )
 
 

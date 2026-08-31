@@ -119,6 +119,22 @@ class TestFilenameSanitization:
         assert sanitize_filename("***???") == "decrypted_file"
         assert sanitize_filename("<<<>>>") == "decrypted_file"
 
+    @pytest.mark.parametrize(
+        ("filename", "expected"),
+        [
+            ("CON", "_CON"),
+            ("nul.txt", "_nul.txt"),
+            ("COM1.log", "_COM1.log"),
+            ("LPT9.", "_LPT9"),
+            ("report.", "report"),
+        ],
+    )
+    def test_windows_device_and_trailing_dot_aliases_are_portable(
+        self, filename, expected
+    ):
+        """Automatic destinations must not resolve to Windows device aliases."""
+        assert sanitize_filename(filename) == expected
+
     def test_realistic_attacks(self):
         """Test realistic attack patterns."""
         # SSH key theft attempt

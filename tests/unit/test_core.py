@@ -35,6 +35,7 @@ from secure_string_cipher.core import (
     encrypt_text,
     verify_key_commitment,
 )
+from secure_string_cipher.security import sanitize_filename
 from secure_string_cipher.timing_safe import check_password_strength
 
 # Test password constants - only used for testing, never in production
@@ -48,6 +49,18 @@ TEST_PASSWORDS: Final = {
     "COMMON_PATTERNS": ["Password123!@#", "Admin123!@#$", "Qwerty123!@#"],
 }
 TEST_COMMITMENT: Final = base64.b64encode(b"k" * 32).decode("ascii")
+
+
+def _with_nonzero_base64_pad_bits(token: str) -> str:
+    """Return an alternate Base64 spelling that decodes to the same bytes."""
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    padding = len(token) - len(token.rstrip("="))
+    assert padding in {1, 2}
+    index = len(token) - padding - 1
+    canonical_value = alphabet.index(token[index])
+    alternate = token[:index] + alphabet[canonical_value ^ 1] + token[index + 1 :]
+    assert base64.b64decode(alternate, validate=True) == base64.b64decode(token)
+    return alternate
 
 
 def _tamper_metadata(
@@ -222,6 +235,15 @@ class TestTextEncryption:
                 encrypted[:4] + separator + encrypted[4:], TEST_PASSWORDS["VALID"]
             )
 
+    def test_canonical_base64_rejects_nonzero_pad_bits(self):
+        """Text tokens must have the unique standard Base64 representation."""
+        encrypted = encrypt_text("strict", TEST_PASSWORDS["VALID"])
+
+        with pytest.raises(CryptoError, match="invalid base64"):
+            decrypt_text(
+                _with_nonzero_base64_pad_bits(encrypted), TEST_PASSWORDS["VALID"]
+            )
+
     def test_authenticated_invalid_utf8_is_rejected(self):
         """The text API must not silently discard authenticated binary bytes."""
         encrypted = encrypt_bytes(b"\xff\xfe", TEST_PASSWORDS["VALID"]).decode("ascii")
@@ -246,6 +268,23 @@ class TestBytesEncryption:
         encrypted = encrypt_bytes(data, TEST_PASSWORDS["VALID"])
         decrypted = decrypt_bytes(encrypted, TEST_PASSWORDS["VALID"])
         assert decrypted == data
+
+    def test_bytes_reject_noncanonical_base64(self):
+        """Binary tokens must have the unique standard Base64 representation."""
+        encrypted = encrypt_bytes(b"binary", TEST_PASSWORDS["VALID"])
+        alternate = _with_nonzero_base64_pad_bits(encrypted.decode("ascii"))
+
+        with pytest.raises(CryptoError, match="invalid base64"):
+            decrypt_bytes(alternate.encode("ascii"), TEST_PASSWORDS["VALID"])
+
+    def test_bytes_reject_embedded_base64_junk(self):
+        """Binary tokens must not ignore whitespace or foreign characters."""
+        encrypted = encrypt_bytes(b"binary", TEST_PASSWORDS["VALID"])
+
+        with pytest.raises(CryptoError, match="invalid base64"):
+            decrypt_bytes(
+                encrypted[:4] + b"\n" + encrypted[4:], TEST_PASSWORDS["VALID"]
+            )
 
 
 class TestStreamProcessor:
@@ -409,6 +448,63 @@ class TestFileEncryption:
 
         with open(dec_path, "rb") as f:
             assert f.read() == test_data
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX filename compatibility")
+    @pytest.mark.parametrize(
+        "stored_name",
+        [
+            r"report\final.txt",
+            "C:notes.txt",
+            "line\nbreak.txt",
+            "family\u200dnotes.txt",
+        ],
+    )
+    def test_posix_writer_reader_closure_for_path_shaped_names(
+        self, tmp_path, stored_name
+    ):
+        """Every legal POSIX basename written by v5 must remain decryptable."""
+        source = tmp_path / stored_name
+        encrypted = tmp_path / f"artifact-{len(stored_name)}.ssc"
+        source.write_bytes(b"compatible plaintext")
+
+        encrypt_file(str(source), str(encrypted), TEST_PASSWORDS["VALID"])
+        source.unlink()
+
+        actual_path, metadata = decrypt_file(
+            str(encrypted), None, TEST_PASSWORDS["VALID"], overwrite=True
+        )
+        expected = tmp_path / sanitize_filename(stored_name)
+
+        assert Path(actual_path) == expected
+        assert metadata is not None
+        assert metadata.original_filename == stored_name
+        assert expected.read_bytes() == b"compatible plaintext"
+
+    def test_authenticated_path_metadata_is_sanitized_only_at_destination_use(
+        self, tmp_path, monkeypatch
+    ):
+        """Authenticated metadata may contain a path but cannot escape its directory."""
+        from secure_string_cipher import core
+
+        source = tmp_path / "source.bin"
+        encrypted = tmp_path / "artifact.ssc"
+        outside = tmp_path.parent / f"{tmp_path.name}-outside-victim.bin"
+        source.write_bytes(b"compatible plaintext")
+        outside.write_bytes(b"preserve me")
+        stored_name = f"../{outside.name}"
+        monkeypatch.setattr(core.os.path, "basename", lambda _path: stored_name)
+
+        encrypt_file(str(source), str(encrypted), TEST_PASSWORDS["VALID"])
+        actual_path, metadata = decrypt_file(
+            str(encrypted), None, TEST_PASSWORDS["VALID"], overwrite=True
+        )
+
+        assert Path(actual_path) == tmp_path / outside.name
+        assert Path(actual_path).read_bytes() == b"compatible plaintext"
+        assert outside.read_bytes() == b"preserve me"
+        assert metadata is not None
+        assert metadata.original_filename == stored_name
+        outside.unlink()
 
     def test_encrypt_without_filename(self, temp_files):
         """Test encryption without storing filename."""
@@ -628,7 +724,7 @@ class TestFileEncryption:
         victim.write_bytes(b"victim bytes")
 
         encrypt_file(str(input_file), str(encrypted_file), TEST_PASSWORDS["VALID"])
-        _tamper_metadata(encrypted_file, "original_filename", victim.name)
+        _tamper_metadata(encrypted_file, "original_filename", f"../{victim.name}")
 
         with pytest.raises(CryptoError):
             decrypt_file(
@@ -678,7 +774,7 @@ class TestFileEncryption:
 
         monkeypatch.setattr(core, "METADATA_VERSION", 4)
         encrypt_file(str(input_file), str(encrypted_file), TEST_PASSWORDS["VALID"])
-        _tamper_metadata(encrypted_file, "original_filename", victim.name)
+        _tamper_metadata(encrypted_file, "original_filename", f"../{victim.name}")
 
         actual_path, metadata = decrypt_file(
             str(encrypted_file),

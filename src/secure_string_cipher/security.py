@@ -16,6 +16,15 @@ from pathlib import Path
 
 from .atomic_io import atomic_binary_writer
 
+_WINDOWS_RESERVED_BASENAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{index}" for index in range(1, 10)),
+    *(f"LPT{index}" for index in range(1, 10)),
+}
+
 
 class SecurityError(Exception):
     """Raised when a security policy is violated."""
@@ -73,6 +82,13 @@ def sanitize_filename(filename: str, max_length: int = 255) -> str:
     filename = re.sub(r"_+", "_", filename)
 
     filename = filename.strip("_")
+
+    # Windows aliases trailing dots and treats these basenames as devices even
+    # when an extension is present. Produce one portable destination policy.
+    filename = filename.rstrip(".")
+    basename = filename.split(".", maxsplit=1)[0].upper()
+    if basename in _WINDOWS_RESERVED_BASENAMES:
+        filename = f"_{filename}"
 
     if len(filename) > max_length:
         name, ext = os.path.splitext(filename)

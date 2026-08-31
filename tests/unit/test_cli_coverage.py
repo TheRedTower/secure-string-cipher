@@ -33,12 +33,27 @@ from secure_string_cipher.cli import (
     _handle_store_passphrase,
     _offer_vault_storage,
     _print_banner,
+    _write_filename_sanitization_notice,
     main,
 )
 
 # =============================================================================
 # _print_banner error paths
 # =============================================================================
+
+
+def test_filename_sanitization_notice_never_echoes_raw_metadata():
+    """Control-bearing authenticated metadata must not inject terminal output."""
+    original = "unsafe\n\x1b[31m../victim.txt"
+    out = StringIO()
+
+    _write_filename_sanitization_notice(out, original)
+
+    rendered = out.getvalue()
+    assert original not in rendered
+    assert "\x1b" not in rendered
+    assert rendered.count("\n") == 1
+    assert "victim.txt" in rendered
 
 
 class TestPrintBannerErrors:

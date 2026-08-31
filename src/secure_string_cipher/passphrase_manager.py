@@ -23,7 +23,6 @@ Storage Backends:
       python -m pip install 'secure-string-cipher[keychain]'
 """
 
-import base64
 import hashlib
 import hmac
 import json
@@ -41,7 +40,7 @@ from .config import (
     get_default_backup_dir,
     load_vault_settings,
 )
-from .core import decrypt_text, derive_key, encrypt_text
+from .core import _decode_canonical_base64, decrypt_text, derive_key, encrypt_text
 from .security import secure_atomic_write
 
 # Vault format constants
@@ -197,7 +196,7 @@ def validate_raw_vault(
             raise ValueError
 
         encrypted_vault = lines[3]
-        base64.b64decode(encrypted_vault, validate=True)
+        _decode_canonical_base64(encrypted_vault)
 
         stored_hmac = lines[5]
         if len(stored_hmac) != _VAULT_HMAC_SIZE * 2 or any(

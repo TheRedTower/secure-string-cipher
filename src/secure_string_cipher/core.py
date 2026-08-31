@@ -14,10 +14,9 @@ import binascii
 import json
 import os
 import secrets
-import unicodedata
 from contextlib import suppress
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path
 from types import TracebackType
 from typing import BinaryIO
 
@@ -366,6 +365,19 @@ class _MetadataValidationError(CryptoError):
         self.detail = detail
 
 
+def _decode_canonical_base64(value: str | bytes) -> bytes:
+    """Strictly decode standard Base64 and reject alternate textual spellings."""
+    try:
+        encoded = value.encode("ascii") if isinstance(value, str) else value
+    except UnicodeEncodeError as error:
+        raise ValueError("Base64 input must be ASCII") from error
+
+    decoded = base64.b64decode(encoded, validate=True)
+    if base64.b64encode(decoded) != encoded:
+        raise ValueError("Base64 input is not canonical")
+    return decoded
+
+
 def _metadata_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     """Build a JSON object while rejecting duplicate member names."""
     result: dict[str, object] = {}
@@ -374,22 +386,6 @@ def _metadata_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
             raise _MetadataValidationError("duplicate_key", detail=key)
         result[key] = value
     return result
-
-
-def _validate_stored_filename(filename: str) -> None:
-    """Reject stored names that could be interpreted as filesystem paths."""
-    posix_path = PurePosixPath(filename)
-    windows_path = PureWindowsPath(filename)
-    if (
-        filename in {".", ".."}
-        or "/" in filename
-        or "\\" in filename
-        or posix_path.is_absolute()
-        or windows_path.is_absolute()
-        or bool(windows_path.drive)
-        or any(unicodedata.category(char)[0] == "C" for char in filename)
-    ):
-        raise _MetadataValidationError("unsafe_filename")
 
 
 @dataclass
@@ -453,7 +449,7 @@ class FileMetadata:
         if not isinstance(key_commitment, str):
             raise _MetadataValidationError("invalid_key_commitment_type")
         try:
-            commitment_bytes = base64.b64decode(key_commitment, validate=True)
+            commitment_bytes = _decode_canonical_base64(key_commitment)
         except (binascii.Error, ValueError) as error:
             raise _MetadataValidationError("invalid_key_commitment_base64") from error
         if len(commitment_bytes) != KEY_COMMITMENT_SIZE:
@@ -465,7 +461,6 @@ class FileMetadata:
                 raise _MetadataValidationError("invalid_filename_type")
             if len(original_filename) > FILENAME_MAX_LENGTH:
                 raise _MetadataValidationError("filename_too_long")
-            _validate_stored_filename(original_filename)
 
         return cls(
             original_filename=original_filename,
@@ -639,8 +634,8 @@ def decrypt_bytes(token: bytes, passphrase: str) -> bytes:
         CryptoError: If decryption fails
     """
     try:
-        encrypted = base64.b64decode(token)
-    except ValueError:
+        encrypted = _decode_canonical_base64(token)
+    except (binascii.Error, ValueError):
         raise CryptoError("Bytes decryption failed: invalid base64") from None
 
     try:
@@ -666,7 +661,7 @@ def decrypt_text(token: str, passphrase: str) -> str:
         CryptoError: If decryption fails or key commitment verification fails
     """
     try:
-        encrypted = base64.b64decode(token, validate=True)
+        encrypted = _decode_canonical_base64(token)
     except (binascii.Error, ValueError):
         raise CryptoError("Text decryption failed: invalid base64") from None
 
@@ -881,8 +876,8 @@ def decrypt_file(
                 # Verify key commitment
                 if metadata.key_commitment is not None:
                     try:
-                        expected_commitment = base64.b64decode(
-                            metadata.key_commitment, validate=True
+                        expected_commitment = _decode_canonical_base64(
+                            metadata.key_commitment
                         )
                         if len(expected_commitment) != KEY_COMMITMENT_SIZE:
                             raise CryptoError("Invalid key commitment format")

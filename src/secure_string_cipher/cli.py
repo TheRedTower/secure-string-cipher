@@ -410,6 +410,15 @@ def _load_passphrase_from_key_file(in_stream: TextIO, out_stream: TextIO) -> str
     return password
 
 
+def _write_filename_sanitization_notice(
+    out_stream: TextIO, original_filename: str
+) -> None:
+    """Report destination sanitization without echoing untrusted metadata."""
+    sanitized = sanitize_filename(original_filename)
+    if sanitized != original_filename:
+        out_stream.write(f"(Stored filename sanitized to '{sanitized}')\n")
+
+
 def _write_password_policy(out_stream: TextIO) -> None:
     """Write static password policy guidance without password-derived details."""
     out_stream.write(
@@ -1090,11 +1099,9 @@ def _handle_key_file_operation(in_stream: TextIO, out_stream: TextIO) -> None:
                 colorize(f"\n✅ Decrypted file -> {actual_path}", "green") + "\n"
             )
             if metadata and metadata.original_filename:
-                sanitized = sanitize_filename(metadata.original_filename)
-                if sanitized != metadata.original_filename:
-                    out_stream.write(
-                        f"(Filename sanitized: '{metadata.original_filename}' -> '{sanitized}')\n"
-                    )
+                _write_filename_sanitization_notice(
+                    out_stream, metadata.original_filename
+                )
         out_stream.flush()
     except Exception:
         out_stream.write("Error processing key-file operation.\n")
@@ -1222,13 +1229,9 @@ def main(
                                     )
                                     ostream.write(f"Decrypted file -> {actual_path}\n")
                                     if metadata and metadata.original_filename:
-                                        sanitized = sanitize_filename(
-                                            metadata.original_filename
+                                        _write_filename_sanitization_notice(
+                                            ostream, metadata.original_filename
                                         )
-                                        if sanitized != metadata.original_filename:
-                                            ostream.write(
-                                                f"(Filename sanitized: '{metadata.original_filename}' -> '{sanitized}')\n"
-                                            )
                                     ostream.flush()
                                 except Exception:
                                     _interactive_limiter.record_attempt(

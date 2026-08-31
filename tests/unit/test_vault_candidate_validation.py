@@ -39,6 +39,18 @@ def _build_raw(decrypted_json: str, master: str = TEST_MASTER) -> str:
     return f"SSCVAULT\n{salt.hex()}\n---DATA---\n{encrypted}\n---HMAC---\n{digest}"
 
 
+def _with_nonzero_base64_pad_bits(token: str) -> str:
+    """Return an alternate Base64 spelling that decodes to the same bytes."""
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    padding = len(token) - len(token.rstrip("="))
+    assert padding in {1, 2}
+    index = len(token) - padding - 1
+    canonical_value = alphabet.index(token[index])
+    alternate = token[:index] + alphabet[canonical_value ^ 1] + token[index + 1 :]
+    assert base64.b64decode(alternate, validate=True) == base64.b64decode(token)
+    return alternate
+
+
 @pytest.fixture(scope="module")
 def valid_raw() -> str:
     return _build_raw(json.dumps(EXPECTED_ENTRIES))
@@ -146,6 +158,16 @@ def test_invalid_utf8_and_noncanonical_outer_encodings_fail(valid_raw: str) -> N
 
     lines = valid_raw.split("\n")
     lines[3] += "\n"
+    _assert_generic_failure("\n".join(lines))
+
+
+def test_noncanonical_encrypted_token_pad_bits_fail_with_valid_hmac() -> None:
+    raw = _build_raw('{"a":"b"}')
+    lines = raw.split("\n")
+    lines[3] = _with_nonzero_base64_pad_bits(lines[3])
+    salt = bytes.fromhex(lines[1])
+    lines[5] = _compute_vault_hmac(lines[3], TEST_MASTER, salt)
+
     _assert_generic_failure("\n".join(lines))
 
 
