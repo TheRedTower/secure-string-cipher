@@ -1551,7 +1551,7 @@ class TestCmdVaultManagement:
 
     @patch("secure_string_cipher.cli_args.PassphraseVault")
     def test_backups_prints_indexed_list(self, mock_vault_cls, capsys):
-        """Should print stable identifiers and creation times."""
+        """Should print stable identifiers and mtime-derived ordering times."""
         mock_vault = MagicMock()
         newer = MagicMock()
         newer.identifier = "vault_backup_new.enc"

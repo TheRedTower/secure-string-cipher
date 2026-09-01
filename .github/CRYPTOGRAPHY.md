@@ -322,6 +322,13 @@ def verify_key_commitment(key: bytes, expected: bytes) -> bool:
 }
 ```
 
+`original_filename` is a bounded metadata string, not a path. Version 5
+authenticates the exact serialized metadata bytes before a sanitized name may
+select an automatic destination. Version 4 names are ignored for destination
+selection, and an explicit output path is authoritative for both versions.
+Commitments and text/vault tokens use canonical Base64: strict decoding must
+round-trip to the identical ASCII spelling.
+
 ### Format Evolution
 
 | Version | KDF | Key Commitment | Notes |
@@ -361,8 +368,15 @@ SSCVAULT
 
 The decrypted encrypted-text payload must be one JSON object with unique string
 keys and string values. The released six-line format has no version, size, or
-entry-count field; readers do not invent limits that would reject an authentic
-released vault. Import file buffering is separately limited to 100 MiB.
+entry-count field; readers do not invent semantic limits that would reject an
+authentic released vault. Raw active, backup, migration, and import-file
+buffering is separately limited to 100 MiB and uses an opened regular-file
+descriptor plus a `limit + 1` read. Keychain strings are incrementally counted
+as strict UTF-8 before validation or storage, so a newly written value remains
+readable within the same bound.
+Core validation remains byte-exact. Only the CLI import transport boundary
+recovers exactly one legacy terminal LF or CRLF; it does not normalize any
+other whitespace or internal line endings.
 
 ### Integrity Verification and Recovery
 
@@ -521,13 +535,19 @@ Keys exist only in software memory. For HSM requirements, consider:
 
 ### 6. Beta File and Filesystem Scope
 
-Whole regular files of any internal format are encrypted as opaque bytes up to
-100 MiB. Directories and large framed SSC2 objects are not supported. Final
-outputs are atomically replaced only after successful encryption or
+Whole regular files of any internal format are encrypted as opaque bytes.
+`MAX_FILE_SIZE` is the inclusive 100 MiB plaintext payload; SSCV2 magic,
+metadata, salt, nonce, and tag overhead may make the encrypted container larger.
+Opened descriptors are required to be regular files and snapshot sizes are
+checked before key derivation; cumulative counters reject later growth. Raw
+active/candidate vault representations and legacy key files separately use
+100 MiB as a raw-input cap. Final outputs are atomically replaced only after successful encryption or
 authenticated decryption, which protects against ordinary operation failures.
-Temporary files are synced before replacement. Parent-directory sync after
-replacement is best effort. Hostile concurrent path races remain under
-hardening.
+Temporary files are synced before replacement and retained for a final cleanup
+retry if an earlier unlink fails. Parent-directory sync after replacement is
+best effort. Lexical checks plus descriptor inspection do not prevent hostile
+concurrent path replacement; race-resistant descriptor-relative opening remains
+future work.
 
 ### 7. Legacy Key Files and Local Controls
 

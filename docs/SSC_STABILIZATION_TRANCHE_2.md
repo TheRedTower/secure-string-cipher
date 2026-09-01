@@ -21,16 +21,45 @@ The local documentation branch integrates these reviewed packets:
 No release tag was created, no package version was changed, and no remote
 branch, pull request, protection rule, or release was mutated by this local run.
 
+## PR #67 Post-Review Repair Addendum
+
+Independent review of exact PR head
+`4998426a0b1d2d73073d4425b5cd50cb0b2632fc` found bounded defects despite green
+checks. The local repair remains four serial packets: metadata compatibility and
+canonical Base64; vault transport and recovery reporting; bounded regular-file
+processing and temporary cleanup; then CI/documentation/acceptance closure.
+
+The repaired contract is:
+
+- stored filenames are bounded metadata. Version 5 authenticates the exact
+  original bytes before sanitizing a name for automatic destination use;
+  version 4 names are ignored, and explicit destinations remain authoritative;
+- vault core APIs require canonical six-line bytes. Only CLI import removes
+  exactly one terminal LF or CRLF from a bounded raw candidate for compatibility
+  with older redirected exports;
+- `MAX_FILE_SIZE` is the maximum plaintext payload for file encryption and
+  decryption. SSC framing overhead is additional. Active/candidate vault
+  representations and legacy key files separately use the same value as a
+  raw-byte cap, and vault writes enforce the same read-back bound; and
+- opened inputs must be regular files, descriptor snapshots are checked before
+  key derivation, and cumulative counters reject later growth.
+
+The historical validation records below remain evidence for their stated
+commits only. They are not presented as validation of the post-review repair.
+
 ## Claims to Evidence
 
 | Claim | Implementation evidence | Regression evidence |
 | --- | --- | --- |
 | Failed file encryption never publishes a partial destination | `atomic_binary_writer()` and `encrypt_file()` | Atomic writer, core, CLI, and platform-safety failure injection |
 | Plaintext is not published before authentication | `decrypt_file()` finalizes GCM inside the atomic writer | Wrong-password, corrupt-tag, hostile-metadata, and destination-preservation tests |
+| The 100 MiB limit denotes plaintext rather than container size | Descriptor size plus parsed SSC framing; cumulative encrypt/decrypt counters | Exact-limit container-overhead, limit-plus-one, underreported-growth, and platform regressions |
 | `--force` never pre-deletes | CLI passes keyword-only `overwrite`; core performs final replacement | Encryption/decryption force failure tests |
-| v4 filename is untrusted; v5 filename is authenticated | Strict metadata parser and authenticated destination selection | Authentic v4/v5 fixtures plus hostile filename tests |
+| Stored names remain compatible without becoming paths | Bounded metadata parser; authenticated v5 destination sanitization; v4 fallback | POSIX path-shaped writer/reader closure, hostile-name, and authentic v4/v5 fixture tests |
 | Legacy wire compatibility is exercised across chunk boundaries | Immutable released-writer fixtures over a 1,094,205-byte payload | `tests/integration/test_legacy_fixtures.py` |
 | Vault candidates authenticate before mutation | `validate_raw_vault()` and transaction service ordering | Wrong password, corrupt framing/HMAC/body/tag/JSON/schema, and truncation matrix |
+| Active vault data cannot bypass or contradict the raw cap | Shared descriptor reader, incremental UTF-8 counting, and bounded writes/backups/migrations | Exact/plus-one, multibyte, growth, nonregular, CRUD, transaction-no-write, export, and migration tests |
+| Exported vault bytes round-trip across OS text conventions | Binary stdout export; one-ending CLI compatibility boundary; strict core validator | Exact export/import, LF/CRLF legacy, other-whitespace rejection, and Windows translation tests |
 | Vault publication is verified and failures roll back | Exact read-back comparison, revalidation, retained prior raw state | Write, read-back, post-validation, rollback success/failure tests |
 | Backups use collision-resistant identifiers, refuse observed existing entries, and preserve restore sources during rotation | Best-effort no-overwrite preflights; timestamp plus random suffix; protected retention set; hostile concurrent-create races remain out of scope | Collision, same-timestamp, five-record, failure, and future-mtime tests |
 | Secret material does not reach public errors/logs | Generic transaction errors and fixed audit categories | Sensitive-output guard and secret-free exception/log test |
@@ -40,17 +69,25 @@ branch, pull request, protection rule, or release was mutated by this local run.
 Import and restore use the currently configured `PassphraseVault` backend.
 They do not construct a file-only vault in CLI handlers.
 
-1. Read the candidate through the 100 MiB bounded file reader when applicable.
-2. Parse exactly six raw lines; enforce strict UTF-8, separators, lowercase hex,
+1. Read file candidates from an opened regular descriptor with a 100 MiB raw
+   cap and a `limit + 1` growth check.
+2. At the CLI import boundary only, remove exactly one terminal LF or CRLF left
+   by an older redirected export. Direct API callers receive no normalization.
+3. Parse exactly six raw lines; enforce strict UTF-8, separators, lowercase hex,
    strict Base64, HMAC length, and decrypted JSON schema.
-3. Verify HMAC, authenticate/decrypt, reject duplicate or non-string entries.
-4. Retain the current raw active value or its absence.
-5. Publish an exact encrypted backup with a collision-resistant identifier.
-6. Write the already validated candidate through the configured backend.
-7. Read back exact raw contents, compare, and run the same validator again.
-8. On steps 6-7 failure, restore the retained prior value or prior absence.
-9. Report success only after read-back validation; otherwise report whether
+4. Verify HMAC, authenticate/decrypt, reject duplicate or non-string entries.
+5. Retain the current raw active value or its absence.
+6. Publish an exact encrypted backup with a collision-resistant identifier.
+7. Write the already validated candidate through the configured backend.
+8. Read back exact raw contents, compare, and run the same validator again.
+9. On steps 7-8 failure, restore the retained prior value or prior absence.
+10. Report success only after read-back validation; otherwise report whether
    rollback succeeded without including secrets.
+
+Active file-vault CRUD, export, backup, migration, transaction snapshot,
+read-back, and rollback verification use the same bounded descriptor reader.
+Keychain strings are counted incrementally by UTF-8 byte length before they are
+validated, backed up, or stored.
 
 Restore resolves an exact identifier, validates the selected record before
 confirmation/mutation, uses the same transaction path, and never automatically
@@ -73,6 +110,8 @@ clock moves backward.
 
 - File vault and backup publication uses same-directory atomic replacement,
   restrictive POSIX file mode, temporary-file sync, and failure cleanup.
+- Sensitive temporary paths remain available for a final cleanup retry after
+  handles close if an earlier unlink fails transiently.
 - Parent-directory sync after replacement is best effort where supported. A
   failure there is not reported as if the already-published destination were
   still replaceable.
@@ -117,7 +156,7 @@ Environment used for the final local gate:
 - Dependency manager: uv version recorded in the final artifact section
 - Minimum package Python: 3.12 (`requires-python = ">=3.12"`)
 
-Results recorded before final packaging:
+Historical results recorded before the original tranche's final packaging:
 
 - Ruff check: passed
 - Ruff format check: passed
@@ -127,8 +166,37 @@ Results recorded before final packaging:
 - Integrated focused parser/fixture/platform/vault set: 164 passed
 - ST2-06 final full gate before integration: 996 passed, 89.46% coverage
 
-The final integrated full-suite count and coverage are recorded in the external
-maintainer handoff produced after the final commit.
+These counts predate the PR #67 post-review repairs and are not used as current
+acceptance evidence.
+
+### PR #67 post-review local acceptance
+
+The repaired four-commit series was validated locally on 2026-09-01 before any
+push or GitHub review-state change:
+
+- Ruff check and format check: passed
+- mypy `src`: passed
+- sensitive-output guard: passed
+- enforcing `detect-secrets-hook` invocation over tracked files: passed
+- `pip-audit . --desc`: no known vulnerabilities
+- Integrated focused safety set: 627 passed
+- Full serial suite: 1,172 passed in 107.16 seconds
+- Branch coverage: 89.96%, above the enforced 85% floor
+
+Immutable fixture verification also passed:
+
+- `payload.bin` (1,094,205 bytes):
+  `eb201352e0a8bfe4c333ca7ad4580932d6803164ca824ecf43a7f7f28ef84a68`
+- `file-v4.ssc` (1,094,374 bytes):
+  `5e506bc990439ae8249aeae04e88a71fb1aa21c6e9fa8a7d9f9545fe0519551d`
+- `file-v5.ssc` (1,094,374 bytes):
+  `df1f06b8f8c4861bbd950f4db8863fae18422a33aa9276295c2b68069bee9c97`
+- Decoded current-vault fixture (405 bytes):
+  `7da09b6852e28060ee416d03a44d8df3c59bcad57b6e10e82d10edb44f81e16d`
+
+This is local macOS evidence for the repaired commit series. It does not claim
+the required remote protected checks, cross-platform jobs, review-thread
+resolution, approval, merge authorization, or release acceptance.
 
 ## Platform CI Status
 
@@ -137,7 +205,9 @@ The workflow defines:
 - Ubuntu general tests on Python 3.12, 3.13, and 3.14, with the enforced 85%
   coverage gate on 3.14.
 - Focused platform-safety tests on `ubuntu-latest`, `macos-latest`, and
-  `windows-latest` using Python 3.12.
+  `windows-latest` using Python 3.12. The selection includes released fixtures,
+  file/transport boundaries, strict vault candidates, and backend-independent
+  vault transaction/rollback tests.
 
 This local run did not push a branch, so there are no remote Linux/macOS/Windows
 job results to claim. The required branch-protection check name and successful
@@ -172,7 +242,8 @@ workspace as external test inputs; package runtime must not import them.
 
 ## Deferred Risks
 
-1. No descriptor-level path opening or hostile race-free no-replace primitive.
+1. No descriptor-relative no-follow path opening or hostile race-free
+   no-replace primitive. Post-open descriptor checks do not close those races.
 2. No cross-process vault locking; concurrent operations can race.
 3. Native credential-store rollback is best effort and real OS keychains are
    not exercised by the focused CI job.

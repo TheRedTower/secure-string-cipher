@@ -11,18 +11,25 @@ audited.
 
 ## Beta Scope
 
-- Regular files are treated as opaque bytes, so any internal file format is
-  supported up to the 100 MiB input limit. Directories are not supported.
-- The current writer emits metadata version 5. Legacy version 4 files remain
-  decryptable, but their unauthenticated stored filenames are never trusted for
-  automatic output selection.
-- Large framed SSC2 objects, descriptor-level path hardening, cross-process
-  vault locking, real secret `.ssckey` files, and a third-party security audit
-  remain future work.
+- File APIs treat regular files as opaque bytes. `MAX_FILE_SIZE` is an inclusive
+  100 MiB plaintext-payload limit; an SSC file may be larger because its magic,
+  metadata, salt, nonce, and authentication tag are framing overhead.
+  Directories and other special files are not supported.
+- Active and candidate vault representations, plus legacy key files, separately
+  use the same 100 MiB value as a raw-input cap. Vault text is counted by UTF-8
+  bytes, and a value that could not be read back within the cap is not written.
+- `original_filename` is bounded metadata, not a path. The current version 5
+  reader authenticates it before sanitizing it for automatic output selection;
+  an explicit output remains authoritative. Version 4 names are never used to
+  select an output.
+- Large framed SSC2 objects, race-resistant descriptor-relative path opening,
+  cross-process vault locking, real secret `.ssckey` files, and a third-party
+  security audit remain future work.
 
 CI enforces a minimum 85% test coverage threshold on Python 3.14. The workflow
-also defines focused file/vault safety gates on Ubuntu, macOS, and Windows with
-Python 3.12; see the stabilization handoff for the latest recorded results.
+also defines focused file and portable vault validation/transaction gates on
+Ubuntu, macOS, and Windows with Python 3.12; real OS keychain services are not
+tested there. See the stabilization handoff for the latest recorded results.
 
 ## Features
 
@@ -141,8 +148,17 @@ ssc vault restore BACKUP_ID   # authenticate and transactionally restore
 **Security:** Passwords are never passed via command line arguments (prevents shell history exposure). All passwords are prompted interactively or retrieved from the vault.
 
 `ssc vault export` writes canonical six-line UTF-8 bytes with no BOM or terminal
-newline. The CLI importer also recovers files created by older redirected exports
-with exactly one terminal LF or CRLF; direct vault APIs remain byte-strict.
+newline. The CLI importer also recovers files created by older redirected
+exports with exactly one terminal LF or CRLF; direct vault APIs remain
+byte-strict and no other whitespace is normalized.
+
+For `-f -`, encryption accepts at most 100 MiB of plaintext from stdin.
+Decryption bounds the encoded token from that maximum frame, accepts at most one
+terminal LF or CRLF added by shell transport, and rechecks the decoded plaintext
+limit before writing stdout.
+
+Oversize and non-regular filesystem inputs use file error code 4; they are not
+reported as wrong-password or corrupted-ciphertext failures.
 
 `--force` permits final atomic replacement only after encryption completes or
 decryption authenticates. It never pre-deletes the existing destination.
@@ -400,12 +416,14 @@ if has_secure_memory():
 | **Rate Limiting** | Local exponential backoff | CLI throttle only; offline guessing remains possible |
 | **Vault Import/Restore** | Full HMAC, decrypt, JSON-schema, read-back verification | Filesystem atomic publication; credential-store rollback is best effort |
 
-**Additional protections:** best-effort symlink preflight checks, atomic final
+**Additional protections:** best-effort symlink preflight checks, opened-input
+regular-file and size validation, cumulative streaming limits, atomic final
 publication, user-only file permissions (`0o600`), and a 12-character password
 policy. Atomic publication protects against ordinary operation failures;
-hostile concurrent path races require descriptor-level hardening and are not
-claimed to be prevented. The temporary file is synced before replacement;
-parent-directory sync after replacement is best effort on supported platforms.
+hostile concurrent path replacement still requires descriptor-relative opening
+and is not claimed to be prevented. The temporary file is synced before
+replacement; parent-directory sync after replacement is best effort on
+supported platforms.
 
 **Password input:** When running interactively, passwords are hidden (using `getpass`). When stdin is piped or redirected (scripts, automation, tests), passwords are visible. This allows both secure interactive use and scriptable automation.
 

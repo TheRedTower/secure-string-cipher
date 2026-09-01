@@ -62,7 +62,10 @@ jobs:
         PY
 
     - name: Security scan - Secrets
-      run: uv run --locked detect-secrets scan --baseline .secrets.baseline
+      run: |
+        git ls-files -z -- ':!:package.lock.json' |
+          xargs -0 uv run --locked detect-secrets-hook --baseline .secrets.baseline
+        git diff --exit-code -- .secrets.baseline
 
     - name: Security scan - Production Vulnerabilities
       run: uv run --locked pip-audit . --desc
@@ -144,4 +147,8 @@ jobs:
         uv run --locked pytest
         tests/integration/test_legacy_fixtures.py
         tests/integration/test_platform_safety.py
+        tests/unit/test_file_size_limits.py
+        tests/unit/test_vault_transport.py
+        tests/unit/test_vault_candidate_validation.py
+        tests/unit/test_vault_transactions.py
         -n 0

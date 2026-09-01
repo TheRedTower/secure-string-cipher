@@ -210,7 +210,8 @@ This checklist is designed for third-party security auditors reviewing secure-st
 - [ ] **Security limits are reasonable**
   - File: `config.py`
   - Review:
-    - `MAX_FILE_SIZE = 100 * 1024 * 1024` (100 MB)
+    - `MAX_FILE_SIZE = 100 * 1024 * 1024` (100 MiB plaintext payload;
+      separately the raw vault/key-file ingestion cap)
     - `MIN_PASSWORD_LENGTH = 12`
 
 ### 6.2 Hardcoded Secrets (CRITICAL)

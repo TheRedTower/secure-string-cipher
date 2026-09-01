@@ -49,9 +49,17 @@ or audited release contract.
 
 ## Core Encryption
 
-File APIs accept whole regular files as opaque bytes up to 100 MiB, regardless
-of internal format. They do not accept directories or large framed SSC2
-objects.
+File APIs accept whole regular files as opaque bytes. `MAX_FILE_SIZE` is an
+inclusive 100 MiB plaintext-payload limit; SSC magic, metadata, salt, nonce, and
+tag framing may make an encrypted container larger. Directories and other
+special files are rejected. Active/candidate vault representations and legacy
+key files separately use the same numeric value as a raw-input cap. Vault text
+is measured by strict UTF-8 bytes before storage, so the writer cannot publish a
+value that the bounded reader would reject solely for size.
+
+Text and byte-token readers require canonical ASCII Base64: the alphabet and
+padding must be strict, and decoding then re-encoding must reproduce the exact
+input text.
 
 ### encrypt_text
 
@@ -150,10 +158,14 @@ failures.
 
 - `_ensure_no_symlink` rejects symlinked inputs/outputs unless in the allowlist (e.g., `/var`).
 - Existing outputs are preserved unless `overwrite=True`.
+- The opened input descriptor must identify a regular file. Its snapshot size
+  is checked before key derivation, and a cumulative counter catches subsequent
+  growth beyond the plaintext limit.
 - Ciphertext is streamed to a same-directory temporary file and published only
   after GCM finalization, flush, and sync complete.
-- This protects against ordinary operation failures. The path preflight is not
-  descriptor-based and does not claim protection from hostile concurrent races.
+- This protects against ordinary operation failures. Lexical path checks and a
+  later descriptor inspection do not make opening race-free against a hostile
+  concurrent path replacement.
 
 **Example:**
 
@@ -210,6 +222,10 @@ CLI's generic authentication-failure behavior.
 **Security/IO notes:**
 
 - `_ensure_no_symlink` rejects symlinked inputs/outputs unless in the allowlist (e.g., `/var`).
+- Decryption derives the plaintext length from the actual parsed header and
+  metadata length, so framing overhead is not counted against `MAX_FILE_SIZE`.
+  Descriptor and cumulative checks run before any over-limit plaintext is
+  published, including both passes used for automatic output selection.
 - No final plaintext path is published before authentication succeeds.
 - Existing outputs are preserved for wrong passwords, damaged ciphertext, and
   ordinary write/publication failures.
@@ -231,9 +247,13 @@ print(metadata.key_commitment)     # base64 string
 ```
 
 `FileMetadata` contains exactly these serialized fields when present:
-`version`, `original_filename`, and `key_commitment`. The current writer emits
-version 5 and authenticates the metadata as AES-GCM additional authenticated
-data. Legacy version 4 metadata is readable but unauthenticated.
+`version`, `original_filename`, and `key_commitment`. `original_filename` is a
+bounded metadata string, not a filesystem path. The current writer emits
+version 5 and authenticates the original metadata bytes as AES-GCM additional
+authenticated data; only after authentication may an automatic destination use
+a sanitized name. Legacy version 4 metadata is readable but unauthenticated, so
+its stored name is ignored for destination selection. Explicit output paths are
+authoritative for both versions.
 
 ---
 
@@ -517,6 +537,17 @@ Filesystem publication uses atomic replacement. Native credential stores do
 not expose a multi-record atomic transaction, so rollback for those backends is
 best effort. No cross-process lock is implemented.
 
+This API remains byte-exact and does not normalize line endings or surrounding
+whitespace. The `ssc vault import` CLI alone accepts exactly one legacy terminal
+LF or CRLF, removes it after a bounded raw-byte read, and passes canonical
+six-line bytes into this API. Other whitespace and internal CRLF framing remain
+invalid.
+
+File-backed active vault reads, backups, migrations, and transaction
+read-back/rollback checks use the same opened-descriptor `limit + 1` reader.
+Keychain text is incrementally counted by strict UTF-8 bytes before validation,
+backup, or publication.
+
 ##### list_backup_records / validate_backup / restore_from_backup
 
 ```python
@@ -528,11 +559,13 @@ previous_identifier = vault.restore_from_backup(
 ) -> str | None
 ```
 
-`VaultBackup` records expose `identifier`, UTC `created_at`, and `path`. Restore
-requires the exact identifier, validates the selected record before mutation,
-uses the same transaction as import, and never automatically removes the
-selected restore source. Five backups are retained; collision-resistant names
-combine a UTC microsecond timestamp with a random suffix.
+`VaultBackup` records expose `identifier`, `created_at`, and `path`. The retained
+`created_at` name is a compatibility field containing an mtime-derived UTC
+ordering timestamp, not filesystem creation time. Restore requires the exact
+identifier, validates the selected record before mutation, uses the same
+transaction as import, and never automatically removes the selected restore
+source. Five backups are retained; collision-resistant names combine a UTC
+microsecond timestamp with a random suffix.
 
 **Example:**
 
@@ -1040,7 +1073,7 @@ Key parameters defined in `secure_string_cipher.config`:
 | `ARGON2_MEMORY` | 65536 | Argon2id memory cost (64MB) |
 | `ARGON2_ITERATIONS` | 3 | Argon2id time cost |
 | `ARGON2_PARALLELISM` | 4 | Argon2id parallelism |
-| `MAX_FILE_SIZE` | 104857600 | Maximum file size (100MB) |
+| `MAX_FILE_SIZE` | 104857600 | Maximum plaintext payload (100 MiB); also the separate raw vault/key-file ingestion cap |
 | `MIN_PASSWORD_LENGTH` | 12 | Minimum password length |
 | `SALT_SIZE` | 16 | Salt size in bytes |
 | `KEY_SIZE` | 32 | AES-256 key size |

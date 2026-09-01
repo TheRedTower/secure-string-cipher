@@ -146,3 +146,6 @@ vault = PassphraseVault(backend=BACKEND_FILE)  # Always use file
 - On shared systems, each OS user has their own keychain
 - Keychain entries are tied to the current user session
 - Backup your vault before migrating: `ssc vault export > backup.txt`
+- Export writes exact six-line UTF-8 bytes without a terminal newline. CLI
+  import accepts exactly one terminal LF or CRLF from an older redirected
+  export; direct vault APIs and all other whitespace remain byte-strict.

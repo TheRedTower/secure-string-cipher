@@ -104,7 +104,7 @@ def _vault_descriptor_regular_file_size(candidate_stream: BinaryIO) -> int:
 
 
 def read_bounded_vault_file(path: str | Path) -> bytes:
-    """Read a regular-file vault candidate without allocating beyond the bound."""
+    """Read a regular-file vault value without allocating beyond the bound."""
     candidate_path = Path(path)
     try:
         if candidate_path.is_symlink() or not candidate_path.is_file():
@@ -790,7 +790,7 @@ class PassphraseVault:
         )
 
     def list_backup_records(self) -> list[VaultBackup]:
-        """List backups by stable identifier and filesystem creation time."""
+        """List backups by stable identifier and mtime-derived UTC ordering time."""
         records = []
         for path in self.backup_dir.glob("vault_backup_*.enc"):
             if path.is_symlink() or not path.is_file():

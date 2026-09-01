@@ -2,6 +2,11 @@
 
 Baseline: `main` at `94f0587cda87038f440f8e4b90a17751e7cda26d`
 
+Historical planning note: later stabilization work implemented several items
+listed here as deferred. The current contract and acceptance evidence live in
+`docs/SSC_STABILIZATION_TRANCHE_2.md`; this document retains the original packet
+boundaries.
+
 Purpose: provide tightly bounded, independently reviewable packets that deliver
 the highest-value safety improvements in approximately five working days.
 
@@ -161,8 +166,9 @@ Branch: `docs/truthful-beta-contract`, after FT-04. Production code is out of
 scope. Update README, security/cryptography documents, API reference, changelog,
 and roadmap.
 
-State Beta status; opaque regular-file support up to 100 MiB; no directories or
-large SSC2 objects; current v5 and legacy v4; actual metadata fields
+State Beta status; opaque regular-file plaintext payloads up to 100 MiB, with
+SSC framing overhead additional; no directories or large SSC2 objects; current
+v5 and legacy v4; actual metadata fields
 `version`/`original_filename`/`key_commitment`; v5 metadata authentication and
 v4 non-authentication; exact keyword-only overwrite APIs; atomic `--force`
 semantics; and hostile path-race limitations.
@@ -199,14 +205,16 @@ uv sync --extra dev --locked
 uv run --locked ruff check src tests tools
 uv run --locked ruff format --check src tests tools
 uv run --locked mypy src
-uv run --locked detect-secrets scan --baseline .secrets.baseline
+git ls-files -z -- ':!:package.lock.json' | \
+  xargs -0 uv run --locked detect-secrets-hook --baseline .secrets.baseline
 uv run --locked pip-audit . --desc
 uv run --locked pytest tests/ \
   --cov=secure_string_cipher \
   --cov-report=term-missing \
   --cov-report=json:coverage.json \
   --cov-report=xml \
-  --cov-fail-under=85
+  --cov-fail-under=85 \
+  -n 0
 ```
 
 Manual smoke tests cover empty and all-byte files, forced ciphertext

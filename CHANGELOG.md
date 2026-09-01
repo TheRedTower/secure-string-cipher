@@ -27,14 +27,33 @@
 - Vault backups now use collision-resistant stable identifiers, atomic
   no-overwrite publication, restrictive POSIX permissions, and retention that
   protects both the selected restore source and new pre-replacement snapshot.
+- Restored writer/reader compatibility by treating stored filenames as bounded
+  metadata, authenticating version 5 before destination sanitization, and
+  continuing to ignore version 4 names for automatic output selection.
+- Canonical Base64 decoding now rejects alternate non-zero-padding-bit spellings
+  for text/byte tokens, metadata commitments, and vault tokens.
+- Vault export now emits exact six-line bytes without text newline translation;
+  CLI import narrowly recovers one legacy terminal LF or CRLF while core vault
+  APIs remain byte-exact. Interactive rollback failures now report the possible
+  inconsistent active state without exposing error details.
+- Enforced the 100 MiB plaintext limit from opened regular-file descriptors for
+  encryption and decryption, with cumulative growth checks. Active/candidate
+  vault values, migrations, backups, key-file reads, and stdin are bounded;
+  bound-inconsistent vault writes are rejected; and sensitive atomic
+  temporaries receive final cleanup retries after transient close/unlink
+  failures. File input rejections now use file-error rather than authentication
+  status.
 
 ### Compatibility and CI
 
 - Added immutable, released-writer v4 (`v1.2.10`) and v5 (`v1.3.0`) fixtures
   over a 1,094,205-byte binary payload that crosses four streaming chunks.
 - Added a focused Python 3.12 platform-safety workflow for Ubuntu, macOS, and
-  Windows. Remote results remain a merge/release gate and are not inferred from
-  the workflow definition.
+  Windows, including portable vault candidate/transaction regressions. Remote
+  results remain a merge/release gate and are not inferred from the workflow
+  definition.
+- Replaced baseline-updating secret scans in CI/release workflows with the
+  failing `detect-secrets-hook` over tracked files.
 
 ### Documentation
 

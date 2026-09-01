@@ -85,8 +85,12 @@ This project implements multiple layers of security:
 
 ### 3. File Security
 
-- **100 MiB file size limit** - Whole regular files are treated as opaque bytes;
-  directories and large SSC2 objects are unsupported
+- **100 MiB plaintext limit** - Whole regular files are treated as opaque bytes;
+  SSC framing overhead is additional. Active/candidate vault representations
+  and legacy key files separately use the same value as their raw-input cap.
+  Directories and other special files are unsupported
+- **Opened-input enforcement** - Descriptor type/size checks happen before key
+  derivation, and cumulative stream counters reject subsequent growth
 - **Atomic final publication** - Existing outputs survive ordinary operation and
   authentication failures; `--force` never pre-deletes them. Same-directory
   temporary files are synced before replacement; parent-directory sync after
@@ -94,14 +98,22 @@ This project implements multiple layers of security:
 - **Secure permissions** - `chmod 600` (owner-only read/write)
 - **Path validation** - Best-effort lexical symlink preflight; hostile races
   remain pending descriptor-level hardening
-- **Filename sanitization** - Removes traversal components, separators, control
-  characters, and unsupported characters; it does not prevent Unicode homoglyphs
+- **Filename policy** - Stored names are bounded metadata, not paths. Version 5
+  authenticates before automatic destination sanitization; version 4 names are
+  ignored. Sanitization removes traversal components, separators, controls, and
+  unsupported characters; it does not prevent Unicode homoglyphs
 
 ### 4. Vault Integrity
 
 - **HMAC-SHA256 verification** - Detects tampering before decryption
 - **Authenticated import/restore** - Strict framing, HMAC, encrypted payload,
   and decrypted JSON schema are validated before active-backend mutation
+- **Transport boundary** - Core vault APIs require canonical six-line bytes.
+  The CLI importer alone recovers exactly one legacy terminal LF or CRLF after a
+  bounded read; no broad whitespace normalization is performed
+- **Bound-consistent storage** - File active/backup/migration reads use opened
+  regular descriptors and `limit + 1`; keychain text is incrementally counted
+  in UTF-8 bytes, and oversize active values are never backed up or replaced
 - **Transactional verification** - Current raw state is retained and backed up,
   replacement is read back and revalidated, and post-write failures attempt
   rollback
@@ -135,8 +147,10 @@ chained, append-only, or tamper-evident.
 ### 7. Current Limitations
 
 - Writer metadata version 5 authenticates `version`, `original_filename`, and
-  `key_commitment`. Legacy version 4 metadata is unauthenticated, so its stored
-  filename is never used to select an output path.
+  `key_commitment`. `original_filename` is retained as bounded metadata and is
+  sanitized only after authentication when choosing an automatic destination.
+  Legacy version 4 metadata is unauthenticated, so its stored filename is never
+  used to select an output path.
 - Legacy key-file mode hashes file bytes into a symmetric passphrase. It is not
   public-key or recipient encryption; anyone with identical bytes can decrypt.
 - Vault import and restore authenticate before mutation and verify after
@@ -149,11 +163,13 @@ chained, append-only, or tamper-evident.
 
 The main CI workflow runs the general suite on Ubuntu with Python 3.12, 3.13,
 and 3.14, and defines a focused safety matrix on Ubuntu, macOS, and Windows with
-Python 3.12. The focused gate covers atomic publication, failure cleanup,
-wrong-password preservation, empty/binary files, metadata restoration, and the
-authentic v4/v5 fixtures. A workflow definition is not evidence of a successful
-remote run; the stabilization handoff records that status separately. Real OS
-keychain services are not exercised by these isolated CI tests.
+Python 3.12. The focused gate covers atomic publication, bounded regular-file
+processing, failure cleanup, wrong-password preservation, empty/binary files,
+metadata restoration, authentic v4/v5 fixtures, strict vault candidates, CLI
+vault transport, and backend-independent vault transaction/rollback behavior.
+A workflow definition is not evidence of a successful remote run; the
+stabilization handoff records that status separately. Real OS keychain services
+are not exercised by these isolated CI tests.
 
 ## For Contributors
 
