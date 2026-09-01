@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from secure_string_cipher.atomic_io import atomic_binary_writer
+from secure_string_cipher.atomic_io import _remove_temporary, atomic_binary_writer
 from secure_string_cipher.utils import CryptoError
 
 
@@ -144,6 +144,21 @@ def test_caller_exception_retries_transient_temporary_removal(
     assert removal_attempts >= 2
     assert not destination.exists()
     assert _temporary_files(tmp_path, destination) == []
+
+
+def test_temporary_removal_does_not_swallow_keyboard_interrupt(
+    tmp_path: Path,
+) -> None:
+    temporary = tmp_path / "temporary.bin"
+    temporary.write_bytes(b"sensitive")
+
+    with (
+        patch.object(Path, "unlink", side_effect=KeyboardInterrupt),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        _remove_temporary(temporary)
+
+    assert temporary.exists()
 
 
 def test_publication_failure_retries_transient_temporary_removal(

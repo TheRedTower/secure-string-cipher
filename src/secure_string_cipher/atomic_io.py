@@ -21,7 +21,7 @@ def _remove_temporary(path: Path | None) -> bool:
         path.unlink()
     except FileNotFoundError:
         return True
-    except BaseException:
+    except OSError:
         return False
     return True
 

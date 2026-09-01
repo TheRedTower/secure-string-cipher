@@ -171,8 +171,10 @@ acceptance evidence.
 
 ### PR #67 post-review local acceptance
 
-The repaired four-commit series was validated locally on 2026-09-01 before any
-push or GitHub review-state change:
+The four planned repair commits and subsequent remote-acceptance follow-ups were
+validated locally on 2026-09-01. The follow-ups made the Windows active-vault
+fixture use the real byte-exact writer, restricted temporary-removal suppression
+to filesystem errors, and excluded symlinks/non-files from backup rotation:
 
 - Ruff check and format check: passed
 - mypy `src`: passed
@@ -180,8 +182,9 @@ push or GitHub review-state change:
 - enforcing `detect-secrets-hook` invocation over tracked files: passed
 - `pip-audit . --desc`: no known vulnerabilities
 - Integrated focused safety set: 627 passed
-- Full serial suite: 1,172 passed in 107.16 seconds
-- Branch coverage: 89.96%, above the enforced 85% floor
+- Focused final atomic/transaction set: 64 passed
+- Full serial suite: 1,174 passed in 107.70 seconds
+- Branch coverage: 90.01%, above the enforced 85% floor
 
 Immutable fixture verification also passed:
 

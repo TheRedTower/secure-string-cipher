@@ -384,7 +384,11 @@ class PassphraseVault:
     ) -> None:
         """Retain five backups without removing an active restore source."""
         backups = sorted(
-            self.backup_dir.glob("vault_backup_*.enc"),
+            (
+                path
+                for path in self.backup_dir.glob("vault_backup_*.enc")
+                if not path.is_symlink() and path.is_file()
+            ),
             key=lambda path: path.stat().st_mtime_ns,
             reverse=True,
         )

@@ -164,6 +164,45 @@ def test_restore_never_rotates_out_selected_oldest_backup(tmp_path: Path) -> Non
     assert identifiers[1] not in retained
 
 
+def test_backup_rotation_ignores_symlinks_and_nonfiles(tmp_path: Path) -> None:
+    vault = PassphraseVault(str(tmp_path / "active.enc"), backend="file")
+    identifiers = [f"vault_backup_real_{index}.enc" for index in range(6)]
+
+    for index, identifier in enumerate(identifiers[:5], start=1):
+        with patch(
+            "secure_string_cipher.passphrase_manager._new_backup_identifier",
+            return_value=identifier,
+        ):
+            vault._publish_backup(f"backup-{index}")
+        os.utime(vault.backup_dir / identifier, (index, index))
+
+    external_target = tmp_path / "external-backup.enc"
+    external_target.write_bytes(b"external")
+    valid_symlink = vault.backup_dir / "vault_backup_valid_symlink.enc"
+    dangling_symlink = vault.backup_dir / "vault_backup_dangling_symlink.enc"
+    try:
+        valid_symlink.symlink_to(external_target)
+        dangling_symlink.symlink_to(tmp_path / "missing-backup.enc")
+    except (NotImplementedError, OSError):  # pragma: no cover - platform support
+        pytest.skip("symbolic links are unavailable")
+    matching_directory = vault.backup_dir / "vault_backup_directory.enc"
+    matching_directory.mkdir()
+
+    with patch(
+        "secure_string_cipher.passphrase_manager._new_backup_identifier",
+        return_value=identifiers[5],
+    ):
+        vault._publish_backup("newest")
+
+    retained = {record.identifier for record in vault.list_backup_records()}
+    assert len(retained) == 5
+    assert identifiers[0] not in retained
+    assert identifiers[5] in retained
+    assert valid_symlink.is_symlink()
+    assert dangling_symlink.is_symlink()
+    assert matching_directory.is_dir()
+
+
 def test_import_retains_new_snapshot_despite_future_backup_mtimes(
     tmp_path: Path,
 ) -> None:
