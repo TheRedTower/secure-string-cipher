@@ -1,5 +1,69 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+
+- Added a streaming same-directory atomic writer and routed existing vault byte
+  writes through it.
+- File encryption now publishes only after GCM finalization and sync. File
+  decryption publishes plaintext only after authentication; `--force` permits
+  final atomic replacement and never pre-deletes an existing destination.
+- Version 5 automatic filename restoration occurs only after metadata
+  authentication. Legacy version 4 content remains decryptable, but its
+  unauthenticated filename cannot select a destination.
+- Removed the destructive fixed `.write_test` probe and corrected lexical
+  relative-symlink checks, strict text base64/UTF-8 handling, and empty-file
+  progress.
+- Upgraded the locked `cryptography` dependency from 49.0.0 to 50.0.0 without
+  changing v4/v5 framing, algorithms, parameters, or writer bytes.
+- Added strict v4/v5 metadata parsing with duplicate-key rejection, exact
+  schema/type checks, strict Base64, bounded metadata, and generic public
+  authentication-failure behavior.
+- Added a pure six-line vault candidate validator and transactional import and
+  restore through the configured backend. Candidates authenticate before
+  mutation; active raw state is backed up; publication is read back and
+  revalidated; post-write failures attempt rollback and report its status.
+- Vault backups now use collision-resistant stable identifiers, atomic
+  no-overwrite publication, restrictive POSIX permissions, and retention that
+  protects both the selected restore source and new pre-replacement snapshot.
+- Restored writer/reader compatibility by treating stored filenames as bounded
+  metadata, authenticating version 5 before destination sanitization, and
+  continuing to ignore version 4 names for automatic output selection.
+- Canonical Base64 decoding now rejects alternate non-zero-padding-bit spellings
+  for text/byte tokens, metadata commitments, and vault tokens.
+- Vault export now emits exact six-line bytes without text newline translation;
+  CLI import narrowly recovers one legacy terminal LF or CRLF while core vault
+  APIs remain byte-exact. Interactive rollback failures now report the possible
+  inconsistent active state without exposing error details.
+- Enforced the 100 MiB plaintext limit from opened regular-file descriptors for
+  encryption and decryption, with cumulative growth checks. Active/candidate
+  vault values, migrations, backups, key-file reads, and stdin are bounded;
+  bound-inconsistent vault writes are rejected; and sensitive atomic
+  temporaries receive final cleanup retries after transient close/unlink
+  failures. File input rejections now use file-error rather than authentication
+  status.
+
+### Compatibility and CI
+
+- Added immutable, released-writer v4 (`v1.2.10`) and v5 (`v1.3.0`) fixtures
+  over a 1,094,205-byte binary payload that crosses four streaming chunks.
+- Added a focused Python 3.12 platform-safety workflow for Ubuntu, macOS, and
+  Windows, including portable vault candidate/transaction regressions. Remote
+  results remain a merge/release gate and are not inferred from the workflow
+  definition.
+- Replaced baseline-updating secret scans in CI/release workflows with the
+  failing `detect-secrets-hook` over tracked files.
+
+### Documentation
+
+- Marked the current product Beta and documented current file, metadata,
+  key-file, rate-limit, memory-clearing, audit-log, vault-import, atomicity, and
+  deletion limitations without changing the package version.
+- Added the stabilization-tranche audit handoff with fixture provenance,
+  dependency diff, local checks, package artifact evidence, reviewer decisions,
+  and explicit deferred risks.
+
 ## [1.3.0] - 2026-06-06
 
 ### Added
