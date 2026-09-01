@@ -213,7 +213,8 @@ def test_validation_does_not_change_active_vault(
 
 def test_active_load_reuses_pure_validator(tmp_path: Path, valid_raw: str) -> None:
     vault = PassphraseVault(vault_path=str(tmp_path / "active.enc"))
-    vault.vault_path.write_text(valid_raw, encoding="utf-8")
+    vault.write_raw_vault(valid_raw)
+    assert vault.vault_path.read_bytes() == valid_raw.encode("utf-8")
 
     with patch(
         "secure_string_cipher.passphrase_manager.validate_raw_vault",
