@@ -61,7 +61,10 @@ class TestStreamProcessor:
         # Create a sparse file header to trick size check
         large_file.write_bytes(b"x")
 
-        with patch("os.path.getsize", return_value=2 * 1024 * 1024 * 1024):
+        with patch(
+            "secure_string_cipher.core._preflight_regular_file_size",
+            return_value=2 * 1024 * 1024 * 1024,
+        ):
             with pytest.raises(CryptoError, match="too large"):
                 StreamProcessor(str(large_file), "rb")
 

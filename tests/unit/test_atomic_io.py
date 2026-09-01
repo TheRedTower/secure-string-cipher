@@ -91,6 +91,90 @@ def test_caller_exception_leaves_no_new_destination(tmp_path: Path) -> None:
     assert _temporary_files(tmp_path, destination) == []
 
 
+def test_caller_exception_retries_transient_temporary_removal(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "output.bin"
+    real_fdopen = os.fdopen
+    real_unlink = Path.unlink
+    close_attempts = 0
+    removal_attempts = 0
+
+    class TransientCloseWriter:
+        def __init__(self, wrapped):
+            self.wrapped = wrapped
+
+        def write(self, data):
+            return self.wrapped.write(data)
+
+        def close(self):
+            nonlocal close_attempts
+            close_attempts += 1
+            if close_attempts == 1:
+                raise PermissionError("writer is still busy")
+            return self.wrapped.close()
+
+        def flush(self):
+            return self.wrapped.flush()
+
+        def fileno(self):
+            return self.wrapped.fileno()
+
+    def transient_fdopen(fd, mode):
+        return TransientCloseWriter(real_fdopen(fd, mode))
+
+    def transient_unlink(path: Path, *args, **kwargs):
+        nonlocal removal_attempts
+        if path.name.startswith(f".{destination.name}.") and path.name.endswith(".tmp"):
+            removal_attempts += 1
+            if removal_attempts == 1:
+                raise PermissionError("temporary file is still busy")
+        return real_unlink(path, *args, **kwargs)
+
+    with (
+        patch("secure_string_cipher.atomic_io.os.fdopen", transient_fdopen),
+        patch.object(Path, "unlink", transient_unlink),
+        pytest.raises(RuntimeError, match="injected"),
+    ):
+        with atomic_binary_writer(destination) as writer:
+            writer.write(b"unauthenticated plaintext")
+            raise RuntimeError("injected")
+
+    assert close_attempts == 2
+    assert removal_attempts >= 2
+    assert not destination.exists()
+    assert _temporary_files(tmp_path, destination) == []
+
+
+def test_publication_failure_retries_transient_temporary_removal(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "output.bin"
+    destination.write_bytes(b"original")
+    real_unlink = Path.unlink
+    removal_attempts = 0
+
+    def transient_unlink(path: Path, *args, **kwargs):
+        nonlocal removal_attempts
+        if path.name.startswith(f".{destination.name}.") and path.name.endswith(".tmp"):
+            removal_attempts += 1
+            if removal_attempts == 1:
+                raise PermissionError("temporary file is still busy")
+        return real_unlink(path, *args, **kwargs)
+
+    with (
+        patch("secure_string_cipher.atomic_io.os.fsync", side_effect=OSError("disk")),
+        patch.object(Path, "unlink", transient_unlink),
+        pytest.raises(OSError, match="disk"),
+    ):
+        with atomic_binary_writer(destination, overwrite=True) as writer:
+            writer.write(b"replacement")
+
+    assert removal_attempts == 2
+    assert destination.read_bytes() == b"original"
+    assert _temporary_files(tmp_path, destination) == []
+
+
 def test_fsync_failure_preserves_existing_destination(tmp_path: Path) -> None:
     destination = tmp_path / "output.bin"
     destination.write_bytes(b"original")

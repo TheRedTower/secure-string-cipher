@@ -13,11 +13,17 @@ from typing import BinaryIO
 from .utils import CryptoError
 
 
-def _remove_temporary(path: Path | None) -> None:
+def _remove_temporary(path: Path | None) -> bool:
     """Remove a temporary file without masking an earlier failure."""
-    if path is not None:
-        with contextlib.suppress(BaseException):
-            path.unlink()
+    if path is None:
+        return True
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return True
+    except BaseException:
+        return False
+    return True
 
 
 def _destination_entry_exists(path: Path) -> bool:
@@ -101,8 +107,8 @@ def atomic_binary_writer(
         except BaseException:
             with contextlib.suppress(BaseException):
                 writer.close()
-            _remove_temporary(temporary_path)
-            temporary_path = None
+            if _remove_temporary(temporary_path):
+                temporary_path = None
             raise
 
         writer.flush()
@@ -123,4 +129,5 @@ def atomic_binary_writer(
         if fd is not None:
             with contextlib.suppress(BaseException):
                 os.close(fd)
-        _remove_temporary(temporary_path)
+        if not _remove_temporary(temporary_path):
+            _remove_temporary(temporary_path)

@@ -18,10 +18,19 @@ from typing import NoReturn
 from . import __version__
 from .audit_log import AuditEvent, get_audit_logger
 from .cli import main as run_interactive_menu
-from .config import load_vault_settings, set_vault_backend
+from .config import (
+    KEY_COMMITMENT_SIZE,
+    MAX_FILE_SIZE,
+    NONCE_SIZE,
+    SALT_SIZE,
+    TAG_SIZE,
+    load_vault_settings,
+    set_vault_backend,
+)
 from .core import (
     CryptoError,
     _ensure_no_symlink,
+    _FileInputError,
     decrypt_bytes,
     decrypt_file,
     decrypt_text,
@@ -61,6 +70,33 @@ EXIT_FILE_ERROR = 4  # Not found, permission denied
 
 _quiet_mode = False
 _no_color = False
+
+
+class _StdinSizeError(CryptoError):
+    """Internal signal for stdin data outside the documented payload bound."""
+
+
+def _read_stdin_bounded(maximum_bytes: int) -> bytes:
+    """Read at most one byte beyond a caller-supplied stdin bound."""
+    data = sys.stdin.buffer.read(maximum_bytes + 1)
+    if len(data) > maximum_bytes:
+        raise _StdinSizeError("Stdin input exceeds the allowed size.")
+    return data
+
+
+def _maximum_stdin_ciphertext_size() -> int:
+    """Return Base64 size for a maximum plaintext plus text-token framing."""
+    raw_size = MAX_FILE_SIZE + SALT_SIZE + NONCE_SIZE + KEY_COMMITMENT_SIZE + TAG_SIZE
+    return 4 * ((raw_size + 2) // 3)
+
+
+def _remove_one_terminal_line_ending(data: bytes) -> bytes:
+    """Remove one shell transport line ending without broad whitespace stripping."""
+    if data.endswith(b"\r\n"):
+        return data[:-2]
+    if data.endswith(b"\n"):
+        return data[:-1]
+    return data
 
 
 def _print_info(message: str) -> None:
@@ -382,12 +418,14 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
         # Handle stdin/stdout streaming
         if filepath == "-":
             try:
-                data = sys.stdin.buffer.read()
+                data = _read_stdin_bounded(MAX_FILE_SIZE)
                 ciphertext_bytes = encrypt_bytes(data, password)
                 sys.stdout.buffer.write(ciphertext_bytes + b"\n")
                 _audit_encryption(AuditEvent.ENCRYPT_FILE, True, file_path="stdin")
                 _print_info("✓ Encrypted stdin to stdout")
                 return EXIT_SUCCESS
+            except _StdinSizeError:
+                _exit_error(EXIT_FILE_ERROR, "Stdin input too large.")
             except CryptoError:
                 _audit_encryption(
                     AuditEvent.ENCRYPT_FILE,
@@ -414,6 +452,14 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
             )
             _print_info(f"✓ Encrypted to {output_path}")
             return EXIT_SUCCESS
+        except _FileInputError:
+            _audit_encryption(
+                AuditEvent.ENCRYPT_FILE,
+                False,
+                file_path=str(filepath_obj),
+                error="input_rejected",
+            )
+            _exit_error(EXIT_FILE_ERROR, "Input file rejected.")
         except CryptoError:
             _audit_encryption(
                 AuditEvent.ENCRYPT_FILE,
@@ -524,13 +570,21 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
         if filepath == "-":
             # Read from stdin, decrypt, write to stdout
             try:
-                data = sys.stdin.buffer.read().strip()
+                maximum_token_size = _maximum_stdin_ciphertext_size()
+                data = _read_stdin_bounded(maximum_token_size + 2)
+                data = _remove_one_terminal_line_ending(data)
+                if len(data) > maximum_token_size:
+                    raise _StdinSizeError("Stdin input exceeds the allowed size.")
                 plaintext_bytes = decrypt_bytes(data, password)
+                if len(plaintext_bytes) > MAX_FILE_SIZE:
+                    raise _StdinSizeError("Stdin input exceeds the allowed size.")
                 sys.stdout.buffer.write(plaintext_bytes)
                 _cli_limiter.record_attempt("decrypt_file", "-", success=True)
                 _audit_encryption(AuditEvent.DECRYPT_FILE, True, file_path="stdin")
                 _print_info("✓ Decrypted stdin to stdout")
                 return EXIT_SUCCESS
+            except _StdinSizeError:
+                _exit_error(EXIT_FILE_ERROR, "Stdin input too large.")
             except CryptoError:
                 _cli_limiter.record_attempt("decrypt_file", "-", success=False)
                 _audit_encryption(
@@ -565,6 +619,14 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
             )
             _print_info(f"✓ Decrypted to {actual_output}")
             return EXIT_SUCCESS
+        except _FileInputError:
+            _audit_encryption(
+                AuditEvent.DECRYPT_FILE,
+                False,
+                file_path=str(filepath_obj),
+                error="input_rejected",
+            )
+            _exit_error(EXIT_FILE_ERROR, "Input file rejected.")
         except CryptoError as exc:
             if str(exc).startswith("Output file already exists:"):
                 _exit_error(
@@ -708,9 +770,9 @@ def cmd_vault_export(args: argparse.Namespace) -> int:
             return EXIT_SUCCESS
         _audit_vault(AuditEvent.VAULT_LIST, False, vault, error="vault_not_found")
         _exit_error(EXIT_VAULT_ERROR, "Vault not found.")
-    except CryptoError:
+    except (CryptoError, ValueError):
         _audit_vault(AuditEvent.VAULT_LIST, False, vault, error="auth_failed")
-        _exit_error(EXIT_AUTH_ERROR, "Wrong master password.")
+        _exit_error(EXIT_AUTH_ERROR, "Vault export failed.")
 
 
 def cmd_vault_import(args: argparse.Namespace) -> int:

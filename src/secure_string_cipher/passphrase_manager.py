@@ -28,9 +28,11 @@ import hmac
 import json
 import os
 import secrets
+import stat
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import BinaryIO
 
 from .atomic_io import atomic_binary_writer
 from .config import (
@@ -51,6 +53,7 @@ _VAULT_FAILURE_MESSAGE = (
     "Failed to decrypt vault. Wrong master password or corrupted vault file."
 )
 _BACKUP_ATTEMPTS = 10
+_TEXT_BOUND_CHUNK_SIZE = 64 * 1024
 
 # Backend type literals
 BACKEND_FILE = VAULT_BACKEND_FILE
@@ -85,18 +88,37 @@ class VaultTransactionError(ValueError):
         self.backup_identifier = backup_identifier
 
 
+class _VaultInputTooLarge(ValueError):
+    """Internal signal for vault text outside the raw-byte ingestion cap."""
+
+
+def _vault_descriptor_regular_file_size(candidate_stream: BinaryIO) -> int:
+    """Return a vault candidate's size from its opened regular descriptor."""
+    try:
+        file_status = os.fstat(candidate_stream.fileno())
+    except (AttributeError, OSError, ValueError) as error:
+        raise ValueError from error
+    if not stat.S_ISREG(file_status.st_mode):
+        raise ValueError
+    return file_status.st_size
+
+
 def read_bounded_vault_file(path: str | Path) -> bytes:
-    """Read a candidate vault into the existing 100 MiB bounded buffer."""
+    """Read a regular-file vault candidate without allocating beyond the bound."""
     candidate_path = Path(path)
     try:
         if candidate_path.is_symlink() or not candidate_path.is_file():
             raise ValueError
-        if candidate_path.stat().st_size > MAX_FILE_SIZE:
-            raise VaultTransactionError(
-                "candidate_too_large",
-                "Vault candidate exceeds the allowed input size.",
-            )
-        contents = candidate_path.read_bytes()
+
+        with open(candidate_path, "rb") as candidate_stream:
+            candidate_size = _vault_descriptor_regular_file_size(candidate_stream)
+            if candidate_size > MAX_FILE_SIZE:
+                raise VaultTransactionError(
+                    "candidate_too_large",
+                    "Vault candidate exceeds the allowed input size.",
+                )
+            contents = candidate_stream.read(MAX_FILE_SIZE + 1)
+
         if len(contents) > MAX_FILE_SIZE:
             raise VaultTransactionError(
                 "candidate_too_large",
@@ -111,6 +133,25 @@ def read_bounded_vault_file(path: str | Path) -> bytes:
         ) from None
 
 
+def _require_bounded_vault_text(vault_contents: str) -> str:
+    """Validate a text vault's UTF-8 size without a full oversize allocation."""
+    if len(vault_contents) > MAX_FILE_SIZE:
+        raise _VaultInputTooLarge
+
+    encoded_size = 0
+    for offset in range(0, len(vault_contents), _TEXT_BOUND_CHUNK_SIZE):
+        chunk = vault_contents[offset : offset + _TEXT_BOUND_CHUNK_SIZE]
+        encoded_size += len(chunk.encode("utf-8", errors="strict"))
+        if encoded_size > MAX_FILE_SIZE:
+            raise _VaultInputTooLarge
+    return vault_contents
+
+
+def _bounded_vault_bytes(vault_contents: str) -> bytes:
+    """Encode vault text only after its byte length is known to be bounded."""
+    return _require_bounded_vault_text(vault_contents).encode("utf-8")
+
+
 def _bounded_candidate_text(vault_contents: str | bytes) -> str:
     """Normalize a bounded raw candidate to strict UTF-8 text."""
     try:
@@ -121,12 +162,12 @@ def _bounded_candidate_text(vault_contents: str | bytes) -> str:
                     "Vault candidate exceeds the allowed input size.",
                 )
             return vault_contents.decode("utf-8", errors="strict")
-        if len(vault_contents.encode("utf-8")) > MAX_FILE_SIZE:
-            raise VaultTransactionError(
-                "candidate_too_large",
-                "Vault candidate exceeds the allowed input size.",
-            )
-        return vault_contents
+        return _require_bounded_vault_text(vault_contents)
+    except _VaultInputTooLarge:
+        raise VaultTransactionError(
+            "candidate_too_large",
+            "Vault candidate exceeds the allowed input size.",
+        ) from None
     except VaultTransactionError:
         raise
     except UnicodeError:
@@ -167,15 +208,14 @@ def validate_raw_vault(
     """Validate and decode supplied current-format vault contents.
 
     This function is side-effect free: it does not access a storage backend or
-    mutate active vault state. The legacy current format has no version field,
-    encoded size bound, or entry-count bound, so this reader does not invent
-    limits that could reject an existing valid vault.
+    mutate active vault state. The legacy current format has no version or
+    entry-count field, so this reader adds no semantic entry limit. The shared
+    raw-byte ingestion cap is enforced before parsing.
 
     All validation failures intentionally expose one generic message.
     """
     try:
-        if isinstance(vault_contents, bytes):
-            vault_contents = vault_contents.decode("utf-8", errors="strict")
+        vault_contents = _bounded_candidate_text(vault_contents)
 
         lines = vault_contents.split("\n")
         if (
@@ -315,7 +355,7 @@ class PassphraseVault:
         preserve_identifiers: frozenset[str] = frozenset(),
     ) -> str:
         """Publish exact raw vault contents under a collision-resistant name."""
-        raw = vault_contents.encode("utf-8")
+        raw = _bounded_vault_bytes(vault_contents)
         if self.backup_dir.is_symlink():
             raise ValueError("Unsafe backup directory.")
         self.backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -365,7 +405,10 @@ class PassphraseVault:
         """
         if self._backend != BACKEND_FILE or not self.vault_path.exists():
             return None
-        return self._publish_backup(self.vault_path.read_text())
+        vault_contents = self.read_raw_vault()
+        if vault_contents is None:
+            return None
+        return self._publish_backup(vault_contents)
 
     def _load_vault(self, master_password: str) -> dict[str, str]:
         """Load and decrypt the vault with integrity verification.
@@ -379,22 +422,12 @@ class PassphraseVault:
         Raises:
             ValueError: If vault is corrupted or tampered with
         """
-        # Load vault contents from appropriate backend
-        if self._backend == BACKEND_KEYCHAIN:
-            assert self._keychain is not None
-            vault_contents = self._keychain.load_vault()
-            if vault_contents is None:
-                return {}
-        else:
-            if not self.vault_path.exists():
-                return {}
-            try:
-                with open(self.vault_path) as f:
-                    vault_contents = f.read()
-            except Exception:
-                raise ValueError(_VAULT_FAILURE_MESSAGE) from None
+        try:
+            vault_contents = self.read_raw_vault()
+        except Exception:
+            raise ValueError(_VAULT_FAILURE_MESSAGE) from None
 
-        if not vault_contents:
+        if vault_contents is None or not vault_contents:
             return {}
 
         return validate_raw_vault(vault_contents, master_password)
@@ -406,8 +439,6 @@ class PassphraseVault:
             vault_data: Dictionary mapping labels to passphrases
             master_password: Master password to encrypt the vault
         """
-        self._create_backup()
-
         json_data = json.dumps(vault_data, indent=2)
         encrypted_vault = encrypt_text(json_data, master_password)
 
@@ -424,15 +455,15 @@ class PassphraseVault:
             f"---HMAC---\n"
             f"{vault_hmac}"
         )
+        raw_vault = _bounded_vault_bytes(vault_contents)
+        self._create_backup()
 
         if self._backend == BACKEND_KEYCHAIN:
             assert self._keychain is not None
             self._keychain.store_vault(vault_contents)
         else:
             # Use atomic write to prevent corruption during write
-            secure_atomic_write(
-                self.vault_path, vault_contents.encode("utf-8"), mode=0o600
-            )
+            secure_atomic_write(self.vault_path, raw_vault, mode=0o600)
 
     def store_passphrase(
         self, label: str, passphrase: str, master_password: str
@@ -575,18 +606,26 @@ class PassphraseVault:
         """Read raw encrypted vault contents from the active backend."""
         if self._backend == BACKEND_KEYCHAIN:
             assert self._keychain is not None
-            return self._keychain.load_vault()
+            vault_contents = self._keychain.load_vault()
+            if vault_contents is None:
+                return None
+            return _require_bounded_vault_text(vault_contents)
         if not self.vault_path.exists():
             return None
-        return self.vault_path.read_text()
+        contents = read_bounded_vault_file(self.vault_path)
+        try:
+            return contents.decode("utf-8", errors="strict")
+        except UnicodeError:
+            raise ValueError(_VAULT_FAILURE_MESSAGE) from None
 
     def write_raw_vault(self, vault_contents: str) -> None:
         """Write raw encrypted vault contents to the active backend."""
+        raw_vault = _bounded_vault_bytes(vault_contents)
         if self._backend == BACKEND_KEYCHAIN:
             assert self._keychain is not None
             self._keychain.store_vault(vault_contents)
             return
-        secure_atomic_write(self.vault_path, vault_contents.encode("utf-8"), mode=0o600)
+        secure_atomic_write(self.vault_path, raw_vault, mode=0o600)
 
     def delete_vault_storage(self) -> None:
         """Delete vault data from the active backend."""
@@ -708,8 +747,9 @@ class PassphraseVault:
         if not self.vault_path.exists():
             raise ValueError("No file vault found to migrate.")
 
-        with open(self.vault_path) as f:
-            vault_contents = f.read()
+        vault_contents = _bounded_candidate_text(
+            read_bounded_vault_file(self.vault_path)
+        )
 
         if not vault_contents:
             raise ValueError("Vault file is empty.")
@@ -738,12 +778,16 @@ class PassphraseVault:
         if vault_contents is None:
             raise ValueError("No keychain vault found to migrate.")
 
+        vault_contents = _bounded_candidate_text(vault_contents)
+
         # Validate the supplied candidate without changing the active backend.
         validate_raw_vault(vault_contents, master_password)
 
         # Write to file
         self.vault_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        secure_atomic_write(self.vault_path, vault_contents.encode("utf-8"), mode=0o600)
+        secure_atomic_write(
+            self.vault_path, _bounded_vault_bytes(vault_contents), mode=0o600
+        )
 
     def list_backup_records(self) -> list[VaultBackup]:
         """List backups by stable identifier and filesystem creation time."""

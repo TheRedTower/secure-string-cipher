@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from secure_string_cipher import cli_args
+from secure_string_cipher import cli_args, core
 from secure_string_cipher.core import decrypt_file, encrypt_file
 from secure_string_cipher.utils import CryptoError
 
@@ -77,6 +77,35 @@ def test_file_round_trip(tmp_path: Path, payload: bytes) -> None:
     assert output.read_bytes() == payload
     assert metadata is not None
     assert metadata.version == 5
+    _assert_no_atomic_temporary_files(tmp_path)
+
+
+def test_plaintext_size_boundary_and_oversize_preservation(tmp_path: Path) -> None:
+    """Every platform treats the shared limit as an inclusive plaintext bound."""
+    exact_source = tmp_path / "exact.bin"
+    oversized_source = tmp_path / "oversized.bin"
+    exact_encrypted = tmp_path / "exact.ssc"
+    exact_output = tmp_path / "exact.out"
+    preserved_encrypted = tmp_path / "preserved.ssc"
+    exact_source.write_bytes(b"abcd")
+    oversized_source.write_bytes(b"abcde")
+    preserved_encrypted.write_bytes(b"preserve me")
+
+    with patch.object(core, "MAX_FILE_SIZE", 4):
+        encrypt_file(str(exact_source), str(exact_encrypted), PLATFORM_TEST_CREDENTIAL)
+        assert exact_encrypted.stat().st_size > 4
+        decrypt_file(str(exact_encrypted), str(exact_output), PLATFORM_TEST_CREDENTIAL)
+
+        with pytest.raises(CryptoError, match="Maximum plaintext size"):
+            encrypt_file(
+                str(oversized_source),
+                str(preserved_encrypted),
+                PLATFORM_TEST_CREDENTIAL,
+                overwrite=True,
+            )
+
+    assert exact_output.read_bytes() == b"abcd"
+    assert preserved_encrypted.read_bytes() == b"preserve me"
     _assert_no_atomic_temporary_files(tmp_path)
 
 

@@ -25,6 +25,7 @@ import pytest
 import secure_string_cipher.cli_args as cli_args
 from secure_string_cipher.core import (
     CryptoError,
+    _FileInputError,
     encrypt_bytes,
     encrypt_file,
     encrypt_text,
@@ -412,6 +413,35 @@ class TestCmdEncryptPaths:
         assert exc_info.value.code == EXIT_AUTH_ERROR
         assert output.read_bytes() == b"existing ciphertext"
 
+    @patch("secure_string_cipher.cli_args._prompt_password", return_value="pw")
+    def test_encrypt_file_input_rejection_is_a_file_error(
+        self, mock_prompt, tmp_path, capsys
+    ):
+        """A size/type rejection must not be reported as authentication failure."""
+        source = tmp_path / "file.bin"
+        source.write_bytes(b"data")
+        args = argparse.Namespace(
+            text=None,
+            file=str(source),
+            vault=None,
+            key_file=None,
+            force=False,
+        )
+
+        with (
+            patch(
+                "secure_string_cipher.cli_args.encrypt_file",
+                side_effect=_FileInputError("Maximum plaintext size"),
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encrypt(args)
+
+        assert exc_info.value.code == EXIT_FILE_ERROR
+        error_output = capsys.readouterr().err
+        assert "Input file rejected" in error_output
+        assert "Encryption failed" not in error_output
+
     def test_encrypt_with_key_file(self, tmp_path):
         """Should encrypt using key file."""
         key_file = tmp_path / "test.key"
@@ -470,6 +500,52 @@ class TestCmdEncryptPaths:
             cmd_encrypt(args)
 
         assert exc_info.value.code == EXIT_AUTH_ERROR
+
+    @patch("secure_string_cipher.cli_args._prompt_password", return_value="pw")
+    def test_encrypt_stdin_accepts_exact_payload_limit(self, mock_prompt):
+        """The stdin plaintext limit is inclusive."""
+        stdout = _BinaryOutput()
+        args = argparse.Namespace(
+            text=None,
+            file="-",
+            vault=None,
+            key_file=None,
+            force=False,
+        )
+
+        with (
+            patch.object(cli_args, "MAX_FILE_SIZE", 4),
+            patch.object(cli_args, "encrypt_bytes", return_value=b"token") as encrypt,
+            patch.object(sys, "stdin", _BinaryInput(b"abcd")),
+            patch.object(sys, "stdout", stdout),
+        ):
+            assert cmd_encrypt(args) == EXIT_SUCCESS
+
+        encrypt.assert_called_once_with(b"abcd", "pw")
+        assert stdout.buffer.getvalue() == b"token\n"
+
+    @patch("secure_string_cipher.cli_args._prompt_password", return_value="pw")
+    def test_encrypt_stdin_rejects_limit_plus_one_before_encryption(self, mock_prompt):
+        """Oversize stdin is rejected before cryptographic processing."""
+        args = argparse.Namespace(
+            text=None,
+            file="-",
+            vault=None,
+            key_file=None,
+            force=False,
+        )
+
+        with (
+            patch.object(cli_args, "MAX_FILE_SIZE", 4),
+            patch.object(cli_args, "encrypt_bytes") as encrypt,
+            patch.object(sys, "stdin", _BinaryInput(b"abcde")),
+            patch.object(sys, "stdout", _BinaryOutput()),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encrypt(args)
+
+        assert exc_info.value.code == EXIT_FILE_ERROR
+        encrypt.assert_not_called()
 
 
 # =============================================================================
@@ -622,6 +698,41 @@ class TestCmdDecryptPaths:
             cmd_decrypt(args)
         assert exc_info.value.code == EXIT_AUTH_ERROR
 
+    @patch("secure_string_cipher.cli_args._prompt_password", return_value="pw")
+    def test_decrypt_file_input_rejection_is_a_file_error(
+        self, mock_prompt, tmp_path, capsys
+    ):
+        """A size/type rejection must not count as an authentication failure."""
+        encrypted = tmp_path / "input.ssc"
+        encrypted.write_bytes(b"placeholder")
+        limiter = MagicMock()
+        limiter.check_rate_limit.return_value = (True, 0)
+        args = argparse.Namespace(
+            text=None,
+            file=str(encrypted),
+            vault=None,
+            key_file=None,
+            force=False,
+            output=None,
+            restore_filename=True,
+        )
+
+        with (
+            patch(
+                "secure_string_cipher.cli_args.decrypt_file",
+                side_effect=_FileInputError("Maximum plaintext size"),
+            ),
+            patch("secure_string_cipher.cli_args._cli_limiter", limiter),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_decrypt(args)
+
+        assert exc_info.value.code == EXIT_FILE_ERROR
+        limiter.record_attempt.assert_not_called()
+        error_output = capsys.readouterr().err
+        assert "Input file rejected" in error_output
+        assert "Wrong password" not in error_output
+
     @patch("secure_string_cipher.cli_args._prompt_password")
     def test_decrypt_force_wrong_password_preserves_explicit_output(
         self, mock_prompt, tmp_path
@@ -757,6 +868,95 @@ class TestCmdDecryptPaths:
         limiter.record_attempt.assert_called_once_with(
             "decrypt_file", "-", success=False
         )
+
+    @patch("secure_string_cipher.cli_args._prompt_password", return_value="pw")
+    @pytest.mark.parametrize("ending", [b"\n", b"\r\n"])
+    def test_decrypt_stdin_accepts_one_transport_ending(self, mock_prompt, ending):
+        """One shell line ending is removed before strict token decoding."""
+        stdout = _BinaryOutput()
+        limiter = MagicMock()
+        limiter.check_rate_limit.return_value = (True, 0)
+        args = argparse.Namespace(
+            text=None,
+            file="-",
+            vault=None,
+            key_file=None,
+            force=False,
+            output=None,
+            restore_filename=True,
+        )
+
+        with (
+            patch.object(cli_args, "_maximum_stdin_ciphertext_size", return_value=8),
+            patch.object(cli_args, "decrypt_bytes", return_value=b"data") as decrypt,
+            patch.object(sys, "stdin", _BinaryInput(b"token" + ending)),
+            patch.object(sys, "stdout", stdout),
+            patch("secure_string_cipher.cli_args._cli_limiter", limiter),
+        ):
+            assert cmd_decrypt(args) == EXIT_SUCCESS
+
+        decrypt.assert_called_once_with(b"token", "pw")
+        assert stdout.buffer.getvalue() == b"data"
+
+    @patch("secure_string_cipher.cli_args._prompt_password", return_value="pw")
+    def test_decrypt_stdin_rejects_oversize_transport_before_decryption(
+        self, mock_prompt
+    ):
+        """An oversize encoded token never reaches the decryptor."""
+        limiter = MagicMock()
+        limiter.check_rate_limit.return_value = (True, 0)
+        args = argparse.Namespace(
+            text=None,
+            file="-",
+            vault=None,
+            key_file=None,
+            force=False,
+            output=None,
+            restore_filename=True,
+        )
+
+        with (
+            patch.object(cli_args, "_maximum_stdin_ciphertext_size", return_value=4),
+            patch.object(cli_args, "decrypt_bytes") as decrypt,
+            patch.object(sys, "stdin", _BinaryInput(b"abcdefg")),
+            patch.object(sys, "stdout", _BinaryOutput()),
+            patch("secure_string_cipher.cli_args._cli_limiter", limiter),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_decrypt(args)
+
+        assert exc_info.value.code == EXIT_FILE_ERROR
+        decrypt.assert_not_called()
+
+    @patch("secure_string_cipher.cli_args._prompt_password", return_value="pw")
+    def test_decrypt_stdin_rechecks_plaintext_limit(self, mock_prompt):
+        """Decoded plaintext cannot exceed the advertised stdin payload bound."""
+        stdout = _BinaryOutput()
+        limiter = MagicMock()
+        limiter.check_rate_limit.return_value = (True, 0)
+        args = argparse.Namespace(
+            text=None,
+            file="-",
+            vault=None,
+            key_file=None,
+            force=False,
+            output=None,
+            restore_filename=True,
+        )
+
+        with (
+            patch.object(cli_args, "MAX_FILE_SIZE", 4),
+            patch.object(cli_args, "_maximum_stdin_ciphertext_size", return_value=8),
+            patch.object(cli_args, "decrypt_bytes", return_value=b"abcde"),
+            patch.object(sys, "stdin", _BinaryInput(b"token")),
+            patch.object(sys, "stdout", stdout),
+            patch("secure_string_cipher.cli_args._cli_limiter", limiter),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_decrypt(args)
+
+        assert exc_info.value.code == EXIT_FILE_ERROR
+        assert stdout.buffer.getvalue() == b""
 
 
 # =============================================================================
@@ -999,6 +1199,25 @@ class TestCmdVaultExport:
         with pytest.raises(SystemExit) as exc_info:
             cmd_vault_export(args)
         assert exc_info.value.code == EXIT_AUTH_ERROR
+
+    @patch("secure_string_cipher.cli_args._prompt_master_password")
+    @patch("secure_string_cipher.cli_args._get_vault")
+    def test_export_bounded_read_failure_is_contained(
+        self, mock_get_vault, mock_prompt_master, capsysbinary
+    ):
+        """A bounded active-vault failure emits no content or raw exception."""
+        mock_vault = MagicMock()
+        mock_get_vault.return_value = mock_vault
+        mock_prompt_master.return_value = "master"
+        mock_vault.list_labels.side_effect = ValueError("oversize active vault")
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_vault_export(argparse.Namespace())
+
+        assert exc_info.value.code == EXIT_AUTH_ERROR
+        captured = capsysbinary.readouterr()
+        assert captured.out == b""
+        assert b"oversize active vault" not in captured.err
 
 
 # =============================================================================

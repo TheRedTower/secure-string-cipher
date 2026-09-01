@@ -14,11 +14,12 @@ import binascii
 import json
 import os
 import secrets
+import stat
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
-from typing import BinaryIO
+from typing import BinaryIO, NoReturn
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, hmac
@@ -52,6 +53,10 @@ from .utils import CryptoError, ProgressBar
 _SYSTEM_SYMLINK_ALLOWLIST = {Path("/var")}
 
 
+class _FileInputError(CryptoError):
+    """Internal category for rejected filesystem inputs and size bounds."""
+
+
 def _ensure_no_symlink(path: Path, role: str) -> None:
     """Reject lexical symlink components unless explicitly allowlisted.
 
@@ -81,6 +86,43 @@ def _ensure_no_symlink(path: Path, role: str) -> None:
         except OSError as exc:
             # Fail closed if we cannot resolve the path safely
             raise CryptoError(f"Unable to validate {role} path: {current}") from exc
+
+
+def _preflight_regular_file_size(
+    path: str | bytes | os.PathLike[str] | os.PathLike[bytes], role: str
+) -> int | None:
+    """Best-effort path preflight that rejects stable non-regular inputs."""
+    try:
+        file_status = os.stat(path)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise _FileInputError(f"Unable to inspect {role}") from error
+
+    if not stat.S_ISREG(file_status.st_mode):
+        raise _FileInputError(f"{role.capitalize()} is not a regular file")
+    return file_status.st_size
+
+
+def _descriptor_regular_file_size(stream: BinaryIO, role: str) -> int:
+    """Return an opened regular file's size from its authoritative descriptor."""
+    try:
+        file_status = os.fstat(stream.fileno())
+    except (AttributeError, OSError, ValueError) as error:
+        raise _FileInputError(f"Unable to inspect opened {role}") from error
+
+    if not stat.S_ISREG(file_status.st_mode):
+        raise _FileInputError(f"{role.capitalize()} is not a regular file")
+    return file_status.st_size
+
+
+def _raise_file_too_large(*, plaintext: bool = False) -> NoReturn:
+    """Raise the stable public size-limit failure."""
+    qualifier = " plaintext" if plaintext else ""
+    raise _FileInputError(
+        f"File too large. Maximum{qualifier} size is "
+        f"{MAX_FILE_SIZE / (1024 * 1024):.1f} MB"
+    )
 
 
 __all__ = [
@@ -119,15 +161,14 @@ class StreamProcessor:
         self.file: BinaryIO | None = None
         self._progress: ProgressBar | None = None
         self.bytes_processed = 0
+        self._bounded_path_read = mode == "rb" and isinstance(
+            path, (str, bytes, os.PathLike)
+        )
 
-        if isinstance(path, (str, bytes, os.PathLike)):
-            # Security check for large files
-            if mode == "rb" and os.path.exists(path):
-                size = os.path.getsize(path)
-                if size > MAX_FILE_SIZE:
-                    raise CryptoError(
-                        f"File too large. Maximum size is {MAX_FILE_SIZE / (1024 * 1024):.1f} MB"
-                    )
+        if self._bounded_path_read:
+            size = _preflight_regular_file_size(path, "input file")
+            if size is not None and size > MAX_FILE_SIZE:
+                _raise_file_too_large(plaintext=True)
 
     def _check_path(self) -> None:
         """
@@ -169,16 +210,26 @@ class StreamProcessor:
             role = "input" if self.mode == "rb" else "output"
             _ensure_no_symlink(path_obj, role)
             self._check_path()
+            if self.mode == "rb":
+                _preflight_regular_file_size(self.path, "input file")
             try:
-                self.file = open(self.path, self.mode)  # type: ignore[assignment]
+                opened_file: BinaryIO = open(self.path, self.mode)  # type: ignore[assignment]
             except OSError as e:
                 raise CryptoError(f"Failed to open file: {e}") from e
+            self.file = opened_file
 
-            # Setup progress bar for reading
-            if self.mode == "rb":
-                with suppress(OSError):
-                    size = os.path.getsize(self.path)
+            try:
+                # Setup progress bar from the opened descriptor for reading.
+                if self.mode == "rb":
+                    size = _descriptor_regular_file_size(opened_file, "input file")
+                    if size > MAX_FILE_SIZE:
+                        _raise_file_too_large(plaintext=True)
                     self._progress = ProgressBar(size)
+            except BaseException:
+                with suppress(BaseException):
+                    opened_file.close()
+                self.file = None
+                raise
         else:
             self.file = self.path
 
@@ -193,6 +244,7 @@ class StreamProcessor:
         """Clean up file handle."""
         if self.file:
             self.file.close()
+            self.file = None
 
     def read(self, size: int = -1) -> bytes:
         """
@@ -209,7 +261,18 @@ class StreamProcessor:
         """
         if not self.file:
             raise CryptoError("File not open")
-        data = self.file.read(size)
+
+        read_size = size
+        remaining = MAX_FILE_SIZE - self.bytes_processed
+        if self._bounded_path_read:
+            if remaining < 0:
+                _raise_file_too_large(plaintext=True)
+            if size < 0 or size > remaining + 1:
+                read_size = remaining + 1
+
+        data = self.file.read(read_size)
+        if self._bounded_path_read and len(data) > remaining:
+            _raise_file_too_large(plaintext=True)
         self.bytes_processed += len(data)
         if self._progress:
             self._progress.update(self.bytes_processed)
@@ -712,28 +775,28 @@ def encrypt_file(
         _ensure_no_symlink(Path(input_path), "input")
         _ensure_no_symlink(Path(output_path), "output")
 
-        salt = secrets.token_bytes(SALT_SIZE)
-        nonce = secrets.token_bytes(NONCE_SIZE)
+        with StreamProcessor(input_path, "rb") as r:
+            salt = secrets.token_bytes(SALT_SIZE)
+            nonce = secrets.token_bytes(NONCE_SIZE)
 
-        with SecureBytes(derive_key(passphrase, salt)) as secure_key:
-            # Compute key commitment to bind ciphertext to this specific key
-            commitment = compute_key_commitment(bytes(secure_key.data))
-            commitment_b64 = base64.b64encode(commitment).decode("ascii")
+            with SecureBytes(derive_key(passphrase, salt)) as secure_key:
+                # Compute key commitment to bind ciphertext to this specific key
+                commitment = compute_key_commitment(bytes(secure_key.data))
+                commitment_b64 = base64.b64encode(commitment).decode("ascii")
 
-            # Build metadata with key commitment
-            metadata = FileMetadata(
-                original_filename=os.path.basename(input_path)
-                if store_filename
-                else None,
-                version=METADATA_VERSION,
-                key_commitment=commitment_b64,
-            )
-            meta_bytes = metadata.to_bytes()
+                # Build metadata with key commitment
+                metadata = FileMetadata(
+                    original_filename=os.path.basename(input_path)
+                    if store_filename
+                    else None,
+                    version=METADATA_VERSION,
+                    key_commitment=commitment_b64,
+                )
+                meta_bytes = metadata.to_bytes()
 
-            if len(meta_bytes) > 65535:
-                raise CryptoError("Metadata too large")
+                if len(meta_bytes) > 65535:
+                    raise CryptoError("Metadata too large")
 
-            with StreamProcessor(input_path, "rb") as r:
                 with atomic_binary_writer(
                     output_path,
                     overwrite=overwrite,
@@ -771,14 +834,20 @@ def _decrypt_stream(
     reader: BinaryIO,
     decryptor: AEADDecryptionContext,
     writer: BinaryIO | None = None,
+    *,
+    max_plaintext_size: int,
 ) -> None:
-    """Decrypt a ciphertext stream while retaining its trailing GCM tag."""
+    """Decrypt a bounded ciphertext stream while retaining its trailing GCM tag."""
     buffer = bytearray()
+    ciphertext_processed = 0
     for chunk in iter(lambda: reader.read(CHUNK_SIZE), b""):
         buffer.extend(chunk)
         if len(buffer) > TAG_SIZE:
             emit_len = len(buffer) - TAG_SIZE
+            if ciphertext_processed + emit_len > max_plaintext_size:
+                _raise_file_too_large(plaintext=True)
             plaintext = decryptor.update(memoryview(buffer)[:emit_len])
+            ciphertext_processed += emit_len
             if writer is not None:
                 writer.write(plaintext)
             del buffer[:emit_len]
@@ -791,7 +860,10 @@ def _decrypt_stream(
     tag = bytes(tail_view[-TAG_SIZE:])
 
     if ciphertext_tail:
+        if ciphertext_processed + len(ciphertext_tail) > max_plaintext_size:
+            _raise_file_too_large(plaintext=True)
         plaintext = decryptor.update(ciphertext_tail)
+        ciphertext_processed += len(ciphertext_tail)
         if writer is not None:
             writer.write(plaintext)
 
@@ -837,7 +909,9 @@ def decrypt_file(
 
     try:
         _ensure_no_symlink(Path(input_path), "input")
+        _preflight_regular_file_size(input_path, "encrypted input file")
         with open(input_path, "rb") as f:
+            encrypted_size = _descriptor_regular_file_size(f, "encrypted input file")
             # Check for magic header
             magic = f.read(len(METADATA_MAGIC))
 
@@ -868,6 +942,13 @@ def decrypt_file(
                 raise CryptoError("Invalid encrypted file format")
 
             salt, nonce = header[:SALT_SIZE], header[SALT_SIZE:]
+
+            ciphertext_start = f.tell()
+            payload_and_tag_size = encrypted_size - ciphertext_start
+            if payload_and_tag_size < TAG_SIZE:
+                raise CryptoError("File too short - not a valid encrypted file")
+            if payload_and_tag_size - TAG_SIZE > MAX_FILE_SIZE:
+                _raise_file_too_large(plaintext=True)
 
             # Wrap key in SecureBytes to ensure it's wiped after use
             from .secure_memory import SecureBytes
@@ -902,11 +983,13 @@ def decrypt_file(
                 if metadata.version >= 5:
                     decryptor.authenticate_additional_data(meta_bytes)
 
-                ciphertext_start = f.tell()
-
                 if output_path is None:
                     # Authenticate before allowing stored metadata to select a path.
-                    _decrypt_stream(f, decryptor)
+                    _decrypt_stream(
+                        f,
+                        decryptor,
+                        max_plaintext_size=MAX_FILE_SIZE,
+                    )
 
                     if (
                         restore_filename
@@ -938,7 +1021,12 @@ def decrypt_file(
                     overwrite=overwrite,
                     mode=0o600,
                 ) as writer:
-                    _decrypt_stream(f, decryptor, writer)
+                    _decrypt_stream(
+                        f,
+                        decryptor,
+                        writer,
+                        max_plaintext_size=MAX_FILE_SIZE,
+                    )
 
         return str(output_path_obj), metadata
 
@@ -960,14 +1048,22 @@ def derive_passphrase_from_key_file(key_file_path: str | Path) -> str:
         _ensure_no_symlink(key_file, "key file")
         if not key_file.exists():
             raise CryptoError(f"Key file not found: {key_file_path}")
-        if not key_file.is_file():
-            raise CryptoError(f"Key file is not a regular file: {key_file_path}")
-        if key_file.stat().st_size > MAX_FILE_SIZE:
-            raise CryptoError(
-                f"Key file too large. Maximum size is {MAX_FILE_SIZE / (1024 * 1024):.1f} MB"
-            )
+        _preflight_regular_file_size(key_file, "key file")
 
-        key_data = key_file.read_bytes()
+        with open(key_file, "rb") as key_stream:
+            key_size = _descriptor_regular_file_size(key_stream, "key file")
+            if key_size > MAX_FILE_SIZE:
+                raise CryptoError(
+                    "Key file too large. Maximum size is "
+                    f"{MAX_FILE_SIZE / (1024 * 1024):.1f} MB"
+                )
+            key_data = key_stream.read(MAX_FILE_SIZE + 1)
+
+        if len(key_data) > MAX_FILE_SIZE:
+            raise CryptoError(
+                "Key file too large. Maximum size is "
+                f"{MAX_FILE_SIZE / (1024 * 1024):.1f} MB"
+            )
         if len(key_data) == 0:
             raise CryptoError(f"Key file is empty: {key_file_path}")
 
