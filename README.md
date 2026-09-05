@@ -1,26 +1,53 @@
 # secure-string-cipher
 
 [![CI](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-85%25-green.svg)](https://github.com/TheRedTower/secure-string-cipher)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
-A security-focused AES-256-GCM encryption CLI tool with passphrase vault and modern cryptographic defaults.
+A **Beta** AES-256-GCM encryption CLI with a passphrase vault and modern
+cryptographic defaults. Beta means the current v4/v5 format is usable and
+compatibility-sensitive, but the project is not yet stable or independently
+audited.
+
+## Beta Scope
+
+- File APIs treat regular files as opaque bytes. `MAX_FILE_SIZE` is an inclusive
+  100 MiB plaintext-payload limit; an SSC file may be larger because its magic,
+  metadata, salt, nonce, and authentication tag are framing overhead.
+  Directories and other special files are not supported.
+- Active and candidate vault representations, plus legacy key files, separately
+  use the same 100 MiB value as a raw-input cap. Vault text is counted by UTF-8
+  bytes, and a value that could not be read back within the cap is not written.
+- `original_filename` is bounded metadata, not a path. The current version 5
+  reader authenticates it before sanitizing it for automatic output selection;
+  an explicit output remains authoritative. Version 4 names are never used to
+  select an output.
+- Large framed SSC2 objects, race-resistant descriptor-relative path opening,
+  cross-process vault locking, real secret `.ssckey` files, and a third-party
+  security audit remain future work.
+
+CI enforces a minimum 85% test coverage threshold on Python 3.14. The workflow
+also defines focused file and portable vault validation/transaction gates on
+Ubuntu, macOS, and Windows with Python 3.12; real OS keychain services are not
+tested there. See the stabilization handoff for the latest recorded results.
 
 ## Features
 
 - **AES-256-GCM encryption** for text and files with authenticated encryption
 - **Argon2id key derivation** – memory-hard, GPU/ASIC resistant
 - **Key commitment scheme** – prevents partitioning oracle attacks
-- **Key-file support** – use any file as encryption key via `--key-file` (SHA-256 → Argon2id)
+- **Legacy key-file mode** – hashes any file's bytes into a symmetric passphrase
+  (SHA-256 → Argon2id); this is not public-key or recipient encryption
 - **OS Keychain integration** – store vault in macOS Keychain, Windows Credential Vault, or Linux Secret Service
 - **Hidden password input** – passwords hidden in interactive terminals, visible for scripts/tests
 - **Inline passphrase generation** – type `/gen` at any password prompt
 - **Encrypted passphrase vault** with HMAC-SHA256 integrity verification
-- **Secure memory handling** via libsodium (PyNaCl) when available
+- **Best-effort memory clearing** via mutable buffers and libsodium when available
 - **Timing-safe operations** – constant-time comparisons prevent side-channel attacks
-- **Rate limiting** – exponential backoff on failed decrypt/vault attempts
-- **Secure shred** – multi-pass overwrite file deletion
+- **Local CLI rate limiting** – exponential backoff on failed decrypt/vault attempts;
+  it cannot prevent offline password guessing
+- **Best-effort shred** – overwrite then unlink; unreliable on SSDs, COW,
+  snapshots, and journaled filesystems
 - Chunked file streaming (256 KiB) for low memory usage
 - Automatic vault backups (last 5 kept)
 
@@ -34,6 +61,8 @@ A security-focused AES-256-GCM encryption CLI tool with passphrase vault and mod
 - [Cryptographic Design](.github/CRYPTOGRAPHY.md) — Design document for security auditors
 - [Dependency Audit](AUDITS/DEPENDENCY_AUDIT.md) — Supply-chain security audit report
 - [Changelog](CHANGELOG.md) — Release history
+- [Stabilization tranche 2](docs/SSC_STABILIZATION_TRANCHE_2.md) — Local audit
+  evidence, compatibility fixtures, transaction guarantees, and remaining gates
 
 ## Quick Start
 
@@ -108,13 +137,31 @@ ssc store backup-key --generate
 # Vault management
 ssc vault list
 ssc vault delete old-key
-ssc vault export backup.json
-ssc vault import backup.json  # validates header and integrity before replacing
+ssc vault export > backup.txt
+ssc vault import backup.txt  # authenticates before confirmation/replacement
+ssc vault backups             # list exact stable backup identifiers
+ssc vault restore BACKUP_ID   # authenticate and transactionally restore
 ```
 
 **Exit codes:** 0=success, 1=input error, 2=auth error, 3=vault error, 4=file error
 
 **Security:** Passwords are never passed via command line arguments (prevents shell history exposure). All passwords are prompted interactively or retrieved from the vault.
+
+`ssc vault export` writes canonical six-line UTF-8 bytes with no BOM or terminal
+newline. The CLI importer also recovers files created by older redirected
+exports with exactly one terminal LF or CRLF; direct vault APIs remain
+byte-strict and no other whitespace is normalized.
+
+For `-f -`, encryption accepts at most 100 MiB of plaintext from stdin.
+Decryption bounds the encoded token from that maximum frame, accepts at most one
+terminal LF or CRLF added by shell transport, and rechecks the decoded plaintext
+limit before writing stdout.
+
+Oversize and non-regular filesystem inputs use file error code 4; they are not
+reported as wrong-password or corrupted-ciphertext failures.
+
+`--force` permits final atomic replacement only after encryption completes or
+decryption authenticates. It never pre-deletes the existing destination.
 
 ### Interactive CLI (`ssc start`)
 
@@ -192,7 +239,13 @@ The vault stores passphrases encrypted with your master password at `~/.secure-c
 - **Manual storage** – Option 6 for existing passphrases
 - **Retrieve/manage** – Options 7-9 for lookup, listing, and deletion
 
-All vault operations use HMAC integrity verification and maintain automatic backups.
+Vault candidates are fully decoded and authenticated before import or restore.
+The transaction service snapshots the active raw vault, safely publishes a
+collision-resistant backup, writes through the configured file/keychain
+backend, reads back and revalidates, and rolls back on post-write failure.
+Filesystem writes use atomic replacement; native credential-store rollback is
+best effort because those stores do not expose a multi-record transaction.
+There is no cross-process vault lock, so simultaneous processes can still race.
 
 ### OS Keychain Integration
 
@@ -279,8 +332,16 @@ from secure_string_cipher import encrypt_file, decrypt_file
 # Encrypt a file (explicit output path)
 encrypt_file("document.pdf", "document.pdf.enc", "MySecurePass123!")
 
+# Replace only after complete encryption and sync
+encrypt_file("document.pdf", "document.pdf.enc", "MySecurePass123!", overwrite=True)
+
 # Decrypt it (explicit output path)
-output_path, metadata = decrypt_file("document.pdf.enc", "document.pdf", "MySecurePass123!")
+output_path, metadata = decrypt_file(
+    "document.pdf.enc",
+    "document.pdf",
+    "MySecurePass123!",
+    overwrite=True,
+)
 ```
 
 > File operations refuse symlinked inputs/outputs (except system-managed paths like /var) to prevent path hijacking.
@@ -350,16 +411,35 @@ if has_secure_memory():
 | **Key Derivation** | Argon2id | 64MB memory, 3 iterations, parallelism 4 |
 | **Key Commitment** | HMAC-SHA256 | Prevents partitioning oracle attacks |
 | **Vault Integrity** | HMAC-SHA256 | Detects tampering before decryption |
-| **Memory Security** | libsodium | `sodium_memzero()` via PyNaCl |
+| **Memory Clearing** | Best effort | Mutable buffers/libsodium where available; Python may retain copies |
 | **Timing Safety** | Constant-time | All password/hash comparisons |
-| **Rate Limiting** | Exponential backoff | Active on vault unlock, text decrypt, and file decrypt |
-| **Vault Import** | SSCVAULT validation | Header, hex salt, and HMAC separators verified; `0o600` enforced |
+| **Rate Limiting** | Local exponential backoff | CLI throttle only; offline guessing remains possible |
+| **Vault Import/Restore** | Full HMAC, decrypt, JSON-schema, read-back verification | Filesystem atomic publication; credential-store rollback is best effort |
 
-**Additional protections:** Path traversal prevention, symlink attack detection, atomic writes, user-only file permissions (600), 12-character minimum password with complexity requirements.
+**Additional protections:** best-effort symlink preflight checks, opened-input
+regular-file and size validation, cumulative streaming limits, atomic final
+publication, user-only file permissions (`0o600`), and a 12-character password
+policy. Atomic publication protects against ordinary operation failures;
+hostile concurrent path replacement still requires descriptor-relative opening
+and is not claimed to be prevented. The temporary file is synced before
+replacement; parent-directory sync after replacement is best effort on
+supported platforms.
 
 **Password input:** When running interactively, passwords are hidden (using `getpass`). When stdin is piped or redirected (scripts, automation, tests), passwords are visible. This allows both secure interactive use and scriptable automation.
 
-**Python memory limitations:** Even with libsodium, Python strings are immutable and GC may copy objects. Use `has_secure_memory()` to check libsodium availability.
+**Python memory limitations:** Memory clearing is best-effort. Even with
+libsodium, Python strings are immutable and the runtime may copy objects. Use
+`has_secure_memory()` to check libsodium availability.
+
+**Local records and deletion limitations:** The audit/event log is editable
+local JSON and is not tamper-evident. Overwrite-based deletion cannot reliably
+erase data from SSD wear levelling, copy-on-write storage, snapshots, backups,
+or journaled filesystems.
+
+**Legacy key-file limitation:** Anyone with identical key-file bytes can derive
+the same symmetric passphrase and decrypt. PEM or public-key-shaped input does
+not create RSA, recipient, or public-key encryption. Treat this mode as legacy
+pending the secret `.ssckey` design.
 
 ## Development
 

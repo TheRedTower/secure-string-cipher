@@ -1,6 +1,7 @@
 # API Reference
 
-Complete API documentation for secure-string-cipher.
+Complete API documentation for the current Beta API. The Beta is not a stable
+or audited release contract.
 
 ## Table of Contents
 
@@ -47,6 +48,18 @@ Complete API documentation for secure-string-cipher.
 - [Configuration Constants](#configuration-constants)
 
 ## Core Encryption
+
+File APIs accept whole regular files as opaque bytes. `MAX_FILE_SIZE` is an
+inclusive 100 MiB plaintext-payload limit; SSC magic, metadata, salt, nonce, and
+tag framing may make an encrypted container larger. Directories and other
+special files are rejected. Active/candidate vault representations and legacy
+key files separately use the same numeric value as a raw-input cap. Vault text
+is measured by strict UTF-8 bytes before storage, so the writer cannot publish a
+value that the bounded reader would reject solely for size.
+
+Text and byte-token readers require canonical ASCII Base64: the alphabet and
+padding must be strict, and decoding then re-encoding must reproduce the exact
+input text.
 
 ### encrypt_text
 
@@ -120,7 +133,9 @@ encrypt_file(
     input_path: str,
     output_path: str,
     passphrase: str,
+    *,
     store_filename: bool = True,
+    overwrite: bool = False,
 ) -> None
 ```
 
@@ -129,21 +144,28 @@ encrypt_file(
 - `input_path` (str): Path to the file to encrypt
 - `output_path` (str): Destination path for the encrypted file (must be provided)
 - `passphrase` (str): Password for key derivation
-- `store_filename` (bool): Whether to embed the sanitized original filename in metadata (default: True)
+- `store_filename` (bool, keyword-only): Whether to embed the original basename
+  in metadata (default: True)
+- `overwrite` (bool, keyword-only): Permit final atomic replacement after
+  encryption, flush, and sync succeed (default: False)
 
 **Returns:** None (writes the encrypted file to `output_path`).
 
-**Raises:**
-
-- `CryptoError` if encryption fails
-- `SecurityError` if path validation fails (traversal, symlink attacks)
-- `FileNotFoundError` if file doesn't exist
-- `ValueError` if file exceeds the configured size limit
+**Raises:** `CryptoError` for encryption, file, size, and path-validation
+failures.
 
 **Security/IO notes:**
 
 - `_ensure_no_symlink` rejects symlinked inputs/outputs unless in the allowlist (e.g., `/var`).
-- `StreamProcessor` raises `CryptoError` if the output file already exists (no interactive prompt).
+- Existing outputs are preserved unless `overwrite=True`.
+- The opened input descriptor must identify a regular file. Its snapshot size
+  is checked before key derivation, and a cumulative counter catches subsequent
+  growth beyond the plaintext limit.
+- Ciphertext is streamed to a same-directory temporary file and published only
+  after GCM finalization, flush, and sync complete.
+- This protects against ordinary operation failures. Lexical path checks and a
+  later descriptor inspection do not make opening race-free against a hostile
+  concurrent path replacement.
 
 **Example:**
 
@@ -170,30 +192,43 @@ from secure_string_cipher import decrypt_file
 
 output_path, metadata = decrypt_file(
     input_path: str,
-    output_path: str | None = None,
+    output_path: str | None,
     passphrase: str,
+    *,
     restore_filename: bool = True,
+    overwrite: bool = False,
 ) -> tuple[str, FileMetadata | None]
 ```
 
 **Parameters:**
 
 - `input_path` (str): Path to the encrypted file
-- `output_path` (str | None): Destination for the decrypted file. If None, the function restores the stored sanitized filename when available; otherwise uses `<input>.dec`.
+- `output_path` (str | None): Explicit destination, or None for automatic
+  selection. Version 5 may restore its authenticated, sanitized filename.
+  Version 4 always uses a deterministic `.dec` fallback because its metadata is
+  not authenticated.
 - `passphrase` (str): Same password used for encryption
-- `restore_filename` (bool): Whether to use the stored filename metadata when present (default: True)
+- `restore_filename` (bool, keyword-only): Whether version 5 may use its stored
+  filename when `output_path` is None (default: True)
+- `overwrite` (bool, keyword-only): Permit atomic replacement only after GCM
+  authentication succeeds (default: False)
 
 **Returns:** Tuple of `(output_path, metadata)` where `metadata` is a `FileMetadata` instance containing `original_filename` (if stored) and base64-encoded `key_commitment`.
 
-**Raises:**
-
-- `CryptoError` if decryption fails
-- `SecurityError` if path validation fails or symlinks are detected
+**Raises:** `CryptoError` for decryption, authentication, file, and
+path-validation failures. Wrong credentials and damaged ciphertext share the
+CLI's generic authentication-failure behavior.
 
 **Security/IO notes:**
 
 - `_ensure_no_symlink` rejects symlinked inputs/outputs unless in the allowlist (e.g., `/var`).
-- `StreamProcessor` raises `CryptoError` if the output file already exists (no interactive prompt).
+- Decryption derives the plaintext length from the actual parsed header and
+  metadata length, so framing overhead is not counted against `MAX_FILE_SIZE`.
+  Descriptor and cumulative checks run before any over-limit plaintext is
+  published, including both passes used for automatic output selection.
+- No final plaintext path is published before authentication succeeds.
+- Existing outputs are preserved for wrong passwords, damaged ciphertext, and
+  ordinary write/publication failures.
 
 **Example:**
 
@@ -206,10 +241,19 @@ output_path, metadata = decrypt_file(
     passphrase="MySecurePass123!",
     restore_filename=True,
 )
-print(output_path)  # e.g., "document.pdf" or "document.pdf.enc.dec" if no name stored
+print(output_path)  # e.g., "document.pdf" or "document.pdf.dec"
 print(metadata.original_filename)  # "document.pdf" when stored
 print(metadata.key_commitment)     # base64 string
 ```
+
+`FileMetadata` contains exactly these serialized fields when present:
+`version`, `original_filename`, and `key_commitment`. `original_filename` is a
+bounded metadata string, not a filesystem path. The current writer emits
+version 5 and authenticates the original metadata bytes as AES-GCM additional
+authenticated data; only after authentication may an automatic destination use
+a sanitized name. Legacy version 4 metadata is readable but unauthenticated, so
+its stored name is ignored for destination selection. Explicit output paths are
+authoritative for both versions.
 
 ---
 
@@ -278,9 +322,10 @@ assert verify_key_commitment(key, salt, commitment)
 
 Derive a cryptographic key from a key file using Argon2id.
 
-The key file can be any file (PEM public key, SSH key, or random data).
-Its content is hashed with SHA-256 and the result is used as the passphrase for Argon2id.
-This ensures consistent key derivation regardless of file format.
+This legacy mode accepts any regular file. Its bytes are hashed with SHA-256 and
+the digest is used as a symmetric passphrase for Argon2id. It is not RSA,
+public-key, or recipient encryption: anyone with identical file bytes can
+decrypt. Treat it as legacy pending secret `.ssckey` files.
 
 ```python
 from secure_string_cipher import derive_key_from_key_file
@@ -318,7 +363,8 @@ assert key == key2
 
 ### generate_key_pair
 
-Generate an RSA key pair for recipient-based encryption workflows.
+Generate an RSA key pair. The current encrypt/decrypt APIs do not consume this
+pair and do not implement recipient encryption.
 
 ```python
 from secure_string_cipher import generate_key_pair
@@ -409,12 +455,18 @@ Encrypted storage for passphrases with HMAC integrity verification.
 ```python
 from secure_string_cipher import PassphraseVault
 
-vault = PassphraseVault(vault_path: str | None = None)
+vault = PassphraseVault(
+    vault_path: str | None = None,
+    backend: str | None = None,
+)
 ```
 
 **Parameters:**
 
 - `vault_path` (str, optional): Custom path for vault file. Default: `~/.secure-cipher/passphrase_vault.enc`
+- `backend` (str, optional): `"file"`, `"keychain"`, or `None` to use the
+  persisted/environment/default backend selection. A usable keychain is the
+  default when no explicit selection exists; otherwise the file backend is used.
 
 #### Methods
 
@@ -459,6 +511,61 @@ Update an existing passphrase.
 ```python
 vault.update_passphrase(label: str, new_passphrase: str, master_password: str) -> None
 ```
+
+##### import_raw_vault
+
+Validate and transactionally replace the configured active vault.
+
+```python
+backup_identifier = vault.import_raw_vault(
+    vault_contents: str | bytes,
+    master_password: str,
+    *,
+    backup_current: bool = True,
+) -> str | None
+```
+
+Validation (strict six-line framing, HMAC, authenticated decryption, and JSON
+schema) completes before active-backend mutation. When an active vault exists,
+the default creates an exact encrypted backup first. Publication is read back,
+byte-compared, and revalidated. A post-write failure attempts to restore the
+prior raw value and raises a generic transaction error reporting whether
+rollback succeeded. The returned value is the stable identifier of the
+pre-replacement backup, or `None` if none was created.
+
+Filesystem publication uses atomic replacement. Native credential stores do
+not expose a multi-record atomic transaction, so rollback for those backends is
+best effort. No cross-process lock is implemented.
+
+This API remains byte-exact and does not normalize line endings or surrounding
+whitespace. The `ssc vault import` CLI alone accepts exactly one legacy terminal
+LF or CRLF, removes it after a bounded raw-byte read, and passes canonical
+six-line bytes into this API. Other whitespace and internal CRLF framing remain
+invalid.
+
+File-backed active vault reads, backups, migrations, and transaction
+read-back/rollback checks use the same opened-descriptor `limit + 1` reader.
+Keychain text is incrementally counted by strict UTF-8 bytes before validation,
+backup, or publication.
+
+##### list_backup_records / validate_backup / restore_from_backup
+
+```python
+records = vault.list_backup_records() -> list[VaultBackup]
+vault.validate_backup(backup_identifier: str, master_password: str) -> None
+previous_identifier = vault.restore_from_backup(
+    backup_identifier: str,
+    master_password: str,
+) -> str | None
+```
+
+`VaultBackup` records expose `identifier`, `created_at`, and `path`. The retained
+`created_at` name is a compatibility field containing an mtime-derived UTC
+ordering timestamp, not filesystem creation time. Restore requires the exact
+identifier, validates the selected record before mutation, uses the same
+transaction as import, and never automatically removes the selected restore
+source. Five backups are retained; collision-resistant names combine a UTC
+microsecond timestamp with a random suffix.
 
 **Example:**
 
@@ -740,7 +847,10 @@ except RateLimitError as exc:
     print(f"Too many attempts. Wait {exc.wait_seconds:.1f}s")
 ```
 
-> **Note:** The rate limiter is active by default in the CLI on vault unlock (`ssc vault`), text decryption (`ssc decrypt -t`), and file decryption (`ssc decrypt -f`) operations. Repeated failures trigger exponential backoff.
+> **Note:** The rate limiter is a local CLI throttle on vault unlock
+> (`ssc vault`), text decryption (`ssc decrypt -t`), and file decryption
+> (`ssc decrypt -f`). Repeated failures trigger exponential backoff, but an
+> attacker holding ciphertext can perform offline guesses without this limiter.
 
 **Methods:**
 
@@ -784,7 +894,9 @@ def login(username, password):
 
 ### AuditLogger
 
-Log security events for monitoring and compliance.
+Log security events as editable local JSON. Rotation and redaction are provided,
+but the log has no cryptographic chain or external append-only storage and is
+not tamper-evident.
 
 ```python
 from secure_string_cipher import AuditLogger, AuditEvent, AuditLevel
@@ -930,7 +1042,9 @@ progress.finish()
 
 ### secure_overwrite
 
-Securely delete a file by overwriting with random data.
+Best-effort delete a file by overwriting it with zero bytes and unlinking it.
+This cannot guarantee erasure on SSDs, copy-on-write filesystems, snapshots,
+backups, or journaled filesystems.
 
 ```python
 from secure_string_cipher import secure_overwrite
@@ -943,7 +1057,7 @@ secure_overwrite(filepath: str) -> None
 ```python
 from secure_string_cipher import secure_overwrite
 
-# Securely delete sensitive file
+# Best-effort overwrite and unlink
 secure_overwrite("plaintext_backup.txt")
 ```
 
@@ -959,7 +1073,7 @@ Key parameters defined in `secure_string_cipher.config`:
 | `ARGON2_MEMORY` | 65536 | Argon2id memory cost (64MB) |
 | `ARGON2_ITERATIONS` | 3 | Argon2id time cost |
 | `ARGON2_PARALLELISM` | 4 | Argon2id parallelism |
-| `MAX_FILE_SIZE` | 104857600 | Maximum file size (100MB) |
+| `MAX_FILE_SIZE` | 104857600 | Maximum plaintext payload (100 MiB); also the separate raw vault/key-file ingestion cap |
 | `MIN_PASSWORD_LENGTH` | 12 | Minimum password length |
 | `SALT_SIZE` | 16 | Salt size in bytes |
 | `KEY_SIZE` | 32 | AES-256 key size |
