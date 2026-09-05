@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "created_date": "2026-08-29",
+  "synthetic_non_sensitive": true,
+  "public_test_credential": "Public-Test-Only-Vault-Master-2026!",
+  "producer_release_tag": "v1.3.0",
+  "producer_commit": "git:f7ff04c4d5a0adc0cbdc3cb841d5048f2f14dcac",
+  "creation_api": [
+    "PassphraseVault(..., backend=\"file\").store_passphrase(\"fixture-alpha\", \"synthetic-river-copper-planet\", PUBLIC_TEST_CREDENTIAL)",
+    "PassphraseVault(..., backend=\"file\").store_passphrase(\"fixture-beta\", \"synthetic-lantern-maple-orbit\", PUBLIC_TEST_CREDENTIAL)"
+  ],
+  "producer_runtime": {
+    "python": "3.14.7",
+    "operating_system": "macOS 26.5.1 arm64",
+    "cryptography": "46.0.7"
+  },
+  "format_version_field": null,
+  "expected_entries": {
+    "fixture-alpha": "synthetic-river-copper-planet",
+    "fixture-beta": "synthetic-lantern-maple-orbit"
+  },
+  "fixture": {
+    "filename": "current-vault.enc.b64",
+    "transport_encoding": "base64",
+    "decoded_byte_length": 405,
+    "decoded_sha256": "sha256:7da09b6852e28060ee416d03a44d8df3c59bcad57b6e10e82d10edb44f81e16d"
+  }
+}

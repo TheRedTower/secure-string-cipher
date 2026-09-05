@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "created_date": "2026-08-29",
+  "synthetic_non_sensitive": true,
+  "public_test_credential": "Fixture-Only-Password-2026!",
+  "producer_runtime": {
+    "python": "3.14.7",
+    "operating_system": "macOS 26.5.1 arm64"
+  },
+  "payload": {
+    "filename": "payload.bin",
+    "original_input_filename": "legacy-fixture.bin",
+    "byte_length": 1094205,
+    "historical_chunk_size_bytes": 262144,
+    "sha256": "sha256:eb201352e0a8bfe4c333ca7ad4580932d6803164ca824ecf43a7f7f28ef84a68"
+  },
+  "fixtures": [
+    {
+      "filename": "file-v4.ssc",
+      "producer_release_tag": "v1.2.10",
+      "producer_commit": "git:f7e3fc797e737ddfdd2a27d28cafec6dc5d710cb",
+      "generation_api": "encrypt_file(\"legacy-fixture.bin\", \"file-v4.ssc\", \"Fixture-Only-Password-2026!\")",
+      "metadata_version": 4,
+      "ciphertext_byte_length": 1094374,
+      "ciphertext_sha256": "sha256:5e506bc990439ae8249aeae04e88a71fb1aa21c6e9fa8a7d9f9545fe0519551d",
+      "expected_automatic_output": "ciphertext path with .dec suffix; stored filename is ignored"
+    },
+    {
+      "filename": "file-v5.ssc",
+      "producer_release_tag": "v1.3.0",
+      "producer_commit": "git:f7ff04c4d5a0adc0cbdc3cb841d5048f2f14dcac",
+      "generation_api": "encrypt_file(\"legacy-fixture.bin\", \"file-v5.ssc\", \"Fixture-Only-Password-2026!\")",
+      "metadata_version": 5,
+      "ciphertext_byte_length": 1094374,
+      "ciphertext_sha256": "sha256:df1f06b8f8c4861bbd950f4db8863fae18422a33aa9276295c2b68069bee9c97",
+      "expected_automatic_output": "authenticated sanitized filename legacy-fixture.bin"
+    }
+  ]
+}

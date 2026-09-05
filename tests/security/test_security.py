@@ -119,6 +119,22 @@ class TestFilenameSanitization:
         assert sanitize_filename("***???") == "decrypted_file"
         assert sanitize_filename("<<<>>>") == "decrypted_file"
 
+    @pytest.mark.parametrize(
+        ("filename", "expected"),
+        [
+            ("CON", "_CON"),
+            ("nul.txt", "_nul.txt"),
+            ("COM1.log", "_COM1.log"),
+            ("LPT9.", "_LPT9"),
+            ("report.", "report"),
+        ],
+    )
+    def test_windows_device_and_trailing_dot_aliases_are_portable(
+        self, filename, expected
+    ):
+        """Automatic destinations must not resolve to Windows device aliases."""
+        assert sanitize_filename(filename) == expected
+
     def test_realistic_attacks(self):
         """Test realistic attack patterns."""
         # SSH key theft attempt
@@ -758,9 +774,11 @@ class TestSecureAtomicWrite:
         # Write initial content
         dest.write_bytes(original_content)
 
-        # Try to write with an error condition
-        # We'll mock os.write to raise an exception
-        with patch("os.write", side_effect=OSError("Disk full")):
+        # Fail before publication after all content has been buffered.
+        with patch(
+            "secure_string_cipher.atomic_io.os.fsync",
+            side_effect=OSError("Disk full"),
+        ):
             with pytest.raises(SecurityError):
                 secure_atomic_write(dest, b"new content")
 
