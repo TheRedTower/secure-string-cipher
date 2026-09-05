@@ -374,7 +374,6 @@ class TestCLIFileEncryption:
         source.write_text("New content to encrypt")
         output = tmp_path / "document.txt.enc"
         output.write_text("Old content")
-        old_size = output.stat().st_size
 
         args = argparse.Namespace(
             text=None,
@@ -388,8 +387,11 @@ class TestCLIFileEncryption:
         result = cli_args.cmd_encrypt(args)
         assert result == 0
 
-        # Verify file was overwritten (size changed)
-        assert output.stat().st_size != old_size
+        from secure_string_cipher.core import decrypt_file
+
+        decrypted = tmp_path / "decrypted.txt"
+        decrypt_file(str(output), str(decrypted), "TestPassword123!")
+        assert decrypted.read_text() == "New content to encrypt"
 
     @patch("getpass.getpass")
     def test_decrypt_file_removes_enc_suffix(self, mock_getpass, tmp_path):

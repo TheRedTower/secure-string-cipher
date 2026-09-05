@@ -942,8 +942,12 @@ class TestVaultImportReset:
             cmd_vault_import(args)
         assert exc_info.value.code == EXIT_FILE_ERROR
 
-    def test_vault_import_invalid_format(self, tmp_path):
-        """vault import should exit with FILE_ERROR for invalid vault format."""
+    @patch(
+        "secure_string_cipher.cli_args._prompt_master_password",
+        return_value="Public-Test-Only-Master-2026!",
+    )
+    def test_vault_import_invalid_format(self, mock_master, tmp_path):
+        """vault import should reject a cryptographically invalid candidate."""
         bad_file = tmp_path / "bad_backup.txt"
         bad_file.write_text("not a vault file")
 
@@ -951,10 +955,14 @@ class TestVaultImportReset:
 
         with pytest.raises(SystemExit) as exc_info:
             cmd_vault_import(args)
-        assert exc_info.value.code == EXIT_FILE_ERROR
+        assert exc_info.value.code == EXIT_AUTH_ERROR
 
-    def test_vault_import_invalid_salt(self, tmp_path):
-        """vault import should exit with FILE_ERROR for non-hex salt."""
+    @patch(
+        "secure_string_cipher.cli_args._prompt_master_password",
+        return_value="Public-Test-Only-Master-2026!",
+    )
+    def test_vault_import_invalid_salt(self, mock_master, tmp_path):
+        """vault import should reject a candidate with a non-hex salt."""
         bad_file = tmp_path / "bad_backup.txt"
         bad_file.write_text("SSCVAULT\nnothex\n---DATA---\nfoo\n---HMAC---\nbar")
 
@@ -962,10 +970,14 @@ class TestVaultImportReset:
 
         with pytest.raises(SystemExit) as exc_info:
             cmd_vault_import(args)
-        assert exc_info.value.code == EXIT_FILE_ERROR
+        assert exc_info.value.code == EXIT_AUTH_ERROR
 
-    def test_vault_import_missing_hmac_separator(self, tmp_path):
-        """vault import should exit with FILE_ERROR for missing HMAC separator."""
+    @patch(
+        "secure_string_cipher.cli_args._prompt_master_password",
+        return_value="Public-Test-Only-Master-2026!",
+    )
+    def test_vault_import_missing_hmac_separator(self, mock_master, tmp_path):
+        """vault import should reject a missing HMAC separator."""
         bad_file = tmp_path / "bad_backup.txt"
         bad_file.write_text("SSCVAULT\nabcd1234\n---DATA---\nfoo")
 
@@ -973,14 +985,22 @@ class TestVaultImportReset:
 
         with pytest.raises(SystemExit) as exc_info:
             cmd_vault_import(args)
-        assert exc_info.value.code == EXIT_FILE_ERROR
+        assert exc_info.value.code == EXIT_AUTH_ERROR
 
+    @patch("secure_string_cipher.cli_args.validate_raw_vault")
+    @patch("secure_string_cipher.cli_args.read_bounded_vault_file")
+    @patch("secure_string_cipher.cli_args._prompt_master_password")
     @patch("secure_string_cipher.cli_args.PassphraseVault")
-    def test_vault_import_valid_format(self, mock_vault_class, tmp_path):
-        """vault import should succeed with valid vault format."""
+    def test_vault_import_valid_format(
+        self, mock_vault_class, mock_master, mock_read, mock_validate, tmp_path
+    ):
+        """vault import should delegate a validated candidate to the service."""
         mock_vault_instance = MagicMock()
         mock_vault_instance.vault_exists.return_value = False
+        mock_vault_instance.import_raw_vault.return_value = None
         mock_vault_class.return_value = mock_vault_instance
+        mock_master.return_value = "Public-Test-Only-Master-2026!"
+        mock_read.return_value = b"authenticated raw vault"
 
         valid_file = tmp_path / "valid_backup.txt"
         valid_file.write_text(
@@ -990,7 +1010,15 @@ class TestVaultImportReset:
         args = argparse.Namespace(file=str(valid_file))
         result = cmd_vault_import(args)
         assert result == EXIT_SUCCESS
-        mock_vault_instance.write_raw_vault.assert_called_once()
+        mock_validate.assert_called_once_with(
+            b"authenticated raw vault", "Public-Test-Only-Master-2026!"
+        )
+        mock_vault_instance.import_raw_vault.assert_called_once_with(
+            b"authenticated raw vault",
+            "Public-Test-Only-Master-2026!",
+            backup_current=True,
+        )
+        mock_vault_instance.write_raw_vault.assert_not_called()
 
     @patch("builtins.input", return_value="NOT_RESET")
     @patch("secure_string_cipher.cli_args.PassphraseVault")

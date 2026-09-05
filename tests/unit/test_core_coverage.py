@@ -12,7 +12,9 @@ Covers:
 
 from __future__ import annotations
 
+import base64
 from io import BytesIO
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,6 +30,8 @@ from secure_string_cipher.core import (
     encrypt_text,
     generate_key_pair,
 )
+
+TEST_COMMITMENT = base64.b64encode(b"k" * 32).decode("ascii")
 
 # =============================================================================
 # StreamProcessor edge cases
@@ -57,7 +61,10 @@ class TestStreamProcessor:
         # Create a sparse file header to trick size check
         large_file.write_bytes(b"x")
 
-        with patch("os.path.getsize", return_value=2 * 1024 * 1024 * 1024):
+        with patch(
+            "secure_string_cipher.core._preflight_regular_file_size",
+            return_value=2 * 1024 * 1024 * 1024,
+        ):
             with pytest.raises(CryptoError, match="too large"):
                 StreamProcessor(str(large_file), "rb")
 
@@ -142,10 +149,36 @@ class TestEnsureNoSymlink:
 
     def test_relative_path(self, tmp_path):
         """Should handle relative paths."""
-        regular_file = tmp_path / "file.txt"
-        regular_file.write_text("data")
-        # Use the path as-is (relative)
-        _ensure_no_symlink(regular_file, "test")
+        with patch("pathlib.Path.cwd", return_value=tmp_path):
+            _ensure_no_symlink(Path("file.txt"), "test")
+
+    def test_relative_final_component_symlink_rejected(self, tmp_path, monkeypatch):
+        """Should reject a symlink named by a relative path."""
+        target = tmp_path / "target.txt"
+        target.write_text("data")
+        (tmp_path / "link.txt").symlink_to(target)
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.raises(CryptoError, match="symlink"):
+            _ensure_no_symlink(Path("link.txt"), "test")
+
+    def test_relative_parent_symlink_rejected(self, tmp_path, monkeypatch):
+        """Should reject a symlinked parent in a relative path."""
+        real_dir = tmp_path / "real"
+        real_dir.mkdir()
+        (tmp_path / "link-dir").symlink_to(real_dir, target_is_directory=True)
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.raises(CryptoError, match="symlink"):
+            _ensure_no_symlink(Path("link-dir/file.txt"), "test")
+
+    def test_var_platform_symlink_remains_allowlisted(self):
+        """Should preserve the existing macOS /var compatibility handling."""
+        var_path = Path("/var")
+        if not var_path.is_symlink():
+            pytest.skip("/var is not a symlink on this platform")
+
+        _ensure_no_symlink(var_path / "tmp" / "file.txt", "test")
 
 
 # =============================================================================
@@ -220,21 +253,26 @@ class TestFileMetadata:
 
     def test_metadata_round_trip(self):
         """Should serialize and deserialize correctly."""
-        meta = FileMetadata(original_filename="test.txt")
+        meta = FileMetadata(
+            original_filename="test.txt", key_commitment=TEST_COMMITMENT
+        )
         raw = meta.to_bytes()
         restored = FileMetadata.from_bytes(raw)
         assert restored.original_filename == "test.txt"
 
     def test_metadata_no_filename(self):
         """Should handle metadata without filename."""
-        meta = FileMetadata(original_filename=None)
+        meta = FileMetadata(original_filename=None, key_commitment=TEST_COMMITMENT)
         raw = meta.to_bytes()
         restored = FileMetadata.from_bytes(raw)
         assert restored.original_filename is None
 
     def test_metadata_unicode_filename(self):
         """Should handle unicode filenames."""
-        meta = FileMetadata(original_filename="日本語ファイル.txt")
+        meta = FileMetadata(
+            original_filename="日本語ファイル.txt",
+            key_commitment=TEST_COMMITMENT,
+        )
         raw = meta.to_bytes()
         restored = FileMetadata.from_bytes(raw)
         assert restored.original_filename == "日本語ファイル.txt"
