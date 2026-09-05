@@ -1,6 +1,8 @@
 # Cryptographic Design Document
 
-This document describes the cryptographic design of secure-string-cipher for third-party security auditors.
+This document describes the current Beta cryptographic design for review. It is
+not a claim that secure-string-cipher has completed an independent audit or is
+stable.
 
 ## Table of Contents
 
@@ -46,9 +48,9 @@ The design prioritizes:
 | **Partitioning oracle attacks** | HMAC-SHA256 key commitment |
 | **Timing attacks on password comparison** | Constant-time comparison |
 | **Vault file tampering** | HMAC-SHA256 integrity verification |
-| **Brute-force password guessing** | Rate limiting with exponential backoff |
-| **Path traversal attacks** | Input validation, symlink detection |
-| **Memory disclosure** | Secure memory wiping via libsodium |
+| **Online CLI password guessing** | Local rate limiting with exponential backoff |
+| **Accidental path misuse** | Best-effort lexical validation and symlink preflight |
+| **Some mutable-buffer residue** | Best-effort clearing via libsodium where available |
 
 ### Out of Scope
 
@@ -59,6 +61,8 @@ The design prioritizes:
 | **Social engineering** | User education, not technical control |
 | **Quantum computing** | AES-256 provides ~128-bit post-quantum security for symmetric encryption; Argon2id output is vulnerable to Grover's algorithm but 256-bit keys maintain adequate security margins |
 | **Traffic analysis** | File sizes visible in encrypted output |
+| **Offline password guessing** | Local CLI rate limiting cannot affect copied ciphertext |
+| **Hostile path races** | Descriptor-level opening is not yet implemented |
 
 ### Assumptions
 
@@ -80,7 +84,8 @@ The design prioritizes:
 | Tag size | 128 bits | Full authentication security |
 | Mode | GCM | AEAD with wide hardware support |
 
-**Implementation:** `cryptography.hazmat.primitives.ciphers.aead.AESGCM`
+**Implementation:** the streaming `Cipher(..., modes.GCM(...))` interface from
+`cryptography`.
 
 **Nonce generation:** Fresh random nonce for each encryption via `secrets.token_bytes(12)`
 
@@ -217,8 +222,8 @@ File encryption uses a structured format with metadata:
 ├─────────────────────────────────────────────────────────────┤
 │ METADATA_LENGTH (2 bytes): Big-endian uint16                │
 ├─────────────────────────────────────────────────────────────┤
-│ METADATA (JSON): version, filename, size, hash,             │
-│                  algorithm, key_commitment                  │
+│ METADATA (JSON): version, original_filename,                │
+│                  key_commitment                             │
 ├─────────────────────────────────────────────────────────────┤
 │ SALT (16 bytes)                                             │
 ├─────────────────────────────────────────────────────────────┤
@@ -292,16 +297,16 @@ def verify_key_commitment(key: bytes, expected: bytes) -> bool:
 
 ## File Format
 
-### Version 4 (Current)
+### Versions 5 and 4
 
 > **Note:** The magic bytes `SSCV2` identify the file format structure (with metadata header).
-> The `version` field in metadata indicates the cryptographic version (4 = Argon2id + key commitment).
+> The current writer emits metadata version 5. Version 4 remains readable.
 
 | Field | Size | Description |
 |-------|------|-------------|
 | Magic | 5 bytes | `SSCV2` (identifies file format structure) |
 | Meta length | 2 bytes | Big-endian uint16 |
-| Metadata | Variable | JSON with version, filename, hash, algorithm, key_commitment |
+| Metadata | Variable | JSON with version, original_filename, key_commitment |
 | Salt | 16 bytes | Argon2id salt |
 | Nonce | 12 bytes | AES-GCM nonce |
 | Ciphertext | Variable | Encrypted file content |
@@ -311,14 +316,18 @@ def verify_key_commitment(key: bytes, expected: bytes) -> bool:
 
 ```json
 {
-  "version": 4,
+  "version": 5,
   "original_filename": "document.pdf",
-  "original_size": 1048576,
-  "content_hash": "base64-encoded-sha256",
-  "algorithm": "argon2id",
   "key_commitment": "base64-encoded-hmac"
 }
 ```
+
+`original_filename` is a bounded metadata string, not a path. Version 5
+authenticates the exact serialized metadata bytes before a sanitized name may
+select an automatic destination. Version 4 names are ignored for destination
+selection, and an explicit output path is authoritative for both versions.
+Commitments and text/vault tokens use canonical Base64: strict decoding must
+round-trip to the identical ASCII spelling.
 
 ### Format Evolution
 
@@ -327,7 +336,18 @@ def verify_key_commitment(key: bytes, expected: bytes) -> bool:
 | 1 | PBKDF2 | No | Legacy, unsupported |
 | 2 | PBKDF2 | No | Legacy, unsupported |
 | 3 | Argon2id | No | Transitional |
-| 4 | Argon2id | Yes | Current |
+| 4 | Argon2id | Yes | Legacy; metadata is not GCM-authenticated and its filename is never trusted for output selection |
+| 5 | Argon2id | Yes | Current writer; metadata is AES-GCM additional authenticated data |
+
+The v4/v5 salt, nonce, tag, KDF parameters, AES-GCM behavior, header ordering,
+and tag placement are otherwise unchanged by the atomic-publication hardening.
+
+Authentic immutable compatibility fixtures are stored under
+`tests/fixtures/legacy/`. Version 4 was produced by tag `v1.2.10` at commit
+`f7e3fc797e737ddfdd2a27d28cafec6dc5d710cb`; version 5 was produced by tag
+`v1.3.0` at commit `f7ff04c4d5a0adc0cbdc3cb841d5048f2f14dcac`.
+The manifest records producer environments and SHA-256 hashes. Their shared
+1,094,205-byte binary payload crosses four 256 KiB streaming chunks.
 
 ---
 
@@ -338,34 +358,51 @@ The passphrase vault stores encrypted passphrases for user convenience.
 ### Vault Structure
 
 ```text
-┌─────────────────────────────────────┐
-│ HMAC (32 bytes)                     │
-├─────────────────────────────────────┤
-│ SALT (16 bytes)                     │
-├─────────────────────────────────────┤
-│ NONCE (12 bytes)                    │
-├─────────────────────────────────────┤
-│ CIPHERTEXT (encrypted JSON)         │
-├─────────────────────────────────────┤
-│ TAG (16 bytes)                      │
-└─────────────────────────────────────┘
+SSCVAULT
+<32-byte HMAC salt as 64 lowercase hex characters>
+---DATA---
+<strict Base64 encrypted-text token>
+---HMAC---
+<32-byte HMAC as 64 lowercase hex characters>
 ```
 
-### Integrity Verification
+The decrypted encrypted-text payload must be one JSON object with unique string
+keys and string values. The released six-line format has no version, size, or
+entry-count field; readers do not invent semantic limits that would reject an
+authentic released vault. Raw active, backup, migration, and import-file
+buffering is separately limited to 100 MiB and uses an opened regular-file
+descriptor plus a `limit + 1` read. Keychain strings are incrementally counted
+as strict UTF-8 before validation or storage, so a newly written value remains
+readable within the same bound.
+Core validation remains byte-exact. Only the CLI import transport boundary
+recovers exactly one legacy terminal LF or CRLF; it does not normalize any
+other whitespace or internal line endings.
 
-Before any vault operation:
+### Integrity Verification and Recovery
 
-1. Read HMAC from file header
-2. Compute HMAC over remaining file content
-3. Compare using constant-time comparison
-4. Reject if mismatch (tampering detected)
+Candidate validation is side-effect free and completes before active storage is
+read or written:
+
+1. Parse exactly six lines with strict separators, lowercase hex, and Base64.
+2. Derive the HMAC key with Argon2id and compare HMACs in constant time.
+3. Authenticate/decrypt the encrypted-text token.
+4. Strictly decode the JSON object and reject duplicates or non-string entries.
+5. Retain and back up the current raw active vault.
+6. Publish through the configured backend, read back exact contents, and run the
+   same validation again.
+7. On any post-write failure, restore the retained raw value (or prior absence)
+   and report whether rollback succeeded.
 
 ### Backup Strategy
 
-- Automatic backup before any modification
-- Last 5 backups retained in `~/.secure-cipher/backups/`
-- Backups named with ISO 8601 timestamps
-- Same file permissions (0600)
+- Collision-resistant identifiers combine UTC microseconds with a random suffix.
+- The newest five records are retained; the selected restore source and newly
+  published pre-replacement snapshot are protected during rotation.
+- Backups contain the exact raw encrypted vault representation, use atomic
+  no-overwrite publication, and use mode `0600` on POSIX.
+- File-backend active writes are atomically replaced. Native credential stores
+  provide no multi-record transaction, so rollback there is best effort.
+- No cross-process vault lock exists; simultaneous processes can still race.
 
 ---
 
@@ -383,13 +420,15 @@ All sensitive comparisons use constant-time functions that don't leak informatio
 
 ### Memory Protection
 
-When PyNaCl (libsodium) is available:
+When PyNaCl (libsodium) is available, mutable managed buffers are cleared on a
+best-effort basis:
 
 - `SecureString`: Auto-zeros memory on deletion
 - `SecureBytes`: Auto-zeros memory on deletion
 - Uses `sodium_memzero()` for secure wiping
 
-**Limitation:** Python's garbage collector may create copies. Use `has_secure_memory()` to check availability.
+**Limitation:** Python strings are immutable and the interpreter or libraries
+may create copies. Clearing cannot guarantee removal of every secret copy.
 
 ### Timing Jitter
 
@@ -469,7 +508,9 @@ If a passphrase is compromised, all files encrypted with it can be decrypted. Mi
 
 ### 3. Metadata Leakage
 
-Encrypted file metadata (filename, size) is visible in the encrypted format. Mitigations:
+Encrypted file metadata is visible before authentication. The optional original
+filename is visible, and total object length leaks approximate plaintext size.
+Mitigations:
 
 - Content is fully encrypted
 - Filename can be randomized before encryption
@@ -491,6 +532,36 @@ Keys exist only in software memory. For HSM requirements, consider:
 
 - PKCS#11 integration (not implemented)
 - Hardware tokens (not implemented)
+
+### 6. Beta File and Filesystem Scope
+
+Whole regular files of any internal format are encrypted as opaque bytes.
+`MAX_FILE_SIZE` is the inclusive 100 MiB plaintext payload; SSCV2 magic,
+metadata, salt, nonce, and tag overhead may make the encrypted container larger.
+Opened descriptors are required to be regular files and snapshot sizes are
+checked before key derivation; cumulative counters reject later growth. Raw
+active/candidate vault representations and legacy key files separately use
+100 MiB as a raw-input cap. Final outputs are atomically replaced only after successful encryption or
+authenticated decryption, which protects against ordinary operation failures.
+Temporary files are synced before replacement and retained for a final cleanup
+retry if an earlier unlink fails. Parent-directory sync after replacement is
+best effort. Lexical checks plus descriptor inspection do not prevent hostile
+concurrent path replacement; race-resistant descriptor-relative opening remains
+future work.
+
+### 7. Legacy Key Files and Local Controls
+
+Legacy key-file mode hashes file bytes into a symmetric passphrase. It is not
+RSA, recipient, or public-key encryption; identical bytes grant decryption.
+Local rate limiting does not stop offline guessing. Audit events are editable
+local JSON rather than a tamper-evident log.
+
+### 8. Vault Concurrency and Native Backends
+
+Vault import/restore verifies before and after publication and attempts rollback
+after post-write failure. File writes use same-directory atomic replacement;
+keychain/native credential-store rollback is best effort. There is no
+cross-process vault lock, and CI does not exercise real OS credential services.
 
 ---
 
