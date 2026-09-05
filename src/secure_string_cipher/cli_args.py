@@ -18,11 +18,19 @@ from typing import NoReturn
 from . import __version__
 from .audit_log import AuditEvent, get_audit_logger
 from .cli import main as run_interactive_menu
-from .config import METADATA_MAGIC, load_vault_settings, set_vault_backend
+from .config import (
+    KEY_COMMITMENT_SIZE,
+    MAX_FILE_SIZE,
+    NONCE_SIZE,
+    SALT_SIZE,
+    TAG_SIZE,
+    load_vault_settings,
+    set_vault_backend,
+)
 from .core import (
     CryptoError,
-    FileMetadata,
     _ensure_no_symlink,
+    _FileInputError,
     decrypt_bytes,
     decrypt_file,
     decrypt_text,
@@ -32,11 +40,16 @@ from .core import (
     encrypt_text,
 )
 from .passphrase_generator import generate_passphrase
-from .passphrase_manager import PassphraseVault
+from .passphrase_manager import (
+    PassphraseVault,
+    VaultTransactionError,
+    read_bounded_vault_file,
+    validate_raw_vault,
+)
 from .rate_limiter import PersistentRateLimiter
-from .security import sanitize_filename
 from .timing_safe import check_password_strength
 from .utils import colorize, secure_overwrite
+from .vault_transport import canonicalize_cli_vault_candidate
 
 # Global rate limiter for CLI authentication attempts
 _cli_limiter = PersistentRateLimiter()
@@ -57,6 +70,33 @@ EXIT_FILE_ERROR = 4  # Not found, permission denied
 
 _quiet_mode = False
 _no_color = False
+
+
+class _StdinSizeError(CryptoError):
+    """Internal signal for stdin data outside the documented payload bound."""
+
+
+def _read_stdin_bounded(maximum_bytes: int) -> bytes:
+    """Read at most one byte beyond a caller-supplied stdin bound."""
+    data = sys.stdin.buffer.read(maximum_bytes + 1)
+    if len(data) > maximum_bytes:
+        raise _StdinSizeError("Stdin input exceeds the allowed size.")
+    return data
+
+
+def _maximum_stdin_ciphertext_size() -> int:
+    """Return Base64 size for a maximum plaintext plus text-token framing."""
+    raw_size = MAX_FILE_SIZE + SALT_SIZE + NONCE_SIZE + KEY_COMMITMENT_SIZE + TAG_SIZE
+    return 4 * ((raw_size + 2) // 3)
+
+
+def _remove_one_terminal_line_ending(data: bytes) -> bytes:
+    """Remove one shell transport line ending without broad whitespace stripping."""
+    if data.endswith(b"\r\n"):
+        return data[:-2]
+    if data.endswith(b"\n"):
+        return data[:-1]
+    return data
 
 
 def _print_info(message: str) -> None:
@@ -296,71 +336,6 @@ def _get_password_from_key_file(key_file_path: str) -> str:
         _exit_error(EXIT_FILE_ERROR, _key_file_error_message(e))
 
 
-def _load_file_metadata(input_path: Path) -> FileMetadata:
-    """Load unencrypted metadata from an encrypted file.
-
-    Args:
-        input_path: Encrypted file path
-
-    Returns:
-        Parsed FileMetadata
-
-    Raises:
-        CryptoError: When the file is malformed or missing required headers
-    """
-
-    with open(input_path, "rb") as f:
-        magic = f.read(len(METADATA_MAGIC))
-        if magic != METADATA_MAGIC:
-            raise CryptoError(
-                "Invalid file format: missing magic header. "
-                "This file may have been encrypted with an older version."
-            )
-
-        meta_len_bytes = f.read(2)
-        if len(meta_len_bytes) != 2:
-            raise CryptoError("Invalid file: truncated metadata length")
-        meta_len = int.from_bytes(meta_len_bytes, "big")
-        if meta_len > 65535:
-            raise CryptoError("Invalid file: metadata too large")
-
-        meta_bytes = f.read(meta_len)
-        if len(meta_bytes) != meta_len:
-            raise CryptoError("Invalid file: truncated metadata")
-
-    return FileMetadata.from_bytes(meta_bytes)
-
-
-def _determine_output_path(filepath: Path, restore_filename: bool) -> Path:
-    """Choose output path using metadata when available.
-
-    Prefers restoring the original filename stored in metadata when
-    `restore_filename` is True; otherwise falls back to deterministic names
-    that avoid overwriting the original file.
-    """
-
-    metadata: FileMetadata | None = None
-    if restore_filename:
-        try:
-            metadata = _load_file_metadata(filepath)
-        except CryptoError:
-            metadata = None
-
-    if restore_filename and metadata and metadata.original_filename:
-        safe_name = sanitize_filename(metadata.original_filename)
-        if safe_name:
-            output_dir = filepath.parent or Path(".")
-            return output_dir / safe_name
-
-    if not restore_filename and filepath.suffix == ".enc":
-        return filepath.with_suffix(".dec")
-
-    if filepath.suffix == ".enc":
-        return filepath.with_suffix("")
-
-    return filepath.with_name(filepath.name + ".dec")
-
-
 # =============================================================================
 # Command: start (interactive)
 # =============================================================================
@@ -443,12 +418,14 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
         # Handle stdin/stdout streaming
         if filepath == "-":
             try:
-                data = sys.stdin.buffer.read()
+                data = _read_stdin_bounded(MAX_FILE_SIZE)
                 ciphertext_bytes = encrypt_bytes(data, password)
                 sys.stdout.buffer.write(ciphertext_bytes + b"\n")
                 _audit_encryption(AuditEvent.ENCRYPT_FILE, True, file_path="stdin")
                 _print_info("✓ Encrypted stdin to stdout")
                 return EXIT_SUCCESS
+            except _StdinSizeError:
+                _exit_error(EXIT_FILE_ERROR, "Stdin input too large.")
             except CryptoError:
                 _audit_encryption(
                     AuditEvent.ENCRYPT_FILE,
@@ -463,17 +440,26 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
         filepath_obj = Path(filepath)
         output_path = filepath_obj.with_suffix(filepath_obj.suffix + ".enc")
 
-        # Remove file for overwrite
-        if output_path.exists() and args.force:
-            output_path.unlink()
-
         try:
-            encrypt_file(str(filepath_obj), str(output_path), password)
+            encrypt_file(
+                str(filepath_obj),
+                str(output_path),
+                password,
+                overwrite=args.force,
+            )
             _audit_encryption(
                 AuditEvent.ENCRYPT_FILE, True, file_path=str(filepath_obj)
             )
             _print_info(f"✓ Encrypted to {output_path}")
             return EXIT_SUCCESS
+        except _FileInputError:
+            _audit_encryption(
+                AuditEvent.ENCRYPT_FILE,
+                False,
+                file_path=str(filepath_obj),
+                error="input_rejected",
+            )
+            _exit_error(EXIT_FILE_ERROR, "Input file rejected.")
         except CryptoError:
             _audit_encryption(
                 AuditEvent.ENCRYPT_FILE,
@@ -521,18 +507,16 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
         if not filepath.exists():
             _exit_error(EXIT_FILE_ERROR, f"File not found: {args.file}")
 
-        # Determine intended output path (surface filesystem errors as file-exit)
+        # Explicit destinations can be checked without consulting file metadata.
         try:
             _ensure_no_symlink(filepath, "input")
             if output_arg:
                 output_path = Path(output_arg)
-            else:
-                output_path = _determine_output_path(filepath, restore_filename)
+                _ensure_no_symlink(output_path, "output")
         except (OSError, PermissionError, CryptoError):
             _exit_error(EXIT_FILE_ERROR, "File error.")
 
-        # Check overwrite
-        if output_path.exists() and not args.force:
+        if output_path is not None and output_path.exists() and not args.force:
             _exit_error(
                 EXIT_FILE_ERROR,
                 f"{output_path} already exists.\nRun again with --force to overwrite.",
@@ -586,13 +570,21 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
         if filepath == "-":
             # Read from stdin, decrypt, write to stdout
             try:
-                data = sys.stdin.buffer.read().strip()
+                maximum_token_size = _maximum_stdin_ciphertext_size()
+                data = _read_stdin_bounded(maximum_token_size + 2)
+                data = _remove_one_terminal_line_ending(data)
+                if len(data) > maximum_token_size:
+                    raise _StdinSizeError("Stdin input exceeds the allowed size.")
                 plaintext_bytes = decrypt_bytes(data, password)
+                if len(plaintext_bytes) > MAX_FILE_SIZE:
+                    raise _StdinSizeError("Stdin input exceeds the allowed size.")
                 sys.stdout.buffer.write(plaintext_bytes)
                 _cli_limiter.record_attempt("decrypt_file", "-", success=True)
                 _audit_encryption(AuditEvent.DECRYPT_FILE, True, file_path="stdin")
                 _print_info("✓ Decrypted stdin to stdout")
                 return EXIT_SUCCESS
+            except _StdinSizeError:
+                _exit_error(EXIT_FILE_ERROR, "Stdin input too large.")
             except CryptoError:
                 _cli_limiter.record_attempt("decrypt_file", "-", success=False)
                 _audit_encryption(
@@ -613,32 +605,13 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
         if not filepath_obj.exists():
             _exit_error(EXIT_FILE_ERROR, f"File not found: {args.file}")
 
-        # Determine intended output path (surface filesystem errors as file-exit)
-        try:
-            _ensure_no_symlink(filepath_obj, "input")
-            if output_arg:
-                output_path = Path(output_arg)
-            else:
-                output_path = _determine_output_path(filepath_obj, restore_filename)
-        except (OSError, PermissionError, CryptoError):
-            _exit_error(EXIT_FILE_ERROR, "File error.")
-
-        # Check overwrite
-        if output_path.exists():
-            if not args.force:
-                _exit_error(
-                    EXIT_FILE_ERROR,
-                    f"{output_path} already exists.\nRun again with --force to overwrite.",
-                )
-            # Remove existing file for overwrite
-            output_path.unlink()
-
         try:
             actual_output, _ = decrypt_file(
                 str(filepath_obj),
                 str(output_path) if output_path else None,
                 password,
                 restore_filename=restore_filename,
+                overwrite=args.force,
             )
             _cli_limiter.record_attempt("decrypt_file", str(filepath_obj), success=True)
             _audit_encryption(
@@ -646,7 +619,20 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
             )
             _print_info(f"✓ Decrypted to {actual_output}")
             return EXIT_SUCCESS
-        except CryptoError:
+        except _FileInputError:
+            _audit_encryption(
+                AuditEvent.DECRYPT_FILE,
+                False,
+                file_path=str(filepath_obj),
+                error="input_rejected",
+            )
+            _exit_error(EXIT_FILE_ERROR, "Input file rejected.")
+        except CryptoError as exc:
+            if str(exc).startswith("Output file already exists:"):
+                _exit_error(
+                    EXIT_FILE_ERROR,
+                    "Output file already exists.\nRun again with --force to overwrite.",
+                )
             _cli_limiter.record_attempt(
                 "decrypt_file", str(filepath_obj), success=False
             )
@@ -777,60 +763,38 @@ def cmd_vault_export(args: argparse.Namespace) -> int:
 
         content = vault.read_raw_vault()
         if content is not None:
-            print(content)
+            sys.stdout.buffer.write(content.encode("utf-8"))
+            sys.stdout.buffer.flush()
             _audit_vault(AuditEvent.VAULT_LIST, True, vault)
             _print_info("✓ Vault exported (pipe to file to save)")
             return EXIT_SUCCESS
         _audit_vault(AuditEvent.VAULT_LIST, False, vault, error="vault_not_found")
         _exit_error(EXIT_VAULT_ERROR, "Vault not found.")
-    except CryptoError:
+    except (CryptoError, ValueError):
         _audit_vault(AuditEvent.VAULT_LIST, False, vault, error="auth_failed")
-        _exit_error(EXIT_AUTH_ERROR, "Wrong master password.")
-
-
-def _validate_vault_format(content: str) -> bool:
-    """Validate imported vault file format.
-
-    Checks for SSCVAULT header, HMAC salt, data separator,
-    encrypted payload, and HMAC separator.
-    """
-    lines = content.strip().split("\n")
-    if len(lines) < 6:
-        return False
-    if not lines[0].startswith("SSCVAULT"):
-        return False
-    if lines[2] != "---DATA---":
-        return False
-    if "---HMAC---" not in lines:
-        return False
-    # Validate salt is hex
-    try:
-        bytes.fromhex(lines[1])
-    except ValueError:
-        return False
-    return True
+        _exit_error(EXIT_AUTH_ERROR, "Vault export failed.")
 
 
 def cmd_vault_import(args: argparse.Namespace) -> int:
-    """Import vault from backup."""
+    """Validate and transactionally import a vault backup."""
     import_path = Path(args.file)
 
     if not import_path.exists():
         _exit_error(EXIT_FILE_ERROR, f"File not found: {args.file}")
 
     vault = PassphraseVault()
+    print(f"Candidate: {import_path}")
+    print(f"Target backend: {vault.backend}")
+    master = _prompt_master_password()
 
-    # Validate vault format before replacing
     try:
-        content = import_path.read_text()
-    except OSError:
+        content = read_bounded_vault_file(import_path)
+        content = canonicalize_cli_vault_candidate(content)
+        validate_raw_vault(content, master)
+    except VaultTransactionError:
         _exit_error(EXIT_FILE_ERROR, "Cannot read import file.")
-
-    if not _validate_vault_format(content):
-        _exit_error(
-            EXIT_FILE_ERROR,
-            "Invalid vault format. File does not appear to be a valid vault backup.",
-        )
+    except ValueError:
+        _exit_error(EXIT_AUTH_ERROR, "Vault validation failed.")
 
     # Confirm if vault exists
     if vault.vault_exists():
@@ -840,16 +804,25 @@ def cmd_vault_import(args: argparse.Namespace) -> int:
             _exit_error(EXIT_INPUT_ERROR, "Import cancelled.")
 
     try:
-        vault.write_raw_vault(content)
+        backup_identifier = vault.import_raw_vault(content, master, backup_current=True)
         _audit_vault(AuditEvent.VAULT_STORE, True, vault)
-        _print_info("✓ Vault imported successfully")
+        _print_info("✓ Vault imported successfully.")
+        if backup_identifier is not None:
+            _print_info(f"Previous vault backup: {backup_identifier}")
         return EXIT_SUCCESS
-    except OSError:
-        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error="import_failed")
-        _exit_error(EXIT_FILE_ERROR, "Import failed.")
-    except Exception:
-        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error="import_failed")
-        _exit_error(EXIT_VAULT_ERROR, "Import failed.")
+    except VaultTransactionError as error:
+        audit_category = (
+            "rollback_failed"
+            if error.rollback_succeeded is False
+            else "transaction_failed"
+        )
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=audit_category)
+        if error.rollback_succeeded is False:
+            _exit_error(
+                EXIT_VAULT_ERROR,
+                "Import failed and rollback failed; active vault may be inconsistent.",
+            )
+        _exit_error(EXIT_VAULT_ERROR, "Import failed; active vault was preserved.")
 
 
 def cmd_vault_reset(args: argparse.Namespace) -> int:
@@ -950,33 +923,56 @@ def cmd_vault_backend(args: argparse.Namespace) -> int:
 
 
 def cmd_vault_backups(args: argparse.Namespace) -> int:
-    """List file-vault backups."""
-    vault = PassphraseVault(backend="file")
-    backups = vault.list_backups()
+    """List configured-vault backups without decrypted content."""
+    vault = PassphraseVault()
+    backups = vault.list_backup_records()
     if not backups:
         print("No backups available.")
         return EXIT_SUCCESS
 
     print("Available backups:")
-    for index, backup in enumerate(backups):
-        print(f"  [{index}] {backup}")
+    for backup in backups:
+        print(f"  {backup.identifier}  {backup.created_at.isoformat()}")
     return EXIT_SUCCESS
 
 
 def cmd_vault_restore(args: argparse.Namespace) -> int:
-    """Restore a file-vault backup by index."""
-    vault = PassphraseVault(backend="file")
+    """Validate and transactionally restore an exact backup identifier."""
+    vault = PassphraseVault()
+    print(f"Backup: {args.identifier}")
+    print(f"Target backend: {vault.backend}")
+    master = _prompt_master_password()
     try:
-        vault.restore_from_backup(args.index)
+        vault.validate_backup(args.identifier, master)
+    except VaultTransactionError:
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error="validation_failed")
+        _exit_error(EXIT_AUTH_ERROR, "Restore validation failed.")
+
+    if vault.vault_exists():
+        print("Existing vault will be replaced. Continue? (y/n): ", end="", flush=True)
+        if input().strip().lower() != "y":
+            _exit_error(EXIT_INPUT_ERROR, "Restore cancelled.")
+
+    try:
+        backup_identifier = vault.restore_from_backup(args.identifier, master)
         _audit_vault(AuditEvent.VAULT_STORE, True, vault)
-        _print_info(f"✓ Restored backup [{args.index}] to {vault.vault_path}")
+        _print_info(f"✓ Restored backup: {args.identifier}")
+        if backup_identifier is not None:
+            _print_info(f"Previous vault backup: {backup_identifier}")
         return EXIT_SUCCESS
-    except ValueError:
-        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error="restore_failed")
-        _exit_error(EXIT_VAULT_ERROR, "Restore failed.")
-    except OSError:
-        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error="restore_failed")
-        _exit_error(EXIT_FILE_ERROR, "Restore failed.")
+    except VaultTransactionError as error:
+        audit_category = (
+            "rollback_failed"
+            if error.rollback_succeeded is False
+            else "transaction_failed"
+        )
+        _audit_vault(AuditEvent.VAULT_STORE, False, vault, error=audit_category)
+        if error.rollback_succeeded is False:
+            _exit_error(
+                EXIT_VAULT_ERROR,
+                "Restore failed and rollback failed; active vault may be inconsistent.",
+            )
+        _exit_error(EXIT_VAULT_ERROR, "Restore failed; active vault was preserved.")
 
 
 def cmd_vault(args: argparse.Namespace) -> int:
@@ -1302,13 +1298,12 @@ Examples:
     # vault restore
     vault_restore_parser = vault_subparsers.add_parser(
         "restore",
-        help="Restore a file-vault backup by index",
+        help="Restore a vault backup by exact identifier",
     )
     vault_restore_parser.add_argument(
-        "index",
-        metavar="INDEX",
-        type=int,
-        help="Backup index from `ssc vault backups`",
+        "identifier",
+        metavar="BACKUP_ID",
+        help="Exact backup identifier from `ssc vault backups`",
     )
     vault_restore_parser.set_defaults(func=cmd_vault_restore)
 
