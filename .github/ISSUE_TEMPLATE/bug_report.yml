@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a reproducible problem that is not a security vulnerability.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Secure String Cipher. Do not disclose
+        vulnerabilities or sensitive data here; use the private security link
+        shown on the issue chooser instead.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: This report does not contain passwords, keys, plaintext, vault data, or other secrets.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
+  - type: input
+    id: version
+    attributes:
+      label: SSC version
+      description: Run `ssc --version` or provide the package version and commit.
+      placeholder: "1.3.0 or commit SHA"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the operating system, Python version, and installation method.
+      placeholder: "macOS 15, Python 3.13, installed with pipx"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Problem
+      description: Explain what happened and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest safe example that reproduces the problem.
+      placeholder: |
+        1. Run ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized diagnostic output
+      description: Remove secrets, plaintext, filesystem identities, and other personal data before pasting output.
+      render: shell
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add any other non-sensitive information that may help reproduce the issue.

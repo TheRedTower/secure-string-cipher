@@ -1,51 +1,34 @@
 # API Reference
 
-Complete API documentation for the current Beta API. The Beta is not a stable
-or audited release contract.
+This reference documents every name exported by `secure_string_cipher.__all__`
+on the current Beta branch. The API and file formats remain compatibility
+sensitive, but the Beta is not yet a stable or independently audited contract.
 
-## Table of Contents
+Import public names from the package root:
 
-- [Core Encryption](#core-encryption)
-  - [encrypt_text](#encrypt_text)
-  - [decrypt_text](#decrypt_text)
-  - [encrypt_file](#encrypt_file)
-  - [decrypt_file](#decrypt_file)
-- [Key Derivation](#key-derivation)
-  - [derive_key](#derive_key)
-  - [compute_key_commitment / verify_key_commitment](#compute_key_commitment--verify_key_commitment)
-  - [derive_key_from_key_file](#derive_key_from_key_file)
-  - [generate_key_pair](#generate_key_pair)
-- [Passphrase Generation](#passphrase-generation)
-  - [generate_passphrase](#generate_passphrase)
-- [Passphrase Vault](#passphrase-vault)
-  - [PassphraseVault](#passphrasevault)
-- [Keychain Backend](#keychain-backend)
-  - [KeychainVaultBackend](#keychainvaultbackend)
-  - [is_keychain_available](#is_keychain_available)
-  - [KeychainError / KeychainUnavailableError](#keychainerror--keychainunavailableerror)
-- [Security Utilities](#security-utilities)
-  - [check_password_strength](#check_password_strength)
-  - [constant_time_compare](#constant_time_compare)
-  - [add_timing_jitter](#add_timing_jitter)
-- [Secure Memory](#secure-memory)
-  - [SecureString / SecureBytes](#securestring--securebytes)
-  - [has_secure_memory](#has_secure_memory)
-  - [secure_wipe](#secure_wipe)
-- [Rate Limiting](#rate-limiting)
-  - [RateLimiter](#ratelimiter)
-  - [rate_limited](#rate_limited)
-- [Audit Logging](#audit-logging)
-  - [AuditLogger](#auditlogger)
-  - [Convenience Functions](#convenience-functions)
-- [Exceptions](#exceptions)
-  - [CryptoError](#cryptoerror)
-  - [SecurityError](#securityerror)
-  - [RateLimitError](#ratelimiterror)
-- [Utility Functions](#utility-functions)
-  - [colorize](#colorize)
-  - [ProgressBar](#progressbar)
-  - [secure_overwrite](#secure_overwrite)
-- [Configuration Constants](#configuration-constants)
+```python
+from secure_string_cipher import encrypt_text
+```
+
+Names available only from submodules are implementation-level interfaces unless
+another project document explicitly says otherwise. Never print, log, or place
+passphrases in command-line arguments; placeholder credentials below are for
+illustration only.
+
+## Public API at a glance
+
+| Area | Package-root exports |
+| ---- | -------------------- |
+| Encryption | `encrypt_text`, `decrypt_text`, `encrypt_bytes`, `decrypt_bytes`, `encrypt_file`, `decrypt_file`, `StreamProcessor`, `FileMetadata` |
+| Key derivation | `derive_key`, `derive_key_from_key_file`, `generate_key_pair`, `compute_key_commitment`, `verify_key_commitment` |
+| Errors | `CryptoError`, `SecurityError`, `RateLimitError`, `KeychainError`, `KeychainUnavailableError` |
+| Passphrases and vault | `generate_passphrase`, `PassphraseVault`, `BACKEND_FILE`, `BACKEND_KEYCHAIN` |
+| Vault configuration | `VaultSettings`, `load_vault_settings`, `save_vault_settings`, `set_vault_backend` |
+| Keychain | `KeychainVaultBackend`, `is_keychain_available` |
+| Security and memory | `check_password_strength`, `constant_time_compare`, `add_timing_jitter`, `SecureString`, `SecureBytes`, `secure_wipe`, `has_secure_memory` |
+| Rate limiting | `RateLimiter`, `PersistentRateLimiter`, `rate_limited`, `get_global_limiter` |
+| Audit logging | `AuditLogger`, `AuditEvent`, `AuditLevel`, `get_audit_logger`, `audit_event`, `audit_auth_failure`, `audit_rate_limit` |
+| Terminal and CLI | `colorize`, `secure_overwrite`, `ProgressBar`, `main` |
 
 ## Core Encryption
 
@@ -65,10 +48,8 @@ input text.
 
 Encrypt a plaintext string using AES-256-GCM.
 
-```python
-from secure_string_cipher import encrypt_text
-
-ciphertext = encrypt_text(plaintext: str, passphrase: str) -> str
+```text
+encrypt_text(text: str, passphrase: str) -> str
 ```
 
 **Parameters:**
@@ -96,10 +77,8 @@ print(ciphertext)  # Base64 string like "gAAAAABh..."
 
 Decrypt a ciphertext string encrypted with `encrypt_text`.
 
-```python
-from secure_string_cipher import decrypt_text
-
-plaintext = decrypt_text(ciphertext: str, passphrase: str) -> str
+```text
+decrypt_text(token: str, passphrase: str) -> str
 ```
 
 **Parameters:**
@@ -122,13 +101,36 @@ print(plaintext)  # "Secret message"
 
 ---
 
+### encrypt_bytes / decrypt_bytes
+
+Encrypt arbitrary bytes and return a canonical Base64 token as `bytes`.
+`decrypt_bytes` accepts only canonical ASCII Base64 and returns the original
+byte sequence.
+
+```text
+encrypt_bytes(data: bytes, passphrase: str) -> bytes
+decrypt_bytes(token: bytes, passphrase: str) -> bytes
+```
+
+Both functions raise `CryptoError` for invalid input, authentication failure,
+or cryptographic failure. They operate in memory; use `encrypt_file` and
+`decrypt_file` for bounded streaming file operations.
+
+```python
+from secure_string_cipher import decrypt_bytes, encrypt_bytes
+
+payload = b"binary\x00payload"
+token = encrypt_bytes(payload, "correct horse battery staple")
+assert decrypt_bytes(token, "correct horse battery staple") == payload
+```
+
+---
+
 ### encrypt_file
 
 Encrypt a file using AES-256-GCM with chunked streaming.
 
-```python
-from secure_string_cipher import encrypt_file
-
+```text
 encrypt_file(
     input_path: str,
     output_path: str,
@@ -187,10 +189,8 @@ print("Encrypted to document.pdf.enc")
 
 Decrypt a file encrypted with `encrypt_file`.
 
-```python
-from secure_string_cipher import decrypt_file
-
-output_path, metadata = decrypt_file(
+```text
+decrypt_file(
     input_path: str,
     output_path: str | None,
     passphrase: str,
@@ -257,16 +257,53 @@ authoritative for both versions.
 
 ---
 
+### FileMetadata
+
+`FileMetadata` is the parsed metadata returned by `decrypt_file` and the
+serializer used by the file-format implementation.
+
+```text
+FileMetadata(
+    original_filename: str | None = None,
+    version: int = 5,
+    key_commitment: str | None = None,
+) -> FileMetadata
+metadata.to_bytes() -> bytes
+FileMetadata.from_bytes(data: bytes) -> FileMetadata
+```
+
+`from_bytes` strictly accepts supported version 4 or 5 JSON metadata, rejects
+unknown or duplicate fields, and validates the canonical Base64 commitment.
+Constructing an instance directly does not perform that parser validation;
+prefer the high-level file functions unless implementing compatible framing.
+
+### StreamProcessor
+
+`StreamProcessor` is the exported low-level context manager used for regular
+file reads and progress tracking.
+
+```text
+StreamProcessor(path: str, mode: str) -> StreamProcessor
+stream.read(size: int = -1) -> bytes
+stream.write(data: bytes) -> int
+```
+
+Supported modes are the binary modes used by SSC (`"rb"` and `"wb"`). Reads
+from filesystem paths enforce the plaintext size bound. Direct writes through
+this helper are not the authenticated, atomic publication workflow provided by
+`encrypt_file` and `decrypt_file`; application code should normally use those
+high-level functions.
+
+---
+
 ## Key Derivation
 
 ### derive_key
 
 Derive a cryptographic key from a passphrase using Argon2id.
 
-```python
-from secure_string_cipher import derive_key
-
-key = derive_key(passphrase: str, salt: bytes) -> bytes
+```text
+derive_key(passphrase: str, salt: bytes) -> bytes
 ```
 
 **Parameters:**
@@ -295,26 +332,36 @@ assert key == key2
 
 ### compute_key_commitment / verify_key_commitment
 
-Compute and verify HMAC-SHA256 key commitment to prevent partitioning oracle attacks.
+Compute and verify the HMAC-SHA256 commitment that binds ciphertext to the
+derived key and rejects a non-matching key before plaintext processing.
 
-```python
-from secure_string_cipher import compute_key_commitment, verify_key_commitment
-
-commitment = compute_key_commitment(key: bytes, salt: bytes) -> bytes
-is_valid = verify_key_commitment(key: bytes, salt: bytes, commitment: bytes) -> bool
+```text
+compute_key_commitment(key: bytes) -> bytes
+verify_key_commitment(key: bytes, expected_commitment: bytes) -> bool
 ```
 
 **Example:**
 
 ```python
-from secure_string_cipher import derive_key, compute_key_commitment, verify_key_commitment
+import os
 
-key, salt = derive_key("password")
-commitment = compute_key_commitment(key, salt)
+from secure_string_cipher import (
+    compute_key_commitment,
+    derive_key,
+    verify_key_commitment,
+)
+
+salt = os.urandom(16)
+key = derive_key("application-passphrase", salt)
+commitment = compute_key_commitment(key)
 
 # Later: verify the key matches
-assert verify_key_commitment(key, salt, commitment)
+assert verify_key_commitment(key, commitment)
 ```
+
+The commitment is HMAC-SHA256 over SSC's fixed commitment context using an
+already-derived key. It does not accept a salt; callers pass the same key bytes
+to `verify_key_commitment` with the expected commitment.
 
 ---
 
@@ -327,10 +374,8 @@ the digest is used as a symmetric passphrase for Argon2id. It is not RSA,
 public-key, or recipient encryption: anyone with identical file bytes can
 decrypt. Treat it as legacy pending secret `.ssckey` files.
 
-```python
-from secure_string_cipher import derive_key_from_key_file
-
-key = derive_key_from_key_file(key_file_path: str | Path, salt: bytes) -> bytes
+```text
+derive_key_from_key_file(key_file_path: str | Path, salt: bytes) -> bytes
 ```
 
 **Parameters:**
@@ -366,9 +411,7 @@ assert key == key2
 Generate an RSA key pair. The current encrypt/decrypt APIs do not consume this
 pair and do not implement recipient encryption.
 
-```python
-from secure_string_cipher import generate_key_pair
-
+```text
 generate_key_pair(
     private_key_path: str | Path,
     public_key_path: str | Path | None = None
@@ -384,7 +427,11 @@ generate_key_pair(
 
 **Raises:** `CryptoError` if key generation or file operations fail
 
-**Security:** Private key is saved with `0o600` permissions (owner read/write only). Public key is saved with `0o644` permissions.
+**Security:** Both files are written with owner-only `0o600` permissions. The
+private key is unencrypted PKCS#8 PEM and must be protected independently. If
+you need to share the public key, copy it or deliberately broaden that file's
+permissions. These files are not a sender/recipient key pair for SSC's current
+symmetric encryption APIs.
 
 **Example:**
 
@@ -394,7 +441,7 @@ from secure_string_cipher import generate_key_pair
 # Generate RSA key pair
 generate_key_pair("/path/to/private_key.pem", "/path/to/public_key.pem")
 # Private key: /path/to/private_key.pem (chmod 600)
-# Public key:  /path/to/public_key.pem  (chmod 644)
+# Public key:  /path/to/public_key.pem  (chmod 600)
 
 # Or let it auto-generate the public key filename
 generate_key_pair("/path/to/private_key.pem")
@@ -407,42 +454,56 @@ generate_key_pair("/path/to/private_key.pem")
 
 ### generate_passphrase
 
-Generate a cryptographically secure random passphrase.
+Generate a passphrase with Python's `secrets` module and return both the secret
+and the generator's entropy estimate.
 
-```python
-from secure_string_cipher import generate_passphrase
-
-passphrase = generate_passphrase(
+```text
+generate_passphrase(
+    strategy: str = "word",
+    word_count: int = 6,
     length: int = 24,
-    use_uppercase: bool = True,
-    use_lowercase: bool = True,
-    use_digits: bool = True,
-    use_special: bool = True
-) -> str
+    include_symbols: bool = True,
+    number_count: int = 4,
+) -> tuple[str, float]
 ```
 
 **Parameters:**
 
-- `length` (int): Length of passphrase (default: 24)
-- `use_uppercase` (bool): Include A-Z (default: True)
-- `use_lowercase` (bool): Include a-z (default: True)
-- `use_digits` (bool): Include 0-9 (default: True)
-- `use_special` (bool): Include special characters (default: True)
+- `strategy`: `"word"` (default), `"alphanumeric"`, or `"mixed"`.
+- `word_count`: Number of words for `word` or `mixed`. The minimum is 4 for
+  `word` and 3 for `mixed`.
+- `length`: Character count for `alphanumeric` (default 24, minimum 16).
+- `include_symbols`: Include the generator's symbol alphabet in an
+  `alphanumeric` result (default `True`). Letters and digits are always used.
+- `number_count`: Number of trailing digits for `mixed` (default 4, minimum 3).
 
-**Returns:** Random passphrase string.
+**Returns:** `(passphrase, entropy_bits)`. The numeric value is the generator's
+selection-space estimate, not a strength verdict for arbitrary user passwords.
+
+**Raises:** `ValueError` for an unknown strategy or a strategy-specific count
+below its minimum.
 
 **Example:**
 
 ```python
 from secure_string_cipher import generate_passphrase
 
-# Default: 24-char with all character types (~155 bits entropy)
-passphrase = generate_passphrase()
-print(passphrase)  # "8w@!-@_#M)wF,Qn(ms.Uv+3z"
+# Default: six words separated by hyphens.
+word_passphrase, word_entropy = generate_passphrase()
 
-# Alphanumeric only
-passphrase = generate_passphrase(length=32, use_special=False)
+# 32 letters and digits, without symbols.
+token, token_entropy = generate_passphrase(
+    "alphanumeric", length=32, include_symbols=False
+)
+
+# Four words followed by four digits.
+mixed, mixed_entropy = generate_passphrase(
+    "mixed", word_count=4, number_count=4
+)
 ```
+
+All returned passphrases are plaintext secrets. Store or consume them without
+printing or logging them.
 
 ---
 
@@ -452,10 +513,8 @@ passphrase = generate_passphrase(length=32, use_special=False)
 
 Encrypted storage for passphrases with HMAC integrity verification.
 
-```python
-from secure_string_cipher import PassphraseVault
-
-vault = PassphraseVault(
+```text
+PassphraseVault(
     vault_path: str | None = None,
     backend: str | None = None,
 )
@@ -468,13 +527,39 @@ vault = PassphraseVault(
   persisted/environment/default backend selection. A usable keychain is the
   default when no explicit selection exists; otherwise the file backend is used.
 
+`BACKEND_FILE` and `BACKEND_KEYCHAIN` are the package-root string constants
+`"file"` and `"keychain"`. The `backend` property exposes the selected value.
+
 #### Methods
+
+| Method | Result |
+| ------ | ------ |
+| `store_passphrase(label, passphrase, master_password)` | Add a uniquely labelled secret |
+| `retrieve_passphrase(label, master_password)` | Return a stored secret |
+| `list_labels(master_password)` | Return sorted labels |
+| `update_passphrase(label, new_passphrase, master_password)` | Replace an existing secret |
+| `delete_passphrase(label, master_password)` | Remove an existing secret |
+| `vault_exists()` | Report whether active backend storage exists |
+| `get_vault_path()` | Return a file path or `"OS Keychain"` |
+| `read_raw_vault()` | Return exact encrypted vault text, or `None` |
+| `write_raw_vault(vault_contents)` | Write size-bounded raw encrypted text without authenticating it |
+| `delete_vault_storage()` | Delete active backend storage |
+| `import_raw_vault(vault_contents, master_password, *, backup_current=True)` | Validate and transactionally publish a candidate |
+| `migrate_to_keychain(master_password)` | Validate and copy the file vault to the keychain |
+| `migrate_to_file(master_password)` | Validate and copy the keychain vault to the file path |
+| `list_backup_records()` | Return structured backup records, newest first |
+| `list_backups()` | Return backup path strings, newest first |
+| `validate_backup(backup_identifier, master_password)` | Authenticate a selected backup without mutation |
+| `restore_from_backup(backup_identifier, master_password)` | Transactionally restore a selected backup |
+
+Prefer `import_raw_vault` over `write_raw_vault` for untrusted or transported
+data. `delete_vault_storage` is destructive and does not create a backup.
 
 ##### store_passphrase
 
 Store a passphrase with a label.
 
-```python
+```text
 vault.store_passphrase(label: str, passphrase: str, master_password: str) -> None
 ```
 
@@ -482,8 +567,8 @@ vault.store_passphrase(label: str, passphrase: str, master_password: str) -> Non
 
 Retrieve a stored passphrase.
 
-```python
-passphrase = vault.retrieve_passphrase(label: str, master_password: str) -> str
+```text
+vault.retrieve_passphrase(label: str, master_password: str) -> str
 ```
 
 **Raises:** `ValueError` if label not found or vault cannot be decrypted.
@@ -492,15 +577,15 @@ passphrase = vault.retrieve_passphrase(label: str, master_password: str) -> str
 
 List all stored passphrase labels (requires master password to decrypt the vault).
 
-```python
-labels = vault.list_labels(master_password: str) -> list[str]
+```text
+vault.list_labels(master_password: str) -> list[str]
 ```
 
 ##### delete_passphrase
 
 Delete a passphrase entry.
 
-```python
+```text
 vault.delete_passphrase(label: str, master_password: str) -> None
 ```
 
@@ -508,7 +593,7 @@ vault.delete_passphrase(label: str, master_password: str) -> None
 
 Update an existing passphrase.
 
-```python
+```text
 vault.update_passphrase(label: str, new_passphrase: str, master_password: str) -> None
 ```
 
@@ -516,8 +601,8 @@ vault.update_passphrase(label: str, new_passphrase: str, master_password: str) -
 
 Validate and transactionally replace the configured active vault.
 
-```python
-backup_identifier = vault.import_raw_vault(
+```text
+vault.import_raw_vault(
     vault_contents: str | bytes,
     master_password: str,
     *,
@@ -550,10 +635,10 @@ backup, or publication.
 
 ##### list_backup_records / validate_backup / restore_from_backup
 
-```python
-records = vault.list_backup_records() -> list[VaultBackup]
+```text
+vault.list_backup_records() -> list[VaultBackup]
 vault.validate_backup(backup_identifier: str, master_password: str) -> None
-previous_identifier = vault.restore_from_backup(
+vault.restore_from_backup(
     backup_identifier: str,
     master_password: str,
 ) -> str | None
@@ -598,11 +683,44 @@ vault.delete_passphrase("production-db", master_password="VaultMaster!")  # prag
 
 ---
 
+## Vault Configuration
+
+### VaultSettings
+
+```text
+VaultSettings(
+    vault_backend: str = "file",
+    vault_path: str | None = None,
+    backup_dir: str | None = None,
+)
+```
+
+`VaultSettings` is a mutable dataclass. A directly constructed instance has the
+field defaults above; `load_vault_settings` resolves usable paths and the
+effective backend.
+
+### load_vault_settings / save_vault_settings / set_vault_backend
+
+```text
+load_vault_settings(*, apply_env: bool = True) -> VaultSettings
+save_vault_settings(settings: VaultSettings) -> None
+set_vault_backend(backend: str) -> VaultSettings
+```
+
+Settings are persisted in `~/.secure-cipher/config.json`. When `apply_env=True`,
+`CIPHER_VAULT_BACKEND`, `CIPHER_VAULT_PATH`, and `CIPHER_BACKUP_DIR` override
+persisted values. `set_vault_backend` accepts `BACKEND_FILE` or
+`BACKEND_KEYCHAIN`, persists that choice, and returns the effective settings;
+an environment override may therefore affect the returned backend.
+
+---
+
 ## Keychain Backend
 
 ### KeychainVaultBackend
 
-Store vault data in the OS keychain instead of a file.
+Store vault data in a usable OS keychain through the optional `keyring`
+dependency.
 
 ```python
 from secure_string_cipher import KeychainVaultBackend, is_keychain_available
@@ -619,10 +737,15 @@ if is_keychain_available():
 
 | Method | Description |
 | ------ | ----------- |
-| `store_vault(contents: str)` | Store encrypted vault blob in keychain |
+| `store_vault(vault_contents: str) -> None` | Store the encrypted vault blob |
 | `load_vault() -> str \| None` | Load vault from keychain (None if not found) |
-| `delete_vault()` | Remove vault from keychain |
+| `delete_vault() -> None` | Remove vault from keychain |
 | `vault_exists() -> bool` | Check if vault exists in keychain |
+| `store_metadata(metadata: dict[str, Any]) -> None` | Best-effort metadata write |
+| `load_metadata() -> dict[str, Any]` | Best-effort metadata read; returns `{}` on failure |
+
+The constructor accepts `service_name: str = "secure-string-cipher"` and raises
+`KeychainUnavailableError` when no usable keyring backend is available.
 
 ### is_keychain_available
 
@@ -648,16 +771,18 @@ from secure_string_cipher import KeychainError, KeychainUnavailableError
 ```python
 from secure_string_cipher import PassphraseVault, BACKEND_KEYCHAIN, BACKEND_FILE
 
-# Use keychain backend
+# Select a backend explicitly
 vault = PassphraseVault(backend=BACKEND_KEYCHAIN)
-
-# Use file backend (default)
-vault = PassphraseVault(backend=BACKEND_FILE)
+file_vault = PassphraseVault(backend=BACKEND_FILE)
 
 # Migrate between backends
-vault.migrate_to_keychain(master_password)
+file_vault.migrate_to_keychain(master_password)
 vault.migrate_to_file(master_password)
 ```
+
+When `backend=None`, `PassphraseVault` uses environment, persisted, and default
+selection rather than always choosing the file backend. See
+[Vault Configuration](#vault-configuration).
 
 ---
 
@@ -667,10 +792,8 @@ vault.migrate_to_file(master_password)
 
 Validate password meets security requirements.
 
-```python
-from secure_string_cipher import check_password_strength
-
-is_strong, message = check_password_strength(password: str) -> tuple[bool, str]
+```text
+check_password_strength(password: str) -> tuple[bool, str]
 ```
 
 **Parameters:**
@@ -686,6 +809,7 @@ is_strong, message = check_password_strength(password: str) -> tuple[bool, str]
 - At least one lowercase letter
 - At least one digit
 - At least one special character
+- No substring from the built-in common-password set
 
 **Example:**
 
@@ -695,7 +819,7 @@ from secure_string_cipher import check_password_strength
 is_strong, message = check_password_strength("weak")
 if not is_strong:
     print(f"Password problems: {message}")
-    # "Too short (minimum 12 characters), missing uppercase, ..."
+    # "Password must be at least 12 characters"
 
 is_strong, message = check_password_strength("MySecurePass123!")
 print(is_strong)  # True
@@ -705,12 +829,11 @@ print(is_strong)  # True
 
 ### constant_time_compare
 
-Compare two byte strings in constant time to prevent timing attacks.
+Compare two byte strings with `hmac.compare_digest` to avoid ordinary
+early-exit equality timing behaviour.
 
-```python
-from secure_string_cipher import constant_time_compare
-
-is_equal = constant_time_compare(a: bytes, b: bytes) -> bool
+```text
+constant_time_compare(a: bytes, b: bytes) -> bool
 ```
 
 **Example:**
@@ -727,15 +850,14 @@ if constant_time_compare(user_hash, stored_hash):
 
 ### add_timing_jitter
 
-Add random delay to prevent timing analysis.
+Sleep for a random interval from 0 up to (but not including) 10 milliseconds.
 
-```python
-from secure_string_cipher import add_timing_jitter
-
+```text
 add_timing_jitter() -> None
 ```
 
-Adds between 0-10ms of random delay.
+This is one small timing-obfuscation measure used by password-strength checks;
+it is not a substitute for constant-time comparison or rate limiting.
 
 **Example:**
 
@@ -752,44 +874,44 @@ add_timing_jitter()
 
 ### SecureString / SecureBytes
 
-Wrappers that automatically zero memory on deletion.
+Context-manageable wrappers that wipe their mutable internal buffers.
 
-```python
-from secure_string_cipher import SecureString, SecureBytes
-
-secure_str = SecureString(value: str)
-secure_bytes = SecureBytes(value: bytes)
+```text
+SecureString(string: str) -> SecureString
+SecureBytes(data: bytes) -> SecureBytes
 ```
 
-**Methods:**
+**Access and cleanup:**
 
-- `get()`: Retrieve the value
-- `clear()`: Explicitly zero and clear the value. Idempotent — safe to call multiple times or concurrently (e.g., from both `__exit__` and `__del__`).
+- `SecureString.string` returns a newly decoded immutable `str`.
+- `SecureBytes.data` returns a `memoryview` over the mutable internal buffer.
+- `wipe()` clears the internal buffer and is idempotent.
+- Context-manager exit calls `wipe()`.
 
 **Example:**
 
 ```python
-from secure_string_cipher import SecureString, SecureBytes
+from secure_string_cipher import SecureBytes, SecureString
 
-# Secure password handling
-password = SecureString("MySecretPassword")
-use_password(password.get())
-password.clear()  # Or let it auto-clear on deletion
+with SecureString("application-passphrase") as password:
+    use_password(password.string)
 
-# Secure key handling
-key = SecureBytes(b"\x00" * 32)
+with SecureBytes(b"\x00" * 32) as key:
+    use_key(bytes(key.data))
 ```
+
+Python may retain immutable originals or copies created while accessing either
+wrapper. These classes reduce lifetime of the mutable internal copy; they do
+not guarantee that every copy of a secret is removed from process memory.
 
 ---
 
 ### has_secure_memory
 
-Check if libsodium secure memory is available.
+Check whether the libsodium-backed wiping path is available.
 
-```python
-from secure_string_cipher import has_secure_memory
-
-available = has_secure_memory() -> bool
+```text
+has_secure_memory() -> bool
 ```
 
 **Example:**
@@ -807,12 +929,11 @@ else:
 
 ### secure_wipe
 
-Securely wipe a bytearray in memory.
+Wipe a mutable buffer with libsodium when available, otherwise with SSC's
+best-effort Python fallback.
 
-```python
-from secure_string_cipher import secure_wipe
-
-secure_wipe(data: bytearray) -> None
+```text
+secure_wipe(data: bytes | bytearray | memoryview | array.array) -> None
 ```
 
 **Example:**
@@ -825,68 +946,107 @@ sensitive_data = bytearray(b"secret")
 secure_wipe(sensitive_data)  # Zeros the memory
 ```
 
+Despite the compatibility annotation, immutable `bytes` cannot be wiped and
+raise `TypeError`. Pass a `bytearray`, writable contiguous `memoryview`, or
+`array.array`; multi-byte element buffers are wiped across their full byte
+length. The function releases a supplied `memoryview` on return, including when
+it rejects the view; read-only and non-C-contiguous views are rejected before
+any bytes are overwritten.
+
 ---
 
 ## Rate Limiting
 
 ### RateLimiter
 
-Prevent brute-force attacks with rate limiting.
+In-memory, thread-safe attempt tracking with a time window and exponential
+lockout backoff.
 
-```python
-from secure_string_cipher import rate_limited, RateLimitError
-
-
-@rate_limited("vault_unlock", get_identifier=lambda vault_path, **_: vault_path)
-def unlock_vault(vault_path: str, password: str) -> None:
-    ...
-
-try:
-    unlock_vault("/home/user/.secure-cipher/passphrase_vault.enc", "secret")
-except RateLimitError as exc:
-    print(f"Too many attempts. Wait {exc.wait_seconds:.1f}s")
+```text
+RateLimiter(
+    max_attempts: int = 5,
+    window_seconds: float = 60.0,
+    lockout_seconds: float = 30.0,
+    backoff_multiplier: float = 2.0,
+)
 ```
-
-> **Note:** The rate limiter is a local CLI throttle on vault unlock
-> (`ssc vault`), text decryption (`ssc decrypt -t`), and file decryption
-> (`ssc decrypt -f`). Repeated failures trigger exponential backoff, but an
-> attacker holding ciphertext can perform offline guesses without this limiter.
 
 **Methods:**
 
-- `check(key: str)`: Check if action is allowed
-- `record_attempt(key: str)`: Record an attempt
-- `record_failure(key: str)`: Record a failed attempt
-- `is_locked_out(key: str)`: Check if key is locked out
+- `check_rate_limit(operation, identifier="") -> tuple[bool, float]`
+- `record_attempt(operation, identifier="", success=False) -> None`
+- `get_remaining_attempts(operation, identifier="") -> int`
+- `reset(operation, identifier="") -> None`
+- `reset_all() -> None`
 
 **Example:**
 
 ```python
-from secure_string_cipher import RateLimiter, RateLimitError
+from secure_string_cipher import RateLimiter
 
 limiter = RateLimiter(max_attempts=3, window_seconds=60)
-
-try:
-    limiter.check("user@example.com")
-    # Attempt authentication
-    limiter.record_attempt("user@example.com")
-except RateLimitError:
-    print("Too many attempts, please wait")
+allowed, wait_seconds = limiter.check_rate_limit("vault_unlock", "local-vault")
+if allowed:
+    try:
+        unlock_vault()
+    except AuthenticationError:
+        limiter.record_attempt("vault_unlock", "local-vault", success=False)
+        raise
+    else:
+        limiter.record_attempt("vault_unlock", "local-vault", success=True)
 ```
 
----
+### PersistentRateLimiter
 
-### rate_limited
-
-Decorator for rate-limiting function calls.
+`PersistentRateLimiter` has the same methods and policy parameters as
+`RateLimiter`, plus `state_path: str | None = None`. It reloads and atomically
+updates JSON state around mutating/check operations; the default path is
+`~/.secure-cipher/rate_limits.json`.
 
 ```python
-from secure_string_cipher import rate_limited
+from secure_string_cipher import PersistentRateLimiter
 
-@rate_limited(max_attempts=5, window_seconds=60)
-def login(username, password):
-    ...
+limiter = PersistentRateLimiter(state_path="/private/app/rate_limits.json")
 ```
+
+During construction, a missing or malformed JSON file leaves the initial state
+empty; schema-invalid records are ignored. A later transient load failure keeps
+the process's existing in-memory records. This is local process/host throttling,
+not protection against offline guesses by an attacker who has ciphertext.
+
+### rate_limited / get_global_limiter
+
+```text
+get_global_limiter() -> RateLimiter
+rate_limited(
+    operation: str,
+    limiter: RateLimiter | None = None,
+    get_identifier: Callable[..., str] | None = None,
+) -> Callable[[Callable[P, R]], Callable[P, R]]
+```
+
+The decorator checks before calling the wrapped function, records success when
+it returns, records failure when it raises an `Exception`, and raises
+`RateLimitError` with a `wait_seconds` attribute when blocked. If `limiter` is
+omitted it uses the process-local object returned by `get_global_limiter()`.
+
+```python
+from secure_string_cipher import RateLimitError, rate_limited
+
+
+@rate_limited("vault_unlock", get_identifier=lambda vault_id, **_: vault_id)
+def unlock(vault_id: str, supplied_passphrase: str) -> None:
+    authenticate(vault_id, supplied_passphrase)
+
+try:
+    unlock("local-vault", supplied_passphrase)
+except RateLimitError as exc:
+    print(f"Retry after {exc.wait_seconds:.1f} seconds")
+```
+
+The SSC command-line interface applies local rate limiting to vault unlock,
+text decryption, and file decryption. It cannot prevent offline password
+guessing.
 
 ---
 
@@ -898,11 +1058,23 @@ Log security events as editable local JSON. Rotation and redaction are provided,
 but the log has no cryptographic chain or external append-only storage and is
 not tamper-evident.
 
-```python
-from secure_string_cipher import AuditLogger, AuditEvent, AuditLevel
-
-logger = AuditLogger(log_path: str | None = None, level: AuditLevel = AuditLevel.STANDARD)
+```text
+AuditLogger(
+    log_path: str | Path | None = None,
+    level: AuditLevel = AuditLevel.STANDARD,
+    enabled: bool | None = None,
+    max_size: int | None = None,
+    backup_count: int | None = None,
+)
 ```
+
+`AuditLogger` is a process singleton; constructor settings apply only on its
+first initialization. `get_audit_logger()` returns that same instance.
+
+`AuditLevel` values are `OFF`, `CRITICAL`, `STANDARD`, and `VERBOSE`.
+`AuditEvent` covers text/file encryption and decryption, vault operations,
+authentication, rate limiting, key derivation, integrity failures, startup,
+shutdown, and configuration change events.
 
 **Methods:**
 
@@ -911,6 +1083,7 @@ logger = AuditLogger(log_path: str | None = None, level: AuditLevel = AuditLevel
 - `log_rate_limit(operation: str, wait_seconds: float, identifier: str | None = None)`: Convenience for rate-limit triggers
 - `log_encryption(event_type: AuditEvent, success: bool, file_path: str | None = None, error: str | None = None)`: Convenience for encrypt/decrypt
 - `log_vault_operation(event_type: AuditEvent, success: bool, vault_path: str | None = None, label: str | None = None, error: str | None = None)`: Convenience for vault CRUD
+- `set_level(level: AuditLevel)`, `enable()`, and `disable()`: Change runtime logging behavior
 
 **Example:**
 
@@ -943,6 +1116,15 @@ audit_auth_failure("vault_unlock", reason="invalid_password", identifier="~/.sec
 audit_rate_limit("decrypt_file", wait_seconds=30.0, identifier="secret.enc")
 ```
 
+The exact package-root signatures are:
+
+```text
+get_audit_logger() -> AuditLogger
+audit_event(event: AuditEvent, success: bool = True, **details) -> None
+audit_auth_failure(operation: str, reason: str = "invalid_credentials", **kwargs) -> None
+audit_rate_limit(operation: str, wait_seconds: float, **kwargs) -> None
+```
+
 ---
 
 ## Exceptions
@@ -952,38 +1134,49 @@ audit_rate_limit("decrypt_file", wait_seconds=30.0, identifier="secret.enc")
 Raised for cryptographic operation failures.
 
 ```python
-from secure_string_cipher import CryptoError
+from secure_string_cipher import CryptoError, decrypt_text, encrypt_text
+
+token = encrypt_text("message", "correct horse battery staple")
 
 try:
-    decrypt_text(ciphertext, "wrong_password")
-except CryptoError as e:
-    print(f"Decryption failed: {e}")
+    decrypt_text(token, "different horse battery staple")
+except CryptoError:
+    print("Decryption failed")
 ```
 
 ### SecurityError
 
-Raised for security violations (path traversal, symlink attacks, etc.).
+Raised by the policy helpers in `secure_string_cipher.security` for path,
+symlink, execution-context, and secure-publication violations. The exception is
+exported at the package root; the helpers themselves are submodule APIs.
 
 ```python
 from secure_string_cipher import SecurityError
+from secure_string_cipher.security import validate_safe_path
 
 try:
-    encrypt_file("../../../etc/passwd", "password")
-except SecurityError as e:
-    print(f"Security violation: {e}")
+    validate_safe_path("../outside.txt", ".")
+except SecurityError:
+    print("Path rejected")
 ```
 
 ### RateLimitError
 
-Raised when rate limit exceeded.
+Raised by `rate_limited` when an operation is blocked. It carries the remaining
+delay in `wait_seconds`.
 
 ```python
-from secure_string_cipher import RateLimitError
+from secure_string_cipher import RateLimitError, RateLimiter
+
+limiter = RateLimiter(max_attempts=1)
+limiter.record_attempt("example", success=False)
+allowed, wait_seconds = limiter.check_rate_limit("example")
 
 try:
-    limiter.check("user")
-except RateLimitError as e:
-    print(f"Rate limited: {e}")
+    if not allowed:
+        raise RateLimitError(wait_seconds)
+except RateLimitError as exc:
+    print(f"Retry after {exc.wait_seconds:.1f} seconds")
 ```
 
 ---
@@ -994,13 +1187,12 @@ except RateLimitError as e:
 
 Add terminal colors to output.
 
-```python
-from secure_string_cipher import colorize
-
-text = colorize(text: str, color: str) -> str
+```text
+colorize(text: str, color: str = "cyan") -> str
 ```
 
-**Colors:** `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `bold`
+**Configured colors:** `red`, `green`, `blue`, and `cyan`. An unknown color
+falls back to cyan on a likely dark terminal or blue on a likely light one.
 
 **Example:**
 
@@ -1008,7 +1200,7 @@ text = colorize(text: str, color: str) -> str
 from secure_string_cipher import colorize
 
 print(colorize("Success!", "green"))
-print(colorize("Warning!", "yellow"))
+print(colorize("Information", "cyan"))
 print(colorize("Error!", "red"))
 ```
 
@@ -1018,12 +1210,9 @@ print(colorize("Error!", "red"))
 
 Display progress for long operations.
 
-```python
-from secure_string_cipher import ProgressBar
-
-progress = ProgressBar(total: int, description: str = "Processing")
-progress.update(amount: int = 1)
-progress.finish()
+```text
+ProgressBar(total_bytes: int, width: int = 40) -> ProgressBar
+progress.update(current: int) -> None
 ```
 
 **Example:**
@@ -1031,11 +1220,10 @@ progress.finish()
 ```python
 from secure_string_cipher import ProgressBar
 
-progress = ProgressBar(100, "Encrypting")
-for i in range(100):
+progress = ProgressBar(total_bytes=100)
+for completed in range(1, 101):
     # do work
-    progress.update()
-progress.finish()
+    progress.update(completed)
 ```
 
 ---
@@ -1046,10 +1234,8 @@ Best-effort delete a file by overwriting it with zero bytes and unlinking it.
 This cannot guarantee erasure on SSDs, copy-on-write filesystems, snapshots,
 backups, or journaled filesystems.
 
-```python
-from secure_string_cipher import secure_overwrite
-
-secure_overwrite(filepath: str) -> None
+```text
+secure_overwrite(path: str) -> None
 ```
 
 **Example:**
@@ -1063,6 +1249,26 @@ secure_overwrite("plaintext_backup.txt")
 
 ---
 
+### main
+
+Run the package-root interactive menu with optional input/output streams. This
+is distinct from the installed `ssc` console script, which uses the argparse
+entry point in `secure_string_cipher.cli_args`.
+
+```text
+main(
+    in_stream: TextIO | None = None,
+    out_stream: TextIO | None = None,
+    exit_on_completion: bool = True,
+) -> int | None
+```
+
+Supplying streams supports embedding and tests. With
+`exit_on_completion=False`, the function returns instead of terminating after
+a completed operation.
+
+---
+
 ## Configuration Constants
 
 Key parameters defined in `secure_string_cipher.config`:
@@ -1070,12 +1276,14 @@ Key parameters defined in `secure_string_cipher.config`:
 | Constant | Value | Description |
 | -------- | ----- | ----------- |
 | `CHUNK_SIZE` | 262144 | File streaming chunk size (256 KiB) |
-| `ARGON2_MEMORY` | 65536 | Argon2id memory cost (64MB) |
-| `ARGON2_ITERATIONS` | 3 | Argon2id time cost |
+| `ARGON2_MEMORY_COST` | 65536 | Argon2id memory cost in KiB (64 MiB) |
+| `ARGON2_TIME_COST` | 3 | Argon2id time cost |
 | `ARGON2_PARALLELISM` | 4 | Argon2id parallelism |
+| `ARGON2_HASH_LENGTH` | 32 | Derived-key length in bytes |
 | `MAX_FILE_SIZE` | 104857600 | Maximum plaintext payload (100 MiB); also the separate raw vault/key-file ingestion cap |
 | `MIN_PASSWORD_LENGTH` | 12 | Minimum password length |
 | `SALT_SIZE` | 16 | Salt size in bytes |
-| `KEY_SIZE` | 32 | AES-256 key size |
+| `KEY_COMMITMENT_SIZE` | 32 | HMAC-SHA256 commitment size in bytes |
 | `NONCE_SIZE` | 12 | GCM nonce size |
 | `TAG_SIZE` | 16 | GCM authentication tag size |
+| `METADATA_VERSION` | 5 | Current authenticated file-metadata version |

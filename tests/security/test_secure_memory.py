@@ -15,6 +15,7 @@ from unittest.mock import Mock
 
 import pytest
 
+import secure_string_cipher.secure_memory as secure_memory_module
 from secure_string_cipher.secure_memory import (
     SecureBytes,
     SecureString,
@@ -42,12 +43,114 @@ class TestSecureWipe:
         view = memoryview(buffer)
         secure_wipe(view)
         assert all(b == 0 for b in buffer)
+        with pytest.raises(ValueError, match="released memoryview"):
+            view.tobytes()
 
     def test_wipe_zeros_array(self):
         """Verify secure_wipe works with array.array."""
         data = array.array("B", b"array secret")
         secure_wipe(data)
         assert all(b == 0 for b in data)
+
+    @pytest.mark.parametrize(
+        ("typecode", "values"),
+        [
+            ("i", [-1, -2, 12345]),
+            ("d", [1.25, -4.5, 1024.75]),
+        ],
+    )
+    @pytest.mark.parametrize("as_memoryview", [False, True], ids=["array", "view"])
+    @pytest.mark.parametrize("backend", ["sodium", "fallback"])
+    def test_wipe_zeros_every_byte_of_multi_byte_buffers(
+        self, monkeypatch, typecode, values, as_memoryview, backend
+    ):
+        """Verify both backends clear signed and multi-byte buffer storage."""
+        if backend == "sodium":
+            if not secure_memory_module.HAS_SODIUM:
+                pytest.skip("PyNaCl not installed")
+            fallback = Mock(side_effect=AssertionError("unexpected fallback"))
+            monkeypatch.setattr(secure_memory_module, "_fallback_wipe", fallback)
+        else:
+            monkeypatch.setattr(
+                secure_memory_module, "_sodium_memzero", Mock(return_value=False)
+            )
+
+        backing = array.array(typecode, values)
+        target = memoryview(backing) if as_memoryview else backing
+
+        secure_wipe(target)
+
+        assert backing.tobytes() == bytes(backing.itemsize * len(backing))
+        if as_memoryview:
+            with pytest.raises(ValueError, match="released memoryview"):
+                target.tobytes()
+
+    @pytest.mark.parametrize("backend", ["sodium", "fallback"])
+    def test_wipe_memoryview_slice_does_not_touch_neighbors(self, monkeypatch, backend):
+        """Verify wiping a contiguous view stays within that view's byte span."""
+        if backend == "sodium":
+            if not secure_memory_module.HAS_SODIUM:
+                pytest.skip("PyNaCl not installed")
+            fallback = Mock(side_effect=AssertionError("unexpected fallback"))
+            monkeypatch.setattr(secure_memory_module, "_fallback_wipe", fallback)
+        else:
+            monkeypatch.setattr(
+                secure_memory_module, "_sodium_memzero", Mock(return_value=False)
+            )
+
+        backing = array.array("i", [1234, -1, -2, 2345])
+        original = backing.tobytes()
+        target = memoryview(backing)[1:3]
+
+        secure_wipe(target)
+
+        itemsize = backing.itemsize
+        wiped = backing.tobytes()
+        assert wiped[:itemsize] == original[:itemsize]
+        assert wiped[itemsize : 3 * itemsize] == bytes(2 * itemsize)
+        assert wiped[3 * itemsize :] == original[3 * itemsize :]
+        with pytest.raises(ValueError, match="released memoryview"):
+            target.tobytes()
+
+    def test_wipe_rejects_readonly_view_without_writing(self, monkeypatch):
+        """Verify a read-only view is rejected before either backend runs."""
+        backing = bytearray(b"readonly secret")
+        original = bytes(backing)
+        owner = memoryview(backing)
+        target = owner.toreadonly()
+        owner.release()
+        sodium = Mock(return_value=True)
+        fallback = Mock()
+        monkeypatch.setattr(secure_memory_module, "_sodium_memzero", sodium)
+        monkeypatch.setattr(secure_memory_module, "_fallback_wipe", fallback)
+
+        with pytest.raises(TypeError, match="writable"):
+            secure_wipe(target)
+
+        assert bytes(backing) == original
+        sodium.assert_not_called()
+        fallback.assert_not_called()
+        with pytest.raises(ValueError, match="released memoryview"):
+            target.tobytes()
+
+    def test_wipe_rejects_noncontiguous_view_without_writing(self, monkeypatch):
+        """Verify a strided view is rejected before either backend runs."""
+        backing = bytearray(b"noncontiguous secret")
+        original = bytes(backing)
+        target = memoryview(backing)[::2]
+        sodium = Mock(return_value=True)
+        fallback = Mock()
+        monkeypatch.setattr(secure_memory_module, "_sodium_memzero", sodium)
+        monkeypatch.setattr(secure_memory_module, "_fallback_wipe", fallback)
+
+        with pytest.raises(TypeError, match="C-contiguous"):
+            secure_wipe(target)
+
+        assert bytes(backing) == original
+        sodium.assert_not_called()
+        fallback.assert_not_called()
+        with pytest.raises(ValueError, match="released memoryview"):
+            target.tobytes()
 
     def test_wipe_empty_buffer(self):
         """Verify secure_wipe handles empty buffers."""
@@ -374,6 +477,38 @@ class TestLibsodiumIntegration:
         data = bytearray(b"fallback test")
         _fallback_wipe(data)
         assert all(b == 0 for b in data)
+
+    def test_fallback_wipe_zeros_multi_byte_array(self):
+        """Verify the fallback clears the full byte length of each element."""
+        from secure_string_cipher.secure_memory import _fallback_wipe
+
+        data = array.array("d", [1.25, -4.5, 1024.75])
+        _fallback_wipe(data)
+
+        assert memoryview(data).cast("B").tobytes() == bytes(data.itemsize * len(data))
+
+    def test_fallback_wipe_bounds_random_allocations(self, monkeypatch):
+        """Verify fallback random passes allocate at most one bounded chunk."""
+        from secure_string_cipher.secure_memory import _fallback_wipe
+
+        chunk_size = secure_memory_module._FALLBACK_WIPE_CHUNK_SIZE
+        data = bytearray(b"x" * (2 * chunk_size + 17))
+        requested_lengths = []
+
+        def deterministic_token_bytes(length):
+            requested_lengths.append(length)
+            return b"\xa5" * length
+
+        monkeypatch.setattr(
+            secure_memory_module.secrets,
+            "token_bytes",
+            deterministic_token_bytes,
+        )
+
+        _fallback_wipe(data)
+
+        assert data == bytes(len(data))
+        assert requested_lengths == [chunk_size, chunk_size, 17] * 3
 
     @pytest.mark.skipif(
         not __import__(

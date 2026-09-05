@@ -1,5 +1,5 @@
 """
-Rate limiting module to prevent brute-force attacks.
+Rate limiting module to slow repeated local authentication attempts.
 
 Provides configurable rate limiting for sensitive operations like:
 - Vault unlock attempts
@@ -10,6 +10,7 @@ Uses exponential backoff to slow down repeated failures.
 """
 
 import json
+import math
 import os
 import tempfile
 import threading
@@ -41,6 +42,24 @@ class AttemptRecord:
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+# Bounds untrusted exponentiation while remaining well beyond a practical lockout.
+_MAX_PERSISTED_CONSECUTIVE_FAILURES = 1_000
+
+
+def _nonnegative_finite_float(value: object) -> float | None:
+    """Normalize an untrusted JSON number without allowing bools or overflow."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+
+    try:
+        normalized = float(value)
+    except (OverflowError, ValueError):
+        return None
+
+    if not math.isfinite(normalized) or normalized < 0:
+        return None
+    return normalized
 
 
 class RateLimiter:
@@ -213,26 +232,56 @@ class PersistentRateLimiter(RateLimiter):
         try:
             with open(self.state_path, encoding="utf-8") as f:
                 data = json.load(f)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError, OverflowError):
             return
 
         if not isinstance(data, dict):
             return
 
+        loaded_records: dict[str, AttemptRecord] = {}
+        for key, value in data.items():
+            if not isinstance(key, str) or not isinstance(value, dict):
+                continue
+
+            attempts_value = value.get("attempts", [])
+            if not isinstance(attempts_value, list):
+                attempts_value = []
+            attempts = []
+            for timestamp in attempts_value:
+                normalized_timestamp = _nonnegative_finite_float(timestamp)
+                if normalized_timestamp is not None:
+                    attempts.append(normalized_timestamp)
+
+            lockout_value = value.get("lockout_until", 0.0)
+            failures_value = value.get("consecutive_failures", 0)
+            lockout_until = _nonnegative_finite_float(lockout_value)
+            if (
+                lockout_until is None
+                or not isinstance(failures_value, int)
+                or isinstance(failures_value, bool)
+                or failures_value < 0
+                or failures_value > _MAX_PERSISTED_CONSECUTIVE_FAILURES
+            ):
+                continue
+
+            try:
+                lockout_duration = self.lockout_seconds * (
+                    self.backoff_multiplier**failures_value
+                )
+            except (OverflowError, ValueError, ZeroDivisionError):
+                continue
+            if _nonnegative_finite_float(lockout_duration) is None:
+                continue
+
+            loaded_records[key] = AttemptRecord(
+                attempts=attempts,
+                lockout_until=lockout_until,
+                consecutive_failures=failures_value,
+            )
+
         with self._lock:
             self._records.clear()
-            for key, value in data.items():
-                if not isinstance(key, str) or not isinstance(value, dict):
-                    continue
-                attempts = value.get("attempts", [])
-                if not isinstance(attempts, list):
-                    attempts = []
-                record = AttemptRecord(
-                    attempts=[float(t) for t in attempts if isinstance(t, int | float)],
-                    lockout_until=float(value.get("lockout_until", 0.0)),
-                    consecutive_failures=int(value.get("consecutive_failures", 0)),
-                )
-                self._records[key] = record
+            self._records.update(loaded_records)
 
     def _save_state(self) -> None:
         """Persist rate-limit state atomically."""

@@ -14,14 +14,14 @@ def constant_time_compare(a: bytes, b: bytes) -> bool:
     """
     Perform a constant-time comparison of two byte strings.
 
-    Uses hmac.compare_digest to prevent timing attacks.
+    Uses hmac.compare_digest to avoid ordinary early-exit comparison timing.
     """
     return hmac.compare_digest(a, b)
 
 
 def add_timing_jitter() -> None:
     """
-    Add random timing jitter to prevent timing analysis.
+    Add a small random delay to obscure simple timing measurements.
     Adds between 0-10ms of delay.
     """
     jitter = secrets.randbelow(10000) / 1000000

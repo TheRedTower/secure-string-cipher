@@ -9,6 +9,20 @@ updates:
     labels:
       - "dependencies"
     open-pull-requests-limit: 5
+    groups:
+      routine-python-dependencies:
+        applies-to: "version-updates"
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "cryptography"
+          - "argon2-cffi*"
+          - "pynacl"
+          - "keyring"
+          - "pyperclip"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -19,6 +33,19 @@ updates:
     labels:
       - "ci"
     open-pull-requests-limit: 5
+    groups:
+      routine-github-actions:
+        applies-to: "version-updates"
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "pypa/gh-action-pypi-publish"
+          - "softprops/action-gh-release"
+          - "docker/login-action"
+          - "docker/build-push-action"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "docker"
     directory: "/"
