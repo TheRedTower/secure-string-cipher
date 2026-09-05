@@ -78,6 +78,31 @@ if is_keychain_available():
 3. All vault operations (store, retrieve, list, delete, update) work identically
    regardless of backend.
 
+4. Vault import and restore validate before mutation and read back/revalidate
+   after publication. The file backend uses atomic replacement. OS credential
+   stores expose no multi-record transaction, so a failed keychain publication
+   receives a best-effort restore of the retained prior raw value; crash
+   atomicity is not claimed.
+
+## Backend Selection
+
+The configured backend is resolved from the persisted config and then optional
+`CIPHER_VAULT_BACKEND` environment override. With no explicit selection, a
+usable keychain is preferred and the file backend is the fallback. Inspect or
+pin the choice with:
+
+```bash
+ssc vault backend
+ssc vault backend file
+ssc vault backend keychain
+```
+
+Import, backup listing, and restore use this configured backend; they do not
+silently instantiate a file-only vault. Backup files remain encrypted raw vault
+records in the configured backup directory. There is no cross-process vault
+lock, and the focused CI matrix mocks credential-store behavior rather than
+exercising a real logged-in OS keychain.
+
 ## Troubleshooting
 
 ### Linux: "No usable keychain backend found"
@@ -105,8 +130,8 @@ Control Panel → User Accounts → Credential Manager → Windows Credentials
 
 ### Fallback to file backend
 
-If the keychain is unavailable, the vault will use the file backend by default.
-You can explicitly choose:
+If no explicit backend has been saved and the keychain is unavailable, the
+vault uses the file backend. You can explicitly choose:
 
 ```python
 from secure_string_cipher import PassphraseVault, BACKEND_FILE
@@ -121,3 +146,6 @@ vault = PassphraseVault(backend=BACKEND_FILE)  # Always use file
 - On shared systems, each OS user has their own keychain
 - Keychain entries are tied to the current user session
 - Backup your vault before migrating: `ssc vault export > backup.txt`
+- Export writes exact six-line UTF-8 bytes without a terminal newline. CLI
+  import accepts exactly one terminal LF or CRLF from an older redirected
+  export; direct vault APIs and all other whitespace remain byte-strict.
