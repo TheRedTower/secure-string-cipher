@@ -41,8 +41,12 @@ KEY_COMMITMENT_CONTEXT = b"secure-string-cipher-v1-key-commitment"
 # File metadata format
 METADATA_VERSION = 5  # Version 5: Argon2id + key commitment + authenticated metadata
 METADATA_MAGIC = b"SSCV2"  # Magic bytes to identify format
+MAX_METADATA_LENGTH = 65535  # Maximum encoded by the two-byte metadata length
 FILENAME_MAX_LENGTH = 255  # Maximum stored filename length
 
+# Maximum plaintext payload for file/stdin crypto. Active/candidate vault data
+# and legacy key files separately use the same value as their raw-byte ingestion
+# cap; SSC framing may make an encrypted file larger than this value.
 MAX_FILE_SIZE = 100 * 1024 * 1024
 MIN_PASSWORD_LENGTH = 12
 PASSWORD_PATTERNS = {
