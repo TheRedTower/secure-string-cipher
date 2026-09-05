@@ -58,7 +58,10 @@ jobs:
           tests/security/test_audit_log.py
 
     - name: Security scan - Secrets
-      run: uv run --locked detect-secrets scan --baseline .secrets.baseline
+      run: |
+        git ls-files -z -- ':!:package.lock.json' |
+          xargs -0 uv run --locked detect-secrets-hook --baseline .secrets.baseline
+        git diff --exit-code -- .secrets.baseline
 
     - name: Build package
       run: uv build

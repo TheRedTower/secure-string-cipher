@@ -28,27 +28,242 @@ import hmac
 import json
 import os
 import secrets
-import shutil
-from datetime import datetime
+import stat
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import cast
+from typing import BinaryIO
 
+from .atomic_io import atomic_binary_writer
 from .config import (
+    MAX_FILE_SIZE,
     VAULT_BACKEND_FILE,
     VAULT_BACKEND_KEYCHAIN,
     get_default_backup_dir,
     load_vault_settings,
 )
-from .core import decrypt_text, derive_key, encrypt_text
+from .core import _decode_canonical_base64, decrypt_text, derive_key, encrypt_text
 from .security import secure_atomic_write
 
 # Vault format constants
 _VAULT_HEADER = "SSCVAULT"
 _HMAC_SALT_SIZE = 32  # 256 bits
+_VAULT_HMAC_SIZE = 32
+_VAULT_FAILURE_MESSAGE = (
+    "Failed to decrypt vault. Wrong master password or corrupted vault file."
+)
+_BACKUP_ATTEMPTS = 10
+_TEXT_BOUND_CHUNK_SIZE = 64 * 1024
 
 # Backend type literals
 BACKEND_FILE = VAULT_BACKEND_FILE
 BACKEND_KEYCHAIN = VAULT_BACKEND_KEYCHAIN
+
+
+@dataclass(frozen=True)
+class VaultBackup:
+    """Stable backup identity and filesystem modification time used for ordering."""
+
+    identifier: str
+    created_at: datetime
+    path: Path
+
+
+class VaultTransactionError(ValueError):
+    """Generic transaction failure with non-secret recovery state."""
+
+    def __init__(
+        self,
+        category: str,
+        message: str,
+        *,
+        rollback_attempted: bool = False,
+        rollback_succeeded: bool | None = None,
+        backup_identifier: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.category = category
+        self.rollback_attempted = rollback_attempted
+        self.rollback_succeeded = rollback_succeeded
+        self.backup_identifier = backup_identifier
+
+
+class _VaultInputTooLarge(ValueError):
+    """Internal signal for vault text outside the raw-byte ingestion cap."""
+
+
+def _vault_descriptor_regular_file_size(candidate_stream: BinaryIO) -> int:
+    """Return a vault candidate's size from its opened regular descriptor."""
+    try:
+        file_status = os.fstat(candidate_stream.fileno())
+    except (AttributeError, OSError, ValueError) as error:
+        raise ValueError from error
+    if not stat.S_ISREG(file_status.st_mode):
+        raise ValueError
+    return file_status.st_size
+
+
+def read_bounded_vault_file(path: str | Path) -> bytes:
+    """Read a regular-file vault value without allocating beyond the bound."""
+    candidate_path = Path(path)
+    try:
+        if candidate_path.is_symlink() or not candidate_path.is_file():
+            raise ValueError
+
+        with open(candidate_path, "rb") as candidate_stream:
+            candidate_size = _vault_descriptor_regular_file_size(candidate_stream)
+            if candidate_size > MAX_FILE_SIZE:
+                raise VaultTransactionError(
+                    "candidate_too_large",
+                    "Vault candidate exceeds the allowed input size.",
+                )
+            contents = candidate_stream.read(MAX_FILE_SIZE + 1)
+
+        if len(contents) > MAX_FILE_SIZE:
+            raise VaultTransactionError(
+                "candidate_too_large",
+                "Vault candidate exceeds the allowed input size.",
+            )
+        return contents
+    except VaultTransactionError:
+        raise
+    except Exception:
+        raise VaultTransactionError(
+            "candidate_read_failed", "Vault candidate could not be read."
+        ) from None
+
+
+def _require_bounded_vault_text(vault_contents: str) -> str:
+    """Validate a text vault's UTF-8 size without a full oversize allocation."""
+    if len(vault_contents) > MAX_FILE_SIZE:
+        raise _VaultInputTooLarge
+
+    encoded_size = 0
+    for offset in range(0, len(vault_contents), _TEXT_BOUND_CHUNK_SIZE):
+        chunk = vault_contents[offset : offset + _TEXT_BOUND_CHUNK_SIZE]
+        encoded_size += len(chunk.encode("utf-8", errors="strict"))
+        if encoded_size > MAX_FILE_SIZE:
+            raise _VaultInputTooLarge
+    return vault_contents
+
+
+def _bounded_vault_bytes(vault_contents: str) -> bytes:
+    """Encode vault text only after its byte length is known to be bounded."""
+    return _require_bounded_vault_text(vault_contents).encode("utf-8")
+
+
+def _bounded_candidate_text(vault_contents: str | bytes) -> str:
+    """Normalize a bounded raw candidate to strict UTF-8 text."""
+    try:
+        if isinstance(vault_contents, bytes):
+            if len(vault_contents) > MAX_FILE_SIZE:
+                raise VaultTransactionError(
+                    "candidate_too_large",
+                    "Vault candidate exceeds the allowed input size.",
+                )
+            return vault_contents.decode("utf-8", errors="strict")
+        return _require_bounded_vault_text(vault_contents)
+    except _VaultInputTooLarge:
+        raise VaultTransactionError(
+            "candidate_too_large",
+            "Vault candidate exceeds the allowed input size.",
+        ) from None
+    except VaultTransactionError:
+        raise
+    except UnicodeError:
+        raise VaultTransactionError(
+            "candidate_validation_failed", "Vault candidate validation failed."
+        ) from None
+
+
+def _new_backup_identifier() -> str:
+    """Return a UTC microsecond and random-suffix backup identifier."""
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
+    return f"vault_backup_{timestamp}_{secrets.token_hex(4)}.enc"
+
+
+class _DuplicateVaultEntry(ValueError):
+    """Internal signal for duplicate decrypted vault entry names."""
+
+
+def _vault_entries_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Build a JSON object while rejecting duplicate member names."""
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateVaultEntry
+        result[key] = value
+    return result
+
+
+def _compute_vault_hmac(data: str, master_password: str, salt: bytes) -> str:
+    """Compute the current vault format's Argon2id-derived HMAC."""
+    key = derive_key(master_password, salt)
+    return hmac.new(key, data.encode(), hashlib.sha256).hexdigest()
+
+
+def validate_raw_vault(
+    vault_contents: str | bytes, master_password: str
+) -> dict[str, str]:
+    """Validate and decode supplied current-format vault contents.
+
+    This function is side-effect free: it does not access a storage backend or
+    mutate active vault state. The legacy current format has no version or
+    entry-count field, so this reader adds no semantic entry limit. The shared
+    raw-byte ingestion cap is enforced before parsing.
+
+    All validation failures intentionally expose one generic message.
+    """
+    try:
+        vault_contents = _bounded_candidate_text(vault_contents)
+
+        lines = vault_contents.split("\n")
+        if (
+            len(lines) != 6
+            or lines[0] != _VAULT_HEADER
+            or lines[2] != "---DATA---"
+            or lines[4] != "---HMAC---"
+        ):
+            raise ValueError
+
+        salt_hex = lines[1]
+        if len(salt_hex) != _HMAC_SALT_SIZE * 2 or any(
+            char not in "0123456789abcdef" for char in salt_hex
+        ):
+            raise ValueError
+        hmac_salt = bytes.fromhex(salt_hex)
+        if len(hmac_salt) != _HMAC_SALT_SIZE:
+            raise ValueError
+
+        encrypted_vault = lines[3]
+        _decode_canonical_base64(encrypted_vault)
+
+        stored_hmac = lines[5]
+        if len(stored_hmac) != _VAULT_HMAC_SIZE * 2 or any(
+            char not in "0123456789abcdef" for char in stored_hmac
+        ):
+            raise ValueError
+        if len(bytes.fromhex(stored_hmac)) != _VAULT_HMAC_SIZE:
+            raise ValueError
+
+        computed_hmac = _compute_vault_hmac(encrypted_vault, master_password, hmac_salt)
+        if not hmac.compare_digest(computed_hmac, stored_hmac):
+            raise ValueError
+
+        decrypted_json = decrypt_text(encrypted_vault, master_password)
+        entries = json.loads(
+            decrypted_json,
+            object_pairs_hook=_vault_entries_object,
+        )
+        if not isinstance(entries, dict) or any(
+            type(label) is not str or type(passphrase) is not str
+            for label, passphrase in entries.items()
+        ):
+            raise ValueError
+
+        return dict(entries)
+    except Exception:
+        raise ValueError(_VAULT_FAILURE_MESSAGE) from None
 
 
 class PassphraseVault:
@@ -131,27 +346,73 @@ class PassphraseVault:
         Returns:
             Hex-encoded HMAC
         """
-        key = derive_key(master_password, salt)
-        return hmac.new(key, data.encode(), hashlib.sha256).hexdigest()
+        return _compute_vault_hmac(data, master_password, salt)
 
-    def _create_backup(self) -> None:
+    def _publish_backup(
+        self,
+        vault_contents: str,
+        *,
+        preserve_identifiers: frozenset[str] = frozenset(),
+    ) -> str:
+        """Publish exact raw vault contents under a collision-resistant name."""
+        raw = _bounded_vault_bytes(vault_contents)
+        if self.backup_dir.is_symlink():
+            raise ValueError("Unsafe backup directory.")
+        self.backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        for _ in range(_BACKUP_ATTEMPTS):
+            identifier = _new_backup_identifier()
+            backup_path = self.backup_dir / identifier
+            if backup_path.exists() or backup_path.is_symlink():
+                continue
+            try:
+                with atomic_binary_writer(
+                    backup_path, overwrite=False, mode=0o600
+                ) as writer:
+                    writer.write(raw)
+            except Exception:
+                if backup_path.exists() or backup_path.is_symlink():
+                    continue
+                raise
+            self._rotate_backups(
+                preserve_identifiers=preserve_identifiers | frozenset({identifier})
+            )
+            return identifier
+        raise ValueError("Unable to allocate a unique vault backup identifier.")
+
+    def _rotate_backups(
+        self, *, preserve_identifiers: frozenset[str] = frozenset()
+    ) -> None:
+        """Retain five backups without removing an active restore source."""
+        backups = sorted(
+            (
+                path
+                for path in self.backup_dir.glob("vault_backup_*.enc")
+                if not path.is_symlink() and path.is_file()
+            ),
+            key=lambda path: path.stat().st_mtime_ns,
+            reverse=True,
+        )
+        protected = [path for path in backups if path.name in preserve_identifiers]
+        unprotected = [
+            path for path in backups if path.name not in preserve_identifiers
+        ]
+        retained = set(protected + unprotected[: max(0, 5 - len(protected))])
+        for old_backup in backups:
+            if old_backup in retained:
+                continue
+            old_backup.unlink()
+
+    def _create_backup(self) -> str | None:
         """Create a timestamped backup of the vault file.
 
         Keeps last 5 backups and removes older ones.
         """
         if self._backend != BACKEND_FILE or not self.vault_path.exists():
-            return
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_path = self.backup_dir / f"vault_backup_{timestamp}.enc"
-
-        shutil.copy2(self.vault_path, backup_path)
-        os.chmod(backup_path, 0o600)
-
-        backups = sorted(self.backup_dir.glob("vault_backup_*.enc"))
-        if len(backups) > 5:
-            for old_backup in backups[:-5]:
-                old_backup.unlink()
+            return None
+        vault_contents = self.read_raw_vault()
+        if vault_contents is None:
+            return None
+        return self._publish_backup(vault_contents)
 
     def _load_vault(self, master_password: str) -> dict[str, str]:
         """Load and decrypt the vault with integrity verification.
@@ -165,82 +426,15 @@ class PassphraseVault:
         Raises:
             ValueError: If vault is corrupted or tampered with
         """
-        # Load vault contents from appropriate backend
-        if self._backend == BACKEND_KEYCHAIN:
-            assert self._keychain is not None
-            vault_contents = self._keychain.load_vault()
-            if vault_contents is None:
-                return {}
-            vault_contents = vault_contents.strip()
-        else:
-            if not self.vault_path.exists():
-                return {}
-            try:
-                with open(self.vault_path) as f:
-                    vault_contents = f.read().strip()
-            except Exception:
-                raise ValueError(
-                    "Failed to decrypt vault. Wrong master password or corrupted vault file."
-                ) from None
+        try:
+            vault_contents = self.read_raw_vault()
+        except Exception:
+            raise ValueError(_VAULT_FAILURE_MESSAGE) from None
 
-        if not vault_contents:
+        if vault_contents is None or not vault_contents:
             return {}
 
-        try:
-            # Parse vault format: SSCVAULT / hmac_salt_hex / ---DATA--- / encrypted / ---HMAC--- / hmac
-            lines = vault_contents.split("\n")
-
-            if not vault_contents.startswith(_VAULT_HEADER + "\n"):
-                raise ValueError(
-                    "Unrecognized vault format. This vault may be from an older version."
-                )
-
-            if len(lines) < 6 or lines[2] != "---DATA---":
-                raise ValueError("Corrupted vault file format")
-
-            hmac_salt_hex = lines[1]
-            try:
-                hmac_salt = bytes.fromhex(hmac_salt_hex)
-            except ValueError:
-                raise ValueError("Corrupted vault file: invalid HMAC salt") from None
-
-            # Find data and HMAC sections
-            data_start = 3
-            hmac_separator_idx = None
-            for i, line in enumerate(lines[data_start:], start=data_start):
-                if line == "---HMAC---":
-                    hmac_separator_idx = i
-                    break
-
-            if hmac_separator_idx is None:
-                raise ValueError("Corrupted vault file: missing HMAC")
-
-            encrypted_vault = "\n".join(lines[data_start:hmac_separator_idx])
-            stored_hmac = "\n".join(lines[hmac_separator_idx + 1 :])
-
-            # Verify HMAC with Argon2id-derived key.
-            # NOTE: We intentionally do NOT attempt decryption here to avoid
-            # a timing side-channel (Argon2id key derivation is ~50-100ms,
-            # easily distinguishable from a fast HMAC failure).
-            computed_hmac = self._compute_hmac(
-                encrypted_vault, master_password, hmac_salt
-            )
-            if not hmac.compare_digest(computed_hmac, stored_hmac):
-                raise ValueError(
-                    "Wrong master password or corrupted vault file"
-                ) from None
-
-            decrypted_json = decrypt_text(encrypted_vault, master_password)
-            return cast(dict[str, str], json.loads(decrypted_json))
-
-        except json.JSONDecodeError:
-            raise ValueError("Vault file is corrupted. Check backups.") from None
-        except ValueError:
-            raise
-        except Exception:
-            raise ValueError(
-                "Failed to decrypt vault. Wrong master password or corrupted vault file."
-            ) from None
+        return validate_raw_vault(vault_contents, master_password)
 
     def _save_vault(self, vault_data: dict[str, str], master_password: str) -> None:
         """Encrypt and save the vault with Argon2id HMAC.
@@ -249,8 +443,6 @@ class PassphraseVault:
             vault_data: Dictionary mapping labels to passphrases
             master_password: Master password to encrypt the vault
         """
-        self._create_backup()
-
         json_data = json.dumps(vault_data, indent=2)
         encrypted_vault = encrypt_text(json_data, master_password)
 
@@ -267,15 +459,15 @@ class PassphraseVault:
             f"---HMAC---\n"
             f"{vault_hmac}"
         )
+        raw_vault = _bounded_vault_bytes(vault_contents)
+        self._create_backup()
 
         if self._backend == BACKEND_KEYCHAIN:
             assert self._keychain is not None
             self._keychain.store_vault(vault_contents)
         else:
             # Use atomic write to prevent corruption during write
-            secure_atomic_write(
-                self.vault_path, vault_contents.encode("utf-8"), mode=0o600
-            )
+            secure_atomic_write(self.vault_path, raw_vault, mode=0o600)
 
     def store_passphrase(
         self, label: str, passphrase: str, master_password: str
@@ -418,18 +610,26 @@ class PassphraseVault:
         """Read raw encrypted vault contents from the active backend."""
         if self._backend == BACKEND_KEYCHAIN:
             assert self._keychain is not None
-            return self._keychain.load_vault()
+            vault_contents = self._keychain.load_vault()
+            if vault_contents is None:
+                return None
+            return _require_bounded_vault_text(vault_contents)
         if not self.vault_path.exists():
             return None
-        return self.vault_path.read_text()
+        contents = read_bounded_vault_file(self.vault_path)
+        try:
+            return contents.decode("utf-8", errors="strict")
+        except UnicodeError:
+            raise ValueError(_VAULT_FAILURE_MESSAGE) from None
 
     def write_raw_vault(self, vault_contents: str) -> None:
         """Write raw encrypted vault contents to the active backend."""
+        raw_vault = _bounded_vault_bytes(vault_contents)
         if self._backend == BACKEND_KEYCHAIN:
             assert self._keychain is not None
             self._keychain.store_vault(vault_contents)
             return
-        secure_atomic_write(self.vault_path, vault_contents.encode("utf-8"), mode=0o600)
+        secure_atomic_write(self.vault_path, raw_vault, mode=0o600)
 
     def delete_vault_storage(self) -> None:
         """Delete vault data from the active backend."""
@@ -439,6 +639,102 @@ class PassphraseVault:
             return
         if self.vault_path.exists():
             self.vault_path.unlink()
+
+    def import_raw_vault(
+        self,
+        vault_contents: str | bytes,
+        master_password: str,
+        *,
+        backup_current: bool = True,
+    ) -> str | None:
+        """Validate, publish, verify, and if necessary roll back a raw vault.
+
+        Filesystem writes use atomic publication. Credential-store writes use
+        best-effort rollback because native backends do not expose a transaction.
+
+        Returns:
+            The backup identifier for the previous active vault, if created.
+        """
+        candidate = _bounded_candidate_text(vault_contents)
+        return self._transact_raw_vault(
+            candidate,
+            master_password,
+            backup_current=backup_current,
+        )
+
+    def _transact_raw_vault(
+        self,
+        candidate: str,
+        master_password: str,
+        *,
+        backup_current: bool,
+        preserve_backup_identifiers: frozenset[str] = frozenset(),
+    ) -> str | None:
+        """Publish a normalized raw candidate with verification and rollback."""
+        try:
+            expected_entries = validate_raw_vault(candidate, master_password)
+        except ValueError:
+            raise VaultTransactionError(
+                "candidate_validation_failed", "Vault candidate validation failed."
+            ) from None
+
+        try:
+            previous_raw = self.read_raw_vault()
+        except Exception:
+            raise VaultTransactionError(
+                "active_read_failed",
+                "Vault transaction failed before publication.",
+            ) from None
+
+        backup_identifier = None
+        if previous_raw is not None and backup_current:
+            try:
+                backup_identifier = self._publish_backup(
+                    previous_raw,
+                    preserve_identifiers=preserve_backup_identifiers,
+                )
+            except Exception:
+                raise VaultTransactionError(
+                    "backup_failed",
+                    "Vault transaction failed before publication.",
+                ) from None
+
+        try:
+            self.write_raw_vault(candidate)
+            published_raw = self.read_raw_vault()
+            if published_raw is None or published_raw != candidate:
+                raise ValueError
+            published_entries = validate_raw_vault(published_raw, master_password)
+            if published_entries != expected_entries:
+                raise ValueError
+        except Exception:
+            try:
+                if previous_raw is None:
+                    self.delete_vault_storage()
+                    if self.read_raw_vault() is not None:
+                        raise ValueError
+                else:
+                    self.write_raw_vault(previous_raw)
+                    if self.read_raw_vault() != previous_raw:
+                        raise ValueError
+            except Exception:
+                raise VaultTransactionError(
+                    "rollback_failed",
+                    "Vault transaction failed and rollback failed; active vault may be inconsistent.",
+                    rollback_attempted=True,
+                    rollback_succeeded=False,
+                    backup_identifier=backup_identifier,
+                ) from None
+
+            raise VaultTransactionError(
+                "publication_failed",
+                "Vault transaction failed; previous vault restored.",
+                rollback_attempted=True,
+                rollback_succeeded=True,
+                backup_identifier=backup_identifier,
+            ) from None
+
+        return backup_identifier
 
     def migrate_to_keychain(self, master_password: str) -> None:
         """Migrate vault data from file backend to keychain.
@@ -455,14 +751,15 @@ class PassphraseVault:
         if not self.vault_path.exists():
             raise ValueError("No file vault found to migrate.")
 
-        with open(self.vault_path) as f:
-            vault_contents = f.read().strip()
+        vault_contents = _bounded_candidate_text(
+            read_bounded_vault_file(self.vault_path)
+        )
 
         if not vault_contents:
             raise ValueError("Vault file is empty.")
 
-        # Verify we can decrypt it (validates master password)
-        self._load_vault(master_password)
+        # Validate the supplied candidate without consulting active backend state.
+        validate_raw_vault(vault_contents, master_password)
 
         # Store in keychain
         keychain = KeychainVaultBackend()
@@ -485,21 +782,26 @@ class PassphraseVault:
         if vault_contents is None:
             raise ValueError("No keychain vault found to migrate.")
 
-        # Verify we can decrypt it (validates master password)
-        # Temporarily switch to keychain to load
-        old_backend = self._backend
-        old_keychain = self._keychain
-        self._backend = BACKEND_KEYCHAIN
-        self._keychain = keychain
-        try:
-            self._load_vault(master_password)
-        finally:
-            self._backend = old_backend
-            self._keychain = old_keychain
+        vault_contents = _bounded_candidate_text(vault_contents)
+
+        # Validate the supplied candidate without changing the active backend.
+        validate_raw_vault(vault_contents, master_password)
 
         # Write to file
         self.vault_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        secure_atomic_write(self.vault_path, vault_contents.encode("utf-8"), mode=0o600)
+        secure_atomic_write(
+            self.vault_path, _bounded_vault_bytes(vault_contents), mode=0o600
+        )
+
+    def list_backup_records(self) -> list[VaultBackup]:
+        """List backups by stable identifier and mtime-derived UTC ordering time."""
+        records = []
+        for path in self.backup_dir.glob("vault_backup_*.enc"):
+            if path.is_symlink() or not path.is_file():
+                continue
+            created_at = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+            records.append(VaultBackup(path.name, created_at, path))
+        return sorted(records, key=lambda record: record.created_at, reverse=True)
 
     def list_backups(self) -> list[str]:
         """List available backup files.
@@ -507,29 +809,49 @@ class PassphraseVault:
         Returns:
             List of backup file paths sorted by date (newest first)
         """
-        backups = sorted(self.backup_dir.glob("vault_backup_*.enc"), reverse=True)
-        return [str(b) for b in backups]
+        return [str(record.path) for record in self.list_backup_records()]
 
-    def restore_from_backup(self, backup_index: int = 0) -> None:
-        """Restore vault from a backup file.
+    def _read_backup(self, backup_identifier: str) -> bytes:
+        """Resolve an exact stable identifier and read it with the import bound."""
+        if Path(backup_identifier).name != backup_identifier:
+            raise VaultTransactionError(
+                "backup_not_found", "Selected vault backup was not found."
+            )
+        records = {record.identifier: record for record in self.list_backup_records()}
+        record = records.get(backup_identifier)
+        if record is None:
+            raise VaultTransactionError(
+                "backup_not_found", "Selected vault backup was not found."
+            )
+        return read_bounded_vault_file(record.path)
+
+    def validate_backup(self, backup_identifier: str, master_password: str) -> None:
+        """Validate a selected backup without changing active storage."""
+        candidate = self._read_backup(backup_identifier)
+        try:
+            validate_raw_vault(candidate, master_password)
+        except ValueError:
+            raise VaultTransactionError(
+                "candidate_validation_failed", "Vault candidate validation failed."
+            ) from None
+
+    def restore_from_backup(
+        self, backup_identifier: str, master_password: str
+    ) -> str | None:
+        """Transactionally restore an exactly identified backup.
 
         Args:
-            backup_index: Index of backup to restore (0 = most recent)
+            backup_identifier: Exact identifier returned by list_backup_records().
+            master_password: Password for the selected backup.
 
-        Raises:
-            ValueError: If no backups available or index out of range
+        Returns:
+            Identifier of the backup made from the prior active vault, if any.
         """
-        backups = sorted(self.backup_dir.glob("vault_backup_*.enc"), reverse=True)
-
-        if not backups:
-            raise ValueError("No backups available")
-
-        if backup_index >= len(backups):
-            raise ValueError(
-                f"Backup index {backup_index} out of range. "
-                f"Only {len(backups)} backup(s) available."
-            )
-
-        backup_file = backups[backup_index]
-        shutil.copy2(backup_file, self.vault_path)
-        os.chmod(self.vault_path, 0o600)
+        candidate = self._read_backup(backup_identifier)
+        candidate_text = _bounded_candidate_text(candidate)
+        return self._transact_raw_vault(
+            candidate_text,
+            master_password,
+            backup_current=True,
+            preserve_backup_identifiers=frozenset({backup_identifier}),
+        )
