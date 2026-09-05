@@ -33,12 +33,28 @@ from secure_string_cipher.cli import (
     _handle_store_passphrase,
     _offer_vault_storage,
     _print_banner,
+    _write_filename_sanitization_notice,
     main,
 )
+from secure_string_cipher.passphrase_manager import VaultTransactionError
 
 # =============================================================================
 # _print_banner error paths
 # =============================================================================
+
+
+def test_filename_sanitization_notice_never_echoes_raw_metadata():
+    """Control-bearing authenticated metadata must not inject terminal output."""
+    original = "unsafe\n\x1b[31m../victim.txt"
+    out = StringIO()
+
+    _write_filename_sanitization_notice(out, original)
+
+    rendered = out.getvalue()
+    assert original not in rendered
+    assert "\x1b" not in rendered
+    assert rendered.count("\n") == 1
+    assert "victim.txt" in rendered
 
 
 class TestPrintBannerErrors:
@@ -602,40 +618,127 @@ class TestHandleManageVault:
 
     @patch("secure_string_cipher.cli.PassphraseVault")
     def test_import_invalid_format(self, mock_vault_cls, tmp_path):
-        """Should error on invalid vault format."""
+        """Should error when full candidate validation fails."""
         mock_vault = MagicMock()
         mock_vault_cls.return_value = mock_vault
 
         bad_file = tmp_path / "bad_vault.txt"
         bad_file.write_text("not a vault file")
 
-        in_stream = StringIO(f"4\n{bad_file}\n")
+        in_stream = StringIO(f"4\n{bad_file}\nPublic-Test-Only-Master-2026!\n")
         out_stream = StringIO()
 
         _handle_manage_vault(in_stream, out_stream)
 
-        assert "Invalid vault format" in out_stream.getvalue()
+        assert "Vault validation failed" in out_stream.getvalue()
 
+    @patch("secure_string_cipher.cli.validate_raw_vault")
+    @patch("secure_string_cipher.cli.read_bounded_vault_file")
     @patch("secure_string_cipher.cli.PassphraseVault")
-    def test_import_success_no_existing(self, mock_vault_cls, tmp_path):
-        """Should import vault successfully when no existing vault."""
+    def test_import_success_no_existing(
+        self, mock_vault_cls, mock_read, mock_validate, tmp_path
+    ):
+        """Should delegate a validated candidate to the transaction service."""
         mock_vault = MagicMock()
         mock_vault_cls.return_value = mock_vault
         mock_vault.vault_exists.return_value = False
+        mock_vault.import_raw_vault.return_value = None
+        mock_read.return_value = b"authenticated raw vault\r\n"
 
         import_file = tmp_path / "import.dat"
         import_file.write_text("SSCVAULT\ndata\nmore_data")
 
-        in_stream = StringIO(f"4\n{import_file}\n")
+        in_stream = StringIO(f"4\n{import_file}\nPublic-Test-Only-Master-2026!\n")
         out_stream = StringIO()
 
         _handle_manage_vault(in_stream, out_stream)
 
         assert "imported" in out_stream.getvalue().lower()
-        mock_vault.write_raw_vault.assert_called_once()
+        mock_validate.assert_called_once_with(
+            b"authenticated raw vault", "Public-Test-Only-Master-2026!"
+        )
+        mock_vault.import_raw_vault.assert_called_once_with(
+            b"authenticated raw vault",
+            "Public-Test-Only-Master-2026!",
+            backup_current=True,
+        )
+        mock_vault.write_raw_vault.assert_not_called()
 
+    @pytest.mark.parametrize(
+        ("rollback_succeeded", "expected"),
+        [
+            (False, "rollback failed; active vault may be inconsistent"),
+            (True, "rollback succeeded and the previous vault was restored"),
+            (None, "failed before publication; active vault was not changed"),
+        ],
+    )
+    @patch("secure_string_cipher.cli.validate_raw_vault")
+    @patch("secure_string_cipher.cli.read_bounded_vault_file")
     @patch("secure_string_cipher.cli.PassphraseVault")
-    def test_import_cancelled(self, mock_vault_cls, tmp_path):
+    def test_import_reports_transaction_recovery_state_without_error_details(
+        self,
+        mock_vault_cls,
+        mock_read,
+        mock_validate,
+        rollback_succeeded,
+        expected,
+        tmp_path,
+    ):
+        """Interactive import must expose recovery state without exception text."""
+        mock_vault = MagicMock()
+        mock_vault_cls.return_value = mock_vault
+        mock_vault.vault_exists.return_value = False
+        secret_detail = (  # pragma: allowlist secret
+            "do-not-print-transaction-detail"
+        )
+        mock_vault.import_raw_vault.side_effect = VaultTransactionError(
+            "transaction_failure",
+            secret_detail,
+            rollback_attempted=rollback_succeeded is not None,
+            rollback_succeeded=rollback_succeeded,
+        )
+        mock_read.return_value = b"authenticated raw vault"
+        import_file = tmp_path / "import.dat"
+        import_file.write_bytes(b"placeholder")
+        in_stream = StringIO(f"4\n{import_file}\nPublic-Test-Only-Master-2026!\n")
+        out_stream = StringIO()
+
+        _handle_manage_vault(in_stream, out_stream)
+
+        rendered = out_stream.getvalue()
+        assert expected in rendered
+        assert secret_detail not in rendered
+        mock_validate.assert_called_once()
+
+    @patch("secure_string_cipher.cli.validate_raw_vault")
+    @patch("secure_string_cipher.cli.read_bounded_vault_file")
+    @patch("secure_string_cipher.cli.PassphraseVault")
+    def test_import_backend_existence_failure_is_contained(
+        self, mock_vault_cls, mock_read, mock_validate, tmp_path
+    ):
+        """Backend failures before confirmation must not escape the menu handler."""
+        mock_vault = MagicMock()
+        mock_vault_cls.return_value = mock_vault
+        backend_detail = "do-not-print-backend-detail"
+        mock_vault.vault_exists.side_effect = OSError(backend_detail)
+        mock_read.return_value = b"authenticated raw vault"
+        import_file = tmp_path / "import.dat"
+        import_file.write_bytes(b"placeholder")
+        in_stream = StringIO(f"4\n{import_file}\nPublic-Test-Only-Master-2026!\n")
+        out_stream = StringIO()
+
+        _handle_manage_vault(in_stream, out_stream)
+
+        rendered = out_stream.getvalue()
+        assert "Error importing vault" in rendered
+        assert backend_detail not in rendered
+        mock_validate.assert_called_once()
+        mock_vault.import_raw_vault.assert_not_called()
+
+    @patch("secure_string_cipher.cli.validate_raw_vault")
+    @patch("secure_string_cipher.cli.read_bounded_vault_file")
+    @patch("secure_string_cipher.cli.PassphraseVault")
+    def test_import_cancelled(self, mock_vault_cls, mock_read, mock_validate, tmp_path):
         """Should cancel import when user declines replacement."""
         mock_vault = MagicMock()
         mock_vault_cls.return_value = mock_vault
@@ -646,13 +749,16 @@ class TestHandleManageVault:
 
         import_file = tmp_path / "import.dat"
         import_file.write_text("SSCVAULT\ndata\nmore_data")
+        mock_read.return_value = b"authenticated raw vault"
 
-        in_stream = StringIO(f"4\n{import_file}\nno\n")
+        in_stream = StringIO(f"4\n{import_file}\nPublic-Test-Only-Master-2026!\nno\n")
         out_stream = StringIO()
 
         _handle_manage_vault(in_stream, out_stream)
 
         assert "cancelled" in out_stream.getvalue().lower()
+        mock_vault.import_raw_vault.assert_not_called()
+        mock_vault.write_raw_vault.assert_not_called()
 
     @patch("secure_string_cipher.cli.PassphraseVault")
     def test_reset_no_vault(self, mock_vault_cls):

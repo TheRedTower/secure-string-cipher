@@ -308,7 +308,7 @@ class TestFileMetadataProperties:
     """Property-based tests for file metadata serialization."""
 
     @given(
-        version=st.integers(min_value=1, max_value=100),
+        version=st.sampled_from([4, 5]),
         filename=st.text(
             alphabet=string.ascii_letters + string.digits + "._-",
             min_size=1,
@@ -318,6 +318,7 @@ class TestFileMetadataProperties:
     @settings(max_examples=30, deadline=None)  # Key derivation is slow
     def test_metadata_roundtrip(self, version: int, filename: str):
         """Metadata serializes and deserializes correctly."""
+        assume(filename not in {".", ".."})
         # Use actual key derivation to get proper commitment
         salt = b"\x00" * SALT_SIZE
         key = derive_key("test", salt)
