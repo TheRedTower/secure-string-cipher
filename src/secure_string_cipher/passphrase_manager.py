@@ -270,8 +270,11 @@ class PassphraseVault:
     """Manages encrypted passphrase storage with integrity protection.
 
     Supports two storage backends:
-    - "file": Traditional encrypted vault file on disk (default)
+    - "file": Traditional encrypted vault file on disk
     - "keychain": OS keychain via the keyring library
+
+    When no backend is configured explicitly, a usable keychain is preferred
+    and the file backend is the fallback.
     """
 
     def __init__(self, vault_path: str | None = None, backend: str | None = None):

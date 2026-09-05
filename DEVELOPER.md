@@ -24,20 +24,28 @@ make ci        # Run full CI pipeline locally
 make help         # List all commands
 make format       # Auto-format with Ruff
 make lint         # Check style, types, and code quality
-make test         # Run full test suite (826 tests, ~80s)
-make test-quick   # Run fast tests only (207 tests, ~10s)
+make secret-scan  # Scan tracked files against the secrets baseline
+make dependency-audit  # Scan the locked production dependency set
+make build        # Build with hash-checked, locked build dependencies
+make test         # Run the complete test suite
+make test-quick   # Run a focused unit/integration subset
 make test-slow    # Run KDF/fuzz/performance tests
 make test-cov     # Run tests with coverage
 make clean        # Remove temporary files
-make ci           # Run complete CI checks
+make ci           # Run the non-mutating local CI gate
 ```
+
+`make clean` removes generated caches and build/test outputs. It leaves
+encrypted and decrypted data files (`*.enc`, `*.dec`) in place.
 
 ### Fast Development Cycle
 
-For rapid iteration, use `test-quick` which skips crypto-heavy tests:
+For rapid iteration, use `test-quick`, which skips selected crypto-heavy tests.
+Test counts and timings are intentionally not fixed in this guide because they
+change as regressions are added and vary by machine.
 
 ```bash
-# Quick feedback loop (~10s vs ~80s)
+# Focused feedback loop
 make test-quick
 
 # Run full suite before commit
@@ -61,7 +69,7 @@ make ci
 
 ### pytest (Testing)
 
-- Runs automated tests (826 tests)
+- Runs the automated test suite
 - Unit tests in `tests/unit/`, integration tests in `tests/integration/`
 - Security tests in `tests/security/`, fuzz tests in `tests/fuzz/`
 - Performance benchmarks in `tests/performance/`
@@ -70,20 +78,33 @@ make ci
 
 ## CI/CD
 
-GitHub Actions uses uv-locked installs and runs a two-stage pipeline:
+GitHub Actions uses uv-locked installs and runs these protected CI stages:
+
+The workflows pin uv to the locally tested version, `0.9.17`. Package builds use
+the separate `build` dependency group in `uv.lock`; update that group together
+with `[build-system].requires` when changing Hatchling.
 
 1. **Quality checks** (Python 3.14 only):
    - uv sync --extra dev --locked
    - Ruff lint + format check (uv run --locked)
    - mypy type checking (uv run --locked)
-   - Secret scan (uv run --locked detect-secrets --baseline .secrets.baseline)
-   - Vulnerability scan (uv run --locked pip-audit --desc)
+   - Sensitive-output guard
+   - Enforcing tracked-file secret scan against `.secrets.baseline`
+   - Exact locked production dependency export and vulnerability scan
    - Inline passphrase strength verification (uv run --locked python -c "...")
 
 2. **Test matrix** (Python 3.12, 3.13, 3.14 in parallel):
    - uv sync --extra dev --locked
    - Full pytest suite (uv run --locked pytest)
-   - Coverage reporting and 75% gate on 3.14
+   - Branch-coverage reporting and an 85% gate on Python 3.14
+
+3. **Platform safety matrix** (Python 3.12):
+   - Focused file, fixture, vault, and transaction tests on Ubuntu, macOS, and
+     Windows
+
+CodeQL runs in its own workflow. Workflow configuration defines the intended
+boundary; the result for a particular change must be verified on that exact
+commit in GitHub.
 
 ## Common Tasks
 
@@ -129,9 +150,9 @@ pytest tests/unit/test_security.py::TestFilenameSanitization::test_safe_filename
 pytest -m security
 pytest -m "unit and not slow"
 
-# Quick vs full
-make test-quick   # Fast tests only (~10s)
-make test         # Full suite (~80s)
+# Focused vs full
+make test-quick
+make test
 ```
 
 ### Testing Password Input
@@ -183,42 +204,40 @@ Exit codes: 0=success, 1=input error, 2=auth error, 3=vault error, 4=file error
 ### Debug CI Failures
 
 ```bash
-# Run what CI runs
+# Run the local CI-parity gate
 make ci
 
 # If formatting fails
 make format
 
 # If linting fails
-ruff check --fix src tests
+uv run --locked ruff check --fix src tests tools
 
 # If tests fail
-pytest tests/ -v
+uv run --locked pytest tests/ -v
 ```
 
 ## Releases
 
-### Version Bump
-
-1. Update version in `pyproject.toml`
-2. Update `CHANGELOG.md`
-3. Commit: `git commit -m "chore: bump version to X.Y.Z"`
-4. Tag: `git tag vX.Y.Z`
-5. Push: `git push origin main --tags`
+See [RELEASE.md](RELEASE.md) for the complete release preparation, artifact
+inspection, protected-branch, and post-publication checklist. Preparing a
+version change does not itself authorize tagging or publication.
 
 ### Publishing to PyPI
 
-Publishing is automated via GitHub Actions (`release.yml`). When a `v*` tag is pushed:
+Publishing is automated via GitHub Actions (`release.yml`) after an explicitly
+authorized `v*` tag is pushed. The workflow:
 
-1. Builds sdist + wheel with `python -m build`
-2. Creates a GitHub Release with changelog and artifacts
-3. Publishes to PyPI via trusted publisher (`pypa/gh-action-pypi-publish`)
-4. Builds and pushes multi-arch Docker image to GHCR
+1. Builds a source distribution and wheel
+2. Verifies tag, project, wheel, and source-distribution versions match
+3. Creates a GitHub Release with generated notes and selected artifacts
+4. Publishes to PyPI via trusted publisher (`pypa/gh-action-pypi-publish`)
+5. Builds and pushes a multi-architecture Docker image to GHCR
 
 ## Tips
 
-- Run `make format` before committing - saves CI time
-- Run `make ci` locally - catches issues early
+- Run `make format` before committing; `make ci` is deliberately check-only
+- Run `make ci` locally to catch issues early
 - Use `make help` to see all commands
 - Check `.github/workflows/ci.yml` to see exact CI steps
 

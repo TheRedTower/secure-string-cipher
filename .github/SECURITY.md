@@ -5,26 +5,23 @@ security audit and is not a stable release contract.
 
 ## Supported Versions
 
-We actively support the following versions with security updates:
+Security fixes are targeted at the latest published minor release line. Older
+releases may still decrypt compatible data, but they do not receive routine
+security fixes.
 
-| Version | Supported          | Python Requirements |
-| ------- | ------------------ | ------------------- |
-| 1.3.x   | :white_check_mark: | 3.12+              |
-| 1.2.x   | :white_check_mark: | 3.12+              |
-| 1.1.x   | :white_check_mark: | 3.12+              |
-| < 1.1.0 | :x:                | 3.10+              |
+| Version | Security fixes | Python requirement |
+| ------- | -------------- | ------------------ |
+| 1.3.x   | Yes            | 3.12+              |
+| < 1.3   | No             | Varies             |
 
 **Note**: Version 1.1.0+ uses Argon2id KDF and key commitment. Files encrypted with older versions are not compatible.
 
-## Python Version Support Policy
+## Python version support
 
-We follow Python's official support timeline and drop support for versions that have reached end-of-life or are in security-only mode:
-
-- **Python 3.10**: EOL October 2026 (no longer supported by this project)
-- **Python 3.11**: EOL October 2027 (no longer supported by this project)
-- **Python 3.12**: EOL October 2028 ✅
-- **Python 3.13**: EOL October 2029 ✅
-- **Python 3.14**: EOL October 2030 ✅
+The package currently requires Python 3.12 or later. Protected CI runs the
+general suite on Python 3.12, 3.13, and 3.14. Support changes are announced in
+the changelog and package metadata rather than promised against a fixed future
+calendar.
 
 ## Reporting a Vulnerability
 
@@ -50,14 +47,23 @@ We take security bugs seriously. Thanks for helping us keep this project secure.
 - Potential impact
 - Ideas for a fix (if you have them)
 
-### What to Expect
+### What to expect
 
-1. **Initial response:** Within 24 hours
-2. **Status updates:** At least every 72 hours
-3. **Fix timeline:**
-   - We'll publish a security advisory within 72 hours
-   - Develop and test a fix within 1-2 weeks
-   - Public disclosure after the fix is released (typically within 90 days)
+This is a volunteer, sole-maintainer project. Reports are handled on a
+best-effort basis rather than under a service-level agreement.
+
+- The target for acknowledging a complete report is seven days.
+- Reproduction, severity assessment, remediation, and update frequency depend
+  on impact, complexity, and maintainer availability.
+- Confirmed issues are developed privately where practical and disclosed in a
+  coordinated way after a fix or mitigation is available.
+- No response, fix, release, or disclosure date is guaranteed. If a report has
+  not been acknowledged after 14 days, a concise follow-up by the other private
+  reporting method is welcome.
+
+Please avoid public disclosure while a report is being assessed. The
+maintainer will not request indefinite secrecy; if coordination stalls, both
+parties should agree a reasonable disclosure date based on user risk.
 
 ## Security Features
 
@@ -68,18 +74,20 @@ This project implements multiple layers of security:
 | Component | Implementation | Configuration |
 |-----------|---------------|---------------|
 | **Encryption** | AES-256-GCM | 256-bit key, 96-bit nonce, 128-bit tag |
-| **Key Derivation** | Argon2id | 64MB memory, 3 iterations, parallelism 4 |
-| **Key Commitment** | HMAC-SHA256 | Prevents partitioning oracle attacks |
+| **Key Derivation** | Argon2id | 64 MiB memory, 3 iterations, parallelism 4 |
+| **Key Commitment** | HMAC-SHA256 | Binds ciphertext to the derived key |
 | **Random Generation** | `secrets` module | OS-level CSPRNG |
 
-**Argon2id parameters exceed OWASP 2024 recommendations** (minimum: 19MB memory, 2 iterations).
+These are the parameters implemented by the current format. Reassess them
+against current guidance and compatibility requirements before changing them.
 
 ### 2. Password Protection
 
-- **Minimum length**: 12 characters
-- **Complexity requirements**: Mixed case, numbers, symbols
-- **Common password detection**: Blocks known weak passwords
-- **Constant-time comparison**: Prevents timing attacks
+- **Validated password flows**: Interactive-menu encryption and manually entered
+  `ssc store` secrets require 12 characters, mixed case, numbers, and symbols,
+  and reject a small built-in set of common patterns. Other prompts and the
+  programmatic encryption APIs accept caller-provided credentials directly.
+- **Designated equality checks**: Use constant-time primitives where required
 - **Local rate limiting**: CLI exponential backoff after failed attempts; copied
   ciphertext remains available for offline guessing
 
@@ -128,12 +136,14 @@ This project implements multiple layers of security:
 - **Best-effort memory clearing** - Mutable managed buffers use libsodium when
   available, but Python may retain copied immutable values
 - **Timing jitter** - Adds random delay to security operations
-- **Input sanitization** - All user input validated
-- **Audit logging** - Security events logged with timestamps
+- **Input controls** - File framing, metadata, vault candidates, and selected
+  paths have explicit validation boundaries
+- **Audit logging** - Configurable local JSON events with timestamps
 
 ### 6. Audit Logging
 
-Security-sensitive operations are logged to `~/.secure-cipher/audit.log`:
+When audit logging is enabled and the configured level includes the event,
+records are written to `~/.secure-cipher/audit.log`:
 
 - Authentication successes/failures
 - Rate limit triggers
@@ -167,18 +177,19 @@ Python 3.12. The focused gate covers atomic publication, bounded regular-file
 processing, failure cleanup, wrong-password preservation, empty/binary files,
 metadata restoration, authentic v4/v5 fixtures, strict vault candidates, CLI
 vault transport, and backend-independent vault transaction/rollback behavior.
-A workflow definition is not evidence of a successful remote run; the
-stabilization handoff records that status separately. Real OS keychain services
-are not exercised by these isolated CI tests.
+A workflow definition is not evidence of a successful run for a later commit.
+PR #67 passed the focused matrix before merge; each future change must be
+checked on its own exact commit. Real OS keychain services are not exercised by
+these isolated CI tests.
 
 ## For Contributors
 
 When contributing:
 
 1. **Dependencies**
-   - Use latest stable versions
-   - Check for security updates regularly
-   - Run `pip-audit` for vulnerability scanning
+   - Keep the lockfile and declared requirements coherent
+   - Give security and compatibility reasons for proposed updates
+   - Run `make dependency-audit` against the exact locked production set
 
 2. **Code Review**
    - Security-focused reviews
@@ -221,7 +232,7 @@ When contributing:
 
 1. **Passphrases**
    - Use strong, unique passphrases (12+ characters, mixed case, numbers, symbols)
-   - Use `/gen` at password prompts to generate secure passphrases
+   - Use `/gen` at interactive encryption passphrase prompts to generate passphrases
    - Don't reuse passphrases across different files
    - Store passphrases in a password manager or the built-in vault
    - Never share passphrases over insecure channels
@@ -248,17 +259,18 @@ When contributing:
    - `pynacl` - libsodium bindings for secure memory
    - `pyperclip` - Clipboard support
    - `wcwidth` - Unicode width calculation
-   - All from trusted, well-maintained sources
+   - Versions and artifact hashes are recorded in `uv.lock`
 
 2. **How we vet dependencies**
    - Review dependencies for security issues
-   - Run `pip-audit` for vulnerability scanning
-   - Update promptly to address vulnerabilities
+   - Run `make dependency-audit` against the exact locked production set
+   - Triage reported vulnerabilities according to impact and compatibility risk
 
 3. **Automated checks**
-   - Pre-commit hooks with `detect-secrets` (prevents credential leaks)
+   - Pre-commit and CI scans with `detect-secrets` to flag likely credentials
    - CI/CD pipeline runs security checks on every commit
-   - `pip-audit` scans for known vulnerabilities
+   - `make dependency-audit` scans the exact locked production set for known
+     vulnerabilities
 
 ### Software Bill of Materials
 
@@ -281,8 +293,8 @@ pipdeptree -p secure-string-cipher
 No independent third-party audit has been completed. The project maintains
 materials intended to support future review:
 
-- **[CRYPTOGRAPHY.md](.github/CRYPTOGRAPHY.md)** - Detailed cryptographic design and threat model
-- **[AUDIT_CHECKLIST.md](.github/AUDIT_CHECKLIST.md)** - Review checklist
+- **[CRYPTOGRAPHY.md](CRYPTOGRAPHY.md)** - Detailed cryptographic design and threat model
+- **[AUDIT_CHECKLIST.md](AUDIT_CHECKLIST.md)** - Review checklist
 
 ## Contact
 
@@ -292,5 +304,4 @@ materials intended to support future review:
 
 ---
 
-**Last updated:** August 29, 2026
-**Version:** 2.3 Beta
+**Last updated:** September 2, 2026
