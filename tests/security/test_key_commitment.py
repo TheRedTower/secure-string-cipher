@@ -129,11 +129,11 @@ class TestFileMetadataKeyCommitment:
             {
                 "version": 4,
                 "original_filename": "test.txt",
-                "key_commitment": "dGVzdA==",
+                "key_commitment": base64.b64encode(b"k" * 32).decode("ascii"),
             }
         ).encode("utf-8")
         metadata = FileMetadata.from_bytes(data)
-        assert metadata.key_commitment == "dGVzdA=="
+        assert metadata.key_commitment == base64.b64encode(b"k" * 32).decode("ascii")
 
 
 class TestFileEncryptionKeyCommitment:
