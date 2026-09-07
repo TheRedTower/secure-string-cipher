@@ -15,7 +15,7 @@ from unittest.mock import Mock
 
 import pytest
 
-import secure_string_cipher.secure_memory as secure_memory_module
+from secure_string_cipher import secure_memory as secure_memory_module
 from secure_string_cipher.secure_memory import (
     SecureBytes,
     SecureString,
