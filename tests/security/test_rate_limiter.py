@@ -10,6 +10,8 @@ Tests verify:
 """
 
 import json
+import math
+import sys
 import threading
 import time
 
@@ -87,6 +89,92 @@ class TestPersistentRateLimiter:
         assert second_record["lockout_until"] == 1_031
         assert second_record["consecutive_failures"] == 2
 
+    @pytest.mark.parametrize("deadline", [999.0, 1e200])
+    def test_extreme_backoff_keeps_lockout_across_reload(
+        self, tmp_path, monkeypatch, deadline
+    ):
+        """An unrepresentable next delay must not discard an existing lockout."""
+        state_path = tmp_path / "rate_limits.json"
+        monkeypatch.setattr(time, "time", lambda: 1_000.0)
+        state_path.write_text(
+            json.dumps(
+                {
+                    "decrypt:": {
+                        "attempts": [1_000.0],
+                        "lockout_until": deadline,
+                        "consecutive_failures": 2,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        for _ in range(2):
+            limiter = PersistentRateLimiter(
+                str(state_path),
+                max_attempts=1,
+                lockout_seconds=1.0,
+                backoff_multiplier=1e200,
+            )
+            allowed, wait = limiter.check_rate_limit("decrypt")
+            assert not allowed
+            assert math.isfinite(wait) and wait > 0
+            record = json.loads(state_path.read_text())["decrypt:"]
+            assert record["lockout_until"] == (
+                deadline if deadline > 1_000 else sys.float_info.max
+            )
+
+    @pytest.mark.parametrize("failures", [1_000, 1_001, 10**400])
+    def test_large_failure_count_is_bounded_without_losing_active_state(
+        self, tmp_path, monkeypatch, failures
+    ):
+        state_path = tmp_path / "rate_limits.json"
+        monkeypatch.setattr(time, "time", lambda: 1_000.0)
+        state_path.write_text(
+            json.dumps(
+                {
+                    "decrypt:": {
+                        "attempts": [1_000.0],
+                        "lockout_until": 1_010.0,
+                        "consecutive_failures": failures,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        limiter = PersistentRateLimiter(str(state_path), max_attempts=1)
+        assert limiter.check_rate_limit("decrypt") == (False, 10)
+        assert (
+            json.loads(state_path.read_text())["decrypt:"]["consecutive_failures"]
+            == 1_000
+        )
+
+        monkeypatch.setattr(time, "time", lambda: 1_011.0)
+        allowed, wait = limiter.check_rate_limit("decrypt")
+        assert not allowed and math.isfinite(wait)
+        record = json.loads(state_path.read_text())["decrypt:"]
+        assert record["consecutive_failures"] == 1_000
+        assert math.isfinite(record["lockout_until"])
+        assert not PersistentRateLimiter(str(state_path)).check_rate_limit("decrypt")[0]
+
+    def test_deadline_addition_overflow_stays_finite(self, tmp_path, monkeypatch):
+        state_path = tmp_path / "rate_limits.json"
+        monkeypatch.setattr(time, "time", lambda: sys.float_info.max * 0.75)
+        limiter = PersistentRateLimiter(
+            str(state_path),
+            max_attempts=1,
+            window_seconds=sys.float_info.max,
+            lockout_seconds=sys.float_info.max,
+        )
+        limiter.record_attempt("decrypt")
+        allowed, wait = limiter.check_rate_limit("decrypt")
+        assert not allowed and math.isfinite(wait)
+        assert (
+            json.loads(state_path.read_text())["decrypt:"]["lockout_until"]
+            == sys.float_info.max
+        )
+        assert not PersistentRateLimiter(str(state_path)).check_rate_limit("decrypt")[0]
+
     def test_filters_invalid_attempt_timestamps_and_loads_valid_sibling(self, tmp_path):
         """Bad timestamps are dropped without hiding a valid sibling record."""
         state_path = tmp_path / "rate_limits.json"
@@ -133,7 +221,7 @@ class TestPersistentRateLimiter:
             ("consecutive_failures", True),
             ("consecutive_failures", float("nan")),
             ("consecutive_failures", float("inf")),
-            ("consecutive_failures", 10**400),
+            ("consecutive_failures", -1),
             ("consecutive_failures", "bad"),
         ],
     )

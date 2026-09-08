@@ -12,6 +12,7 @@ Uses exponential backoff to slow down repeated failures.
 import json
 import math
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -100,6 +101,17 @@ class RateLimiter:
         cutoff = now - self.window_seconds
         record.attempts = [t for t in record.attempts if t > cutoff]
 
+    def _lockout_duration(self, failures: int) -> float | None:
+        """Return a finite duration, or None when the backoff cannot be represented."""
+        try:
+            duration = self.lockout_seconds * (
+                self.backoff_multiplier
+                ** min(failures, _MAX_PERSISTED_CONSECUTIVE_FAILURES)
+            )
+        except (OverflowError, ValueError, ZeroDivisionError):
+            return None
+        return _nonnegative_finite_float(duration)
+
     def check_rate_limit(
         self, operation: str, identifier: str = ""
     ) -> tuple[bool, float]:
@@ -129,12 +141,18 @@ class RateLimiter:
 
             # Check attempt count
             if len(record.attempts) >= self.max_attempts:
-                # Calculate lockout with exponential backoff
-                lockout_duration = self.lockout_seconds * (
-                    self.backoff_multiplier**record.consecutive_failures
+                lockout_duration = self._lockout_duration(record.consecutive_failures)
+                if lockout_duration is None:
+                    # Keep an unrepresentable escalation finite and fail closed.
+                    # The prior counter remains valid when this record is reloaded.
+                    record.lockout_until = sys.float_info.max
+                    return False, record.lockout_until - now
+
+                record.lockout_until = min(now + lockout_duration, sys.float_info.max)
+                record.consecutive_failures = min(
+                    record.consecutive_failures + 1,
+                    _MAX_PERSISTED_CONSECUTIVE_FAILURES,
                 )
-                record.lockout_until = now + lockout_duration
-                record.consecutive_failures += 1
                 return False, lockout_duration
 
             return True, 0.0
@@ -260,25 +278,15 @@ class PersistentRateLimiter(RateLimiter):
                 or not isinstance(failures_value, int)
                 or isinstance(failures_value, bool)
                 or failures_value < 0
-                or failures_value > _MAX_PERSISTED_CONSECUTIVE_FAILURES
             ):
-                continue
-
-            # Validate the next backoff calculation, not the duration that
-            # produced the stored lockout_until; that timestamp is kept intact.
-            try:
-                lockout_duration = self.lockout_seconds * (
-                    self.backoff_multiplier**failures_value
-                )
-            except (OverflowError, ValueError, ZeroDivisionError):
-                continue
-            if _nonnegative_finite_float(lockout_duration) is None:
                 continue
 
             loaded_records[key] = AttemptRecord(
                 attempts=attempts,
                 lockout_until=lockout_until,
-                consecutive_failures=failures_value,
+                consecutive_failures=min(
+                    failures_value, _MAX_PERSISTED_CONSECUTIVE_FAILURES
+                ),
             )
 
         with self._lock:
