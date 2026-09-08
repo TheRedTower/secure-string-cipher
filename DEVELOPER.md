@@ -2,6 +2,10 @@
 
 ## Quick Start
 
+Install Python 3.12 or later and [uv](https://docs.astral.sh/uv/getting-started/installation/)
+0.9.17 or later. CI uses uv 0.9.17, and `pyproject.toml` enforces that minimum
+for local commands, including the hash-checked `make build` target.
+
 ```bash
 # Clone and install with locked dev dependencies
 git clone https://github.com/TheRedTower/secure-string-cipher.git

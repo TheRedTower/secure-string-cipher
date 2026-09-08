@@ -81,6 +81,9 @@ ssc = "secure_string_cipher.cli_args:main"
 [dependency-groups]
 build = ["hatchling==1.32.0"]
 
+[tool.uv]
+required-version = ">=0.9.17"
+
 [tool.hatch.build]
 exclude = ["/_local"]
 

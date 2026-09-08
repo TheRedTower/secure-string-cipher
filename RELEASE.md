@@ -29,7 +29,8 @@ itself. Historical one-off checklists are kept in the
 
 ## 2. Run the local acceptance gate
 
-Use the locked environment:
+Use Python 3.12 or later and uv 0.9.17 (the version pinned in CI). The project
+requires uv 0.9.17 or later for its locked environment and build commands:
 
 ```bash
 uv sync --extra dev --locked

@@ -22,7 +22,9 @@ GitHub Discussions is not currently used by this project.
 
 ## Development setup
 
-Python 3.12 or later and [uv](https://docs.astral.sh/uv/) are required.
+Python 3.12 or later and [uv](https://docs.astral.sh/uv/) 0.9.17 or later are
+required. CI uses uv 0.9.17; the project rejects older uv versions before
+dependency installation or builds.
 
 ```bash
 git clone https://github.com/TheRedTower/secure-string-cipher.git
