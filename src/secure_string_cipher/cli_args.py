@@ -991,7 +991,7 @@ def cmd_vault(args: argparse.Namespace) -> int:
 
 
 def cmd_shred(args: argparse.Namespace) -> int:
-    """Securely delete files."""
+    """Overwrite and delete files on a best-effort basis."""
     paths = [Path(p) for p in args.paths]
     force = args.force
 
@@ -1001,7 +1001,9 @@ def cmd_shred(args: argparse.Namespace) -> int:
 
         if not force:
             print(
-                f"Securely delete: {path}? Type 'yes' to confirm: ", end="", flush=True
+                f"Overwrite and delete (best effort): {path}? Type 'yes' to confirm: ",
+                end="",
+                flush=True,
             )
             response = input().strip()
             if response != "yes":
@@ -1312,8 +1314,12 @@ Examples:
     # --- shred ---
     shred_parser = subparsers.add_parser(
         "shred",
-        help="Securely delete files",
-        description="Securely overwrite and delete files using multiple passes.",
+        help="Best-effort overwrite and delete",
+        description=(
+            "Overwrite files once with zeros, sync, then delete them. Erasure is "
+            "best effort: SSDs, copy-on-write storage, snapshots, and backups "
+            "may retain copies."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

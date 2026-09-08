@@ -164,7 +164,7 @@ def _get_mode(in_stream: TextIO, out_stream: TextIO) -> int | None:
         separator,
         line("SECURITY TOOLS"),
         line(),
-        line("  [10] Secure Shred     →  Permanently delete a file"),
+        line("  [10] Secure Shred     →  Best-effort overwrite and delete"),
         line("  [11] Use Key File     →  Encrypt/decrypt with a key file"),
         line(),
         separator,
@@ -1043,7 +1043,7 @@ def _handle_manage_vault(in_stream: TextIO, out_stream: TextIO) -> None:
 def _handle_secure_shred(in_stream: TextIO, out_stream: TextIO) -> None:
     """Handle secure file shredding."""
     out_stream.write(colorize("\n🗑️  Secure Shred", "cyan") + "\n")
-    out_stream.write("\nEnter file path to securely delete: ")
+    out_stream.write("\nEnter file path to overwrite and delete: ")
     out_stream.flush()
 
     filepath = in_stream.readline().rstrip("\n")
@@ -1064,7 +1064,8 @@ def _handle_secure_shred(in_stream: TextIO, out_stream: TextIO) -> None:
         return
 
     out_stream.write(
-        f"\n⚠️  This will PERMANENTLY delete '{filepath}' with secure overwrite.\n"
+        f"\n⚠️  This will overwrite and delete '{filepath}'.\n"
+        "Erasure is best effort; SSDs, snapshots, and backups may retain copies.\n"
     )
     out_stream.write("Type 'yes' to confirm: ")
     out_stream.flush()
@@ -1078,7 +1079,7 @@ def _handle_secure_shred(in_stream: TextIO, out_stream: TextIO) -> None:
     try:
         secure_overwrite(filepath)
         out_stream.write(
-            colorize(f"\n✅ File '{filepath}' securely shredded!", "green") + "\n"
+            colorize(f"\nFile '{filepath}' shredded (best effort).", "green") + "\n"
         )
         out_stream.flush()
     except Exception:

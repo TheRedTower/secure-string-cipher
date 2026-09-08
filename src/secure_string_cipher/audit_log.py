@@ -1,7 +1,7 @@
 """
 Audit logging module for tracking cryptographic operations.
 
-Provides secure, tamper-evident logging of sensitive operations:
+Provides structured local logging of security-sensitive operations:
 - Encryption/decryption events
 - Vault access attempts
 - Key derivation operations

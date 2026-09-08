@@ -1106,10 +1106,11 @@ def generate_key_pair(
     private_key_path: str | Path, public_key_path: str | Path | None = None
 ) -> None:
     """
-    Generate an RSA key pair for recipient-based encryption.
+    Generate an RSA key pair as a standalone key-management utility.
 
-    This is a convenience function for creating key files that can be used
-    with the recipient/key-file encryption workflow.
+    The current encryption APIs do not implement recipient encryption and do
+    not consume this pair. A file supplied to the key-file workflow is hashed
+    as symmetric key material; paired RSA semantics are not applied.
 
     Args:
         private_key_path: Path where private key will be saved

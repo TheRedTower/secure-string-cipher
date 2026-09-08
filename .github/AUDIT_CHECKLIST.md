@@ -1,6 +1,9 @@
 # Security Audit Checklist
 
-This checklist is designed for third-party security auditors reviewing secure-string-cipher.
+This checklist is a review aid for third-party security auditors evaluating
+Secure String Cipher. It is not evidence that an audit has occurred, and an
+unchecked item must not be inferred to pass. Review the exact commit under
+assessment; source and tests are authoritative when this guide becomes stale.
 
 ## Quick Reference
 
@@ -16,6 +19,8 @@ This checklist is designed for third-party security auditors reviewing secure-st
 | Rate limiting | `src/secure_string_cipher/rate_limiter.py` | `RateLimiter` |
 | Audit logging | `src/secure_string_cipher/audit_log.py` | `AuditLogger` |
 | Configuration | `src/secure_string_cipher/config.py` | Constants |
+| Atomic publication | `src/secure_string_cipher/atomic_io.py` | `atomic_binary_writer()` |
+| Vault transactions | `src/secure_string_cipher/passphrase_manager.py` | `import_raw_vault()`, `restore_from_backup()` |
 
 ---
 
@@ -41,8 +46,8 @@ This checklist is designed for third-party security auditors reviewing secure-st
 
 - [ ] **AES-256-GCM is used correctly**
   - File: `core.py`
-  - Expected: `AESGCM(key)` where key is 32 bytes
-  - Verify nonce is 12 bytes, generated fresh per encryption
+  - Expected: `Cipher(algorithms.AES(key), modes.GCM(nonce))` with a 32-byte key
+  - Verify the nonce is 12 bytes and generated fresh for each encryption
 
 - [ ] **Nonce is never reused**
   - File: `core.py`
@@ -66,7 +71,7 @@ This checklist is designed for third-party security auditors reviewing secure-st
 
 - [ ] **Commitment verification is constant-time**
   - File: `core.py`, function `verify_key_commitment()`
-  - Expected: Uses `hmac.compare_digest()`
+  - Expected: Uses the cryptography HMAC verification operation
 
 ---
 
@@ -185,8 +190,10 @@ This checklist is designed for third-party security auditors reviewing secure-st
 ### 5.2 Exception Safety (MEDIUM)
 
 - [ ] **Atomic file writes prevent corruption**
-  - File: `security.py`, function `secure_atomic_write()`
-  - Expected: Write to temp file, then atomic rename
+  - Files: `atomic_io.py` and `security.py`
+  - Expected: Same-directory temporary write, flush/sync, then atomic replace
+  - Check: Existing destinations survive caller, authentication, sync, and
+    publication failures
 
 - [ ] **Resources are cleaned up on error**
   - All files
@@ -218,7 +225,8 @@ This checklist is designed for third-party security auditors reviewing secure-st
 
 - [ ] **No hardcoded keys or passwords**
   - All files
-  - Run: `detect-secrets scan`
+  - Run the tracked-file command in the
+    [developer guide](../DEVELOPER.md), using the committed baseline
 
 - [ ] **No backdoors or debug code**
   - All files
@@ -233,12 +241,13 @@ This checklist is designed for third-party security auditors reviewing secure-st
 - [ ] **Run vulnerability scan**
 
   ```bash
-  pip-audit
+  make dependency-audit
   ```
 
 - [ ] **Review dependency versions**
   - File: `pyproject.toml`
-  - Check: `cryptography>=41.0.0`, `argon2-cffi>=25.1.0`, `pynacl>=1.5.0`
+  - Check: Runtime requirements and `uv.lock` agree; all changes have a stated
+    security and compatibility rationale
 
 - [ ] **No unnecessary dependencies**
   - Review: Each dependency is required for functionality
@@ -262,11 +271,16 @@ This checklist is designed for third-party security auditors reviewing secure-st
 ### 8.2 Coverage Report
 
 ```bash
-make test-cov
+uv run --locked pytest tests/ \
+  --cov=secure_string_cipher \
+  --cov-report=term-missing \
+  --cov-fail-under=85 \
+  -n 0
 ```
 
-- [ ] **Coverage meets threshold (69%)**
+- [ ] **Branch coverage meets the enforced 85% threshold**
 - [ ] **Critical paths are covered**
+- [ ] **Focused platform-safety tests pass on Ubuntu, macOS, and Windows**
 
 ---
 
@@ -349,5 +363,5 @@ make test-cov
 
 ---
 
-**Document version:** 1.0
-**Last updated:** December 2, 2025
+**Document version:** 2.0
+**Last updated:** September 2, 2026

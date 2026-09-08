@@ -9,17 +9,285 @@ Tests verify:
 - Decorator functionality
 """
 
+import json
+import math
+import sys
 import threading
 import time
 
 import pytest
 
 from secure_string_cipher.rate_limiter import (
+    PersistentRateLimiter,
     RateLimiter,
     RateLimitError,
     get_global_limiter,
     rate_limited,
 )
+
+
+class TestPersistentRateLimiter:
+    """Persistence loading rejects malformed records without crashing."""
+
+    @staticmethod
+    def _write_valid_state(state_path, *, operation="decrypt:file.enc"):
+        """Write one recent failed attempt and return its timestamp."""
+        timestamp = time.time()
+        state_path.write_text(
+            json.dumps(
+                {
+                    operation: {
+                        "attempts": [timestamp],
+                        "lockout_until": 0.0,
+                        "consecutive_failures": 1,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        return timestamp
+
+    def test_loads_valid_records(self, tmp_path):
+        """Valid persisted failures should survive process construction."""
+        state_path = tmp_path / "rate_limits.json"
+        self._write_valid_state(state_path)
+
+        limiter = PersistentRateLimiter(str(state_path), max_attempts=3)
+
+        assert limiter.get_remaining_attempts("decrypt", "file.enc") == 2
+
+    def test_reload_preserves_lockout_and_next_backoff(self, tmp_path, monkeypatch):
+        """Reload keeps the existing deadline and uses the next failure exponent."""
+        state_path = tmp_path / "rate_limits.json"
+        now = 1_000.0
+        monkeypatch.setattr(time, "time", lambda: now)
+
+        def load_limiter():
+            return PersistentRateLimiter(
+                str(state_path),
+                max_attempts=1,
+                window_seconds=60,
+                lockout_seconds=10,
+                backoff_multiplier=2,
+            )
+
+        limiter = load_limiter()
+        limiter.record_attempt("decrypt", "file.enc")
+        assert limiter.check_rate_limit("decrypt", "file.enc") == (False, 10)
+        first_record = json.loads(state_path.read_text())["decrypt:file.enc"]
+        assert first_record["lockout_until"] == 1_010
+        assert first_record["consecutive_failures"] == 1
+
+        now = 1_005.0
+        reloaded = load_limiter()
+        assert reloaded.check_rate_limit("decrypt", "file.enc") == (False, 5)
+        assert json.loads(state_path.read_text())["decrypt:file.enc"] == first_record
+
+        now = 1_011.0
+        assert reloaded.check_rate_limit("decrypt", "file.enc") == (False, 20)
+        second_record = json.loads(state_path.read_text())["decrypt:file.enc"]
+        assert second_record["lockout_until"] == 1_031
+        assert second_record["consecutive_failures"] == 2
+
+    @pytest.mark.parametrize("deadline", [999.0, 1e200])
+    def test_extreme_backoff_keeps_lockout_across_reload(
+        self, tmp_path, monkeypatch, deadline
+    ):
+        """An unrepresentable next delay must not discard an existing lockout."""
+        state_path = tmp_path / "rate_limits.json"
+        monkeypatch.setattr(time, "time", lambda: 1_000.0)
+        state_path.write_text(
+            json.dumps(
+                {
+                    "decrypt:": {
+                        "attempts": [1_000.0],
+                        "lockout_until": deadline,
+                        "consecutive_failures": 2,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        for _ in range(2):
+            limiter = PersistentRateLimiter(
+                str(state_path),
+                max_attempts=1,
+                lockout_seconds=1.0,
+                backoff_multiplier=1e200,
+            )
+            allowed, wait = limiter.check_rate_limit("decrypt")
+            assert not allowed
+            assert math.isfinite(wait) and wait > 0
+            record = json.loads(state_path.read_text())["decrypt:"]
+            assert record["lockout_until"] == (
+                deadline if deadline > 1_000 else sys.float_info.max
+            )
+
+    @pytest.mark.parametrize("failures", [1_000, 1_001, 10**400])
+    def test_large_failure_count_is_bounded_without_losing_active_state(
+        self, tmp_path, monkeypatch, failures
+    ):
+        state_path = tmp_path / "rate_limits.json"
+        monkeypatch.setattr(time, "time", lambda: 1_000.0)
+        state_path.write_text(
+            json.dumps(
+                {
+                    "decrypt:": {
+                        "attempts": [1_000.0],
+                        "lockout_until": 1_010.0,
+                        "consecutive_failures": failures,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        limiter = PersistentRateLimiter(str(state_path), max_attempts=1)
+        assert limiter.check_rate_limit("decrypt") == (False, 10)
+        assert (
+            json.loads(state_path.read_text())["decrypt:"]["consecutive_failures"]
+            == 1_000
+        )
+
+        monkeypatch.setattr(time, "time", lambda: 1_011.0)
+        allowed, wait = limiter.check_rate_limit("decrypt")
+        assert not allowed and math.isfinite(wait)
+        record = json.loads(state_path.read_text())["decrypt:"]
+        assert record["consecutive_failures"] == 1_000
+        assert math.isfinite(record["lockout_until"])
+        assert not PersistentRateLimiter(str(state_path)).check_rate_limit("decrypt")[0]
+
+    def test_deadline_addition_overflow_stays_finite(self, tmp_path, monkeypatch):
+        state_path = tmp_path / "rate_limits.json"
+        monkeypatch.setattr(time, "time", lambda: sys.float_info.max * 0.75)
+        limiter = PersistentRateLimiter(
+            str(state_path),
+            max_attempts=1,
+            window_seconds=sys.float_info.max,
+            lockout_seconds=sys.float_info.max,
+        )
+        limiter.record_attempt("decrypt")
+        allowed, wait = limiter.check_rate_limit("decrypt")
+        assert not allowed and math.isfinite(wait)
+        assert (
+            json.loads(state_path.read_text())["decrypt:"]["lockout_until"]
+            == sys.float_info.max
+        )
+        assert not PersistentRateLimiter(str(state_path)).check_rate_limit("decrypt")[0]
+
+    def test_filters_invalid_attempt_timestamps_and_loads_valid_sibling(self, tmp_path):
+        """Bad timestamps are dropped without hiding a valid sibling record."""
+        state_path = tmp_path / "rate_limits.json"
+        timestamp = time.time()
+        state_path.write_text(
+            json.dumps(
+                {
+                    "mixed-attempts:": {
+                        "attempts": [
+                            timestamp,
+                            True,
+                            float("nan"),
+                            float("inf"),
+                            float("-inf"),
+                            10**400,
+                            -1,
+                        ],
+                        "lockout_until": 0.0,
+                        "consecutive_failures": 1,
+                    },
+                    "valid:": {
+                        "attempts": [timestamp],
+                        "lockout_until": 0.0,
+                        "consecutive_failures": 1,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        limiter = PersistentRateLimiter(str(state_path), max_attempts=3)
+
+        assert limiter.get_remaining_attempts("mixed-attempts") == 2
+        assert limiter.get_remaining_attempts("valid") == 2
+
+    @pytest.mark.parametrize(
+        ("field", "invalid_value"),
+        [
+            ("lockout_until", True),
+            ("lockout_until", float("nan")),
+            ("lockout_until", float("inf")),
+            ("lockout_until", 10**400),
+            ("lockout_until", []),
+            ("consecutive_failures", True),
+            ("consecutive_failures", float("nan")),
+            ("consecutive_failures", float("inf")),
+            ("consecutive_failures", -1),
+            ("consecutive_failures", "bad"),
+        ],
+    )
+    def test_ignores_invalid_record_but_loads_valid_sibling(
+        self, tmp_path, field, invalid_value
+    ):
+        """One corrupt record must not block valid persisted state."""
+        state_path = tmp_path / "rate_limits.json"
+        timestamp = time.time()
+        invalid_record = {
+            "attempts": [timestamp],
+            "lockout_until": 0.0,
+            "consecutive_failures": 1,
+        }
+        invalid_record[field] = invalid_value
+        state_path.write_text(
+            json.dumps(
+                {
+                    "invalid:": invalid_record,
+                    "valid:": {
+                        "attempts": [timestamp],
+                        "lockout_until": 0.0,
+                        "consecutive_failures": 1,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        limiter = PersistentRateLimiter(str(state_path), max_attempts=3)
+
+        assert limiter.get_remaining_attempts("invalid") == 3
+        assert limiter.get_remaining_attempts("valid") == 2
+
+    @pytest.mark.parametrize("replacement", [None, "{", "[]"])
+    def test_missing_or_malformed_state_preserves_loaded_records(
+        self, tmp_path, replacement
+    ):
+        """A failed reload must not erase the last valid in-memory state."""
+        state_path = tmp_path / "rate_limits.json"
+        self._write_valid_state(state_path, operation="keep:")
+        limiter = PersistentRateLimiter(str(state_path), max_attempts=3)
+
+        if replacement is None:
+            state_path.unlink()
+        else:
+            state_path.write_text(replacement, encoding="utf-8")
+        limiter._load_state()
+
+        assert limiter.get_remaining_attempts("keep") == 2
+
+    def test_oversized_json_integer_preserves_loaded_records(self, tmp_path):
+        """JSON integer parse limits are treated as malformed persisted state."""
+        state_path = tmp_path / "rate_limits.json"
+        self._write_valid_state(state_path, operation="keep:")
+        limiter = PersistentRateLimiter(str(state_path), max_attempts=3)
+        state_path.write_text(
+            '{"bad:": {"attempts": [], "lockout_until": '
+            + ("9" * 5_000)
+            + ', "consecutive_failures": 0}}',
+            encoding="utf-8",
+        )
+
+        limiter._load_state()
+
+        assert limiter.get_remaining_attempts("keep") == 2
 
 
 class TestRateLimiterBasic:

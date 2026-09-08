@@ -1,4 +1,6 @@
-.PHONY: help format lint security-guard test test-fast test-watch test-unit test-integration test-security test-quick test-failed test-cov clean install ci docker-build docker-build-fast docker-build-ultra docker-run docker-test docker-clean docker-size
+.PHONY: help format lint lint-tests security-guard secret-scan dependency-audit build test test-fast test-watch test-unit test-integration test-security test-quick test-slow test-failed test-cov clean install ci docker-build docker-build-fast docker-build-ultra docker-run docker-test docker-clean docker-size
+
+DIST_DIR ?= dist
 
 help:  ## Show this help message
 	@echo 'Usage: make [target]'
@@ -18,20 +20,46 @@ format:  ## Auto-format code with Ruff
 lint:  ## Run all linting checks (Ruff format check, Ruff lint, mypy)
 	@echo "🔍 Checking code format..."
 	uv run --locked ruff format --check src tests tools
-	@echo "� Checking code quality..."
+	@echo "🔎 Checking code quality..."
 	uv run --locked ruff check src tests tools
 	@echo "🔬 Running mypy type checks on production code..."
 	uv run --locked mypy src
-	@make security-guard
+	@$(MAKE) security-guard
 	@echo "✅ All linting checks passed!"
 
 security-guard:  ## Check that CLI/audit paths do not output credential material
 	@echo "🔒 Checking for sensitive CLI/audit output..."
 	uv run --locked python tools/check_sensitive_output.py
 
+secret-scan:  ## Scan tracked files for secrets against the committed baseline
+	@echo "🔏 Scanning tracked files for secrets..."
+	@set -e; baseline_copy="$$(mktemp)"; \
+	trap 'rm -f "$$baseline_copy"' 0; \
+	cp .secrets.baseline "$$baseline_copy"; \
+	git ls-files -z -- ':!:package.lock.json' ':!:.secrets.baseline' | \
+		xargs -0 uv run --locked detect-secrets-hook --baseline "$$baseline_copy"; \
+	cmp -s .secrets.baseline "$$baseline_copy"
+
+dependency-audit:  ## Audit the locked production dependency set
+	@echo "🛡️  Auditing production dependencies..."
+	@set -eu; audit_requirements="$$(mktemp)"; \
+	trap 'rm -f "$$audit_requirements"' EXIT HUP INT TERM; \
+	uv export --quiet --locked --no-dev --no-emit-project \
+		--output-file "$$audit_requirements"; \
+	uv run --locked pip-audit --requirement "$$audit_requirements" \
+		--require-hashes --disable-pip --desc
+
 lint-tests:  ## Run the gradual non-blocking mypy check for tests
 	@echo "🔬 Running mypy type checks on tests..."
 	uv run --locked mypy tests
+
+build:  ## Build packages with hash-checked, locked build dependencies
+	@set -eu; build_constraints="$$(mktemp)"; \
+	trap 'rm -f "$$build_constraints"' EXIT HUP INT TERM; \
+	uv export --quiet --locked --only-group build --no-emit-project \
+		--output-file "$$build_constraints"; \
+	uv build --build-constraints "$$build_constraints" --require-hashes \
+		--out-dir "$(DIST_DIR)" --no-create-gitignore
 
 test:  ## Run tests with pytest
 	@echo "🧪 Running tests..."
@@ -71,7 +99,7 @@ test-failed:  ## Re-run only failed tests
 
 test-cov:  ## Run tests with coverage report
 	@echo "🧪 Running tests with coverage..."
-	uv run --locked pytest tests/ --cov=secure_string_cipher --cov-report=term-missing --cov-report=html
+	uv run --locked pytest tests/ --cov=secure_string_cipher --cov-report=term-missing --cov-report=html --cov-fail-under=85 -n 0
 
 clean:  ## Clean up temporary files and caches
 	@echo "🧹 Cleaning up..."
@@ -81,14 +109,15 @@ clean:  ## Clean up temporary files and caches
 	rm -rf htmlcov .coverage coverage.xml coverage.json
 	rm -rf dist build *.egg-info
 	rm -rf .benchmarks
-	rm -f *.enc *.dec .write_test
+	rm -f .write_test
 	@echo "✨ Clean!"
 
-ci:  ## Run all CI checks locally (lint, format, test)
+ci:  ## Run all CI checks locally without modifying source files
 	@echo "🚀 Running full CI pipeline locally..."
-	@make lint
-	@make format
-	@make test
+	@$(MAKE) lint
+	@$(MAKE) secret-scan
+	@$(MAKE) dependency-audit
+	@$(MAKE) test-cov
 	@echo "✅ All CI checks passed! Ready to push."
 
 docker-build:  ## Build Docker image with cache
@@ -110,6 +139,7 @@ docker-build-ultra:  ## Build Docker image (maximum speed)
 docker-run:  ## Run Docker container interactively
 	@echo "🏃 Running Docker container..."
 	docker run -it --rm \
+		--network none \
 		-v $(PWD)/data:/data \
 		-v $(HOME)/.secure-cipher-docker:/home/cipheruser/.secure-cipher \
 		secure-string-cipher:latest
@@ -117,7 +147,7 @@ docker-run:  ## Run Docker container interactively
 docker-test:  ## Build and test Docker image
 	@echo "🧪 Building and testing Docker image..."
 	@make docker-build
-	docker run --rm secure-string-cipher:latest --help
+	docker run --rm --network none secure-string-cipher:latest --help
 	@echo "✅ Docker test passed!"
 
 docker-size:  ## Show Docker image size details

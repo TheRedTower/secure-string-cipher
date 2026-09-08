@@ -29,40 +29,43 @@ audited.
 CI enforces a minimum 85% test coverage threshold on Python 3.14. The workflow
 also defines focused file and portable vault validation/transaction gates on
 Ubuntu, macOS, and Windows with Python 3.12; real OS keychain services are not
-tested there. See the stabilization handoff for the latest recorded results.
+tested there. The workflows are the current source of truth; dated acceptance
+records are clearly separated in the documentation archive.
 
 ## Features
 
 - **AES-256-GCM encryption** for text and files with authenticated encryption
 - **Argon2id key derivation** – memory-hard, GPU/ASIC resistant
-- **Key commitment scheme** – prevents partitioning oracle attacks
+- **Key commitment scheme** – binds each ciphertext to its derived key
 - **Legacy key-file mode** – hashes any file's bytes into a symmetric passphrase
   (SHA-256 → Argon2id); this is not public-key or recipient encryption
 - **OS Keychain integration** – store vault in macOS Keychain, Windows Credential Vault, or Linux Secret Service
 - **Hidden password input** – passwords hidden in interactive terminals, visible for scripts/tests
-- **Inline passphrase generation** – type `/gen` at any password prompt
+- **Inline passphrase generation** – type `/gen` at an interactive
+  encryption/decryption passphrase prompt
 - **Encrypted passphrase vault** with HMAC-SHA256 integrity verification
 - **Best-effort memory clearing** via mutable buffers and libsodium when available
-- **Timing-safe operations** – constant-time comparisons prevent side-channel attacks
+- **Timing-aware comparisons** – designated secret equality checks use
+  constant-time primitives
 - **Local CLI rate limiting** – exponential backoff on failed decrypt/vault attempts;
   it cannot prevent offline password guessing
 - **Best-effort shred** – overwrite then unlink; unreliable on SSDs, COW,
   snapshots, and journaled filesystems
 - Chunked file streaming (256 KiB) for low memory usage
-- Automatic vault backups (last 5 kept)
+- Automatic file-backend vault backups (last 5 kept)
 
 ## Documentation
 
 - [API Reference](docs/API.md) — Complete programmatic API documentation
+- [Documentation Index](docs/README.md) — Current guides and historical archive
 - [Keychain Backend](docs/KEYCHAIN.md) — OS keychain integration guide
 - [Developer Guide](DEVELOPER.md) — Development workflow and tooling
 - [Contributing](CONTRIBUTING.md) — Contribution guidelines
+- [Release Guide](RELEASE.md) — Reusable validation and publication checklist
 - [Security Policy](.github/SECURITY.md) — Supported versions and vulnerability reporting
 - [Cryptographic Design](.github/CRYPTOGRAPHY.md) — Design document for security auditors
-- [Dependency Audit](AUDITS/DEPENDENCY_AUDIT.md) — Supply-chain security audit report
 - [Changelog](CHANGELOG.md) — Release history
-- [Stabilization tranche 2](docs/SSC_STABILIZATION_TRANCHE_2.md) — Local audit
-  evidence, compatibility fixtures, transaction guarantees, and remaining gates
+- [Historical Evidence](docs/archive/README.md) — Dated plans, audits, and acceptance records
 
 ## Quick Start
 
@@ -96,6 +99,9 @@ uv run --locked ssc --help
 ```
 
 > Requires Python 3.12+
+
+PyPI provides the latest published release. The protected `main` branch may
+contain accepted changes that have not yet been included in a release.
 
 ## Usage
 
@@ -197,7 +203,7 @@ You'll see this menu:
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
 ┃  SECURITY TOOLS                                                  ┃
 ┃                                                                  ┃
-┃   [10] Secure Shred       ->  Permanently delete a file          ┃
+┃   [10] Secure Shred       ->  Best-effort overwrite and delete   ┃
 ┃   [11] Use Key File       ->  Encrypt/decrypt w/ key file        ┃
 ┃                                                                  ┃
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
@@ -216,20 +222,20 @@ Enter passphrase: /gen
 
 🔑 Auto-Generating Secure Passphrase...
 
-✅ Generated Passphrase:
-8w@!-@_#M)wF,Qn(ms.Uv+3z
+✅ Generated secure passphrase (hidden)
 
-Entropy: 155.0 bits
-
-💾 Store this passphrase in vault? (y/n) [n]: y
-Enter a label for this passphrase: backup-2025
+💾 Save generated passphrase to vault
+Enter a label for this passphrase (e.g., 'project-x'): backup-2025
 Enter master password to encrypt vault: ••••••••••••
-✅ Passphrase 'backup-2025' stored in vault!
+✅ Passphrase stored in vault!
+Vault location: ~/.secure-cipher/passphrase_vault.enc
 
-✅ Using this passphrase for current operation...
+✅ Using stored passphrase for current operation...
 ```
 
-Generated passphrases have 155+ bits of entropy and can be stored directly in the encrypted vault.
+The generated secret is never printed. Inline generation uses the 24-character
+alphanumeric-with-symbols strategy and requires successful vault storage before
+the current operation continues.
 
 ### Passphrase Vault
 
@@ -277,7 +283,8 @@ Use the pre-built image (Python 3.14-alpine based):
 ```bash
 # Pull and run
 docker pull ghcr.io/theredtower/secure-string-cipher:latest
-docker run --rm -it ghcr.io/theredtower/secure-string-cipher:latest
+docker run --rm -it --network none \
+  ghcr.io/theredtower/secure-string-cipher:latest
 
 # Or with Docker Compose
 git clone https://github.com/TheRedTower/secure-string-cipher.git
@@ -290,6 +297,7 @@ To encrypt files in your current directory:
 
 ```bash
 docker run --rm -it \
+  --network none \
   -v "$PWD:/data" \
   ghcr.io/theredtower/secure-string-cipher:latest
 ```
@@ -298,13 +306,18 @@ With persistent vault and backups:
 
 ```bash
 docker run --rm -it \
+  --network none \
   -v "$PWD/data:/data" \
   -v "$PWD/vault:/vault" \
   -v "$PWD/backups:/backups" \
   ghcr.io/theredtower/secure-string-cipher:latest
 ```
 
-**Image details:** ~65MB Alpine-based, runs as non-root (UID 1000), network-isolated.
+**Container details:** The Alpine-based image runs as non-root UID 1000. The
+commands above disable networking with `--network none`, and the supplied
+Compose service applies the equivalent `network_mode: none`. Network isolation
+is a runtime policy; the image does not impose it when started without one of
+those settings.
 
 ## Programmatic API
 
@@ -344,16 +357,21 @@ output_path, metadata = decrypt_file(
 )
 ```
 
-> File operations refuse symlinked inputs/outputs (except system-managed paths like /var) to prevent path hijacking.
+> File operations apply a best-effort symlink preflight (with a narrow
+> system-path allowance such as `/var`). This does not close hostile path races.
 
 ### Passphrase Generation
 
 ```python
 from secure_string_cipher import generate_passphrase
 
-# Generate a 24-character passphrase (155+ bits entropy)
-passphrase = generate_passphrase(length=24)
-print(passphrase)
+# Default: six-word passphrase. Keep the returned secret out of logs.
+passphrase, entropy_bits = generate_passphrase()
+
+# Alternative: 24 characters drawn from letters, digits, and symbols.
+token, token_entropy_bits = generate_passphrase(
+    "alphanumeric", length=24, include_symbols=True
+)
 ```
 
 ### Vault Operations
@@ -394,7 +412,7 @@ is_strong, issues = check_password_strength("weak")
 if not is_strong:
     print(f"Password issues: {issues}")
 
-# Constant-time comparison (prevents timing attacks)
+# Constant-time primitive for a timing-sensitive equality check
 if constant_time_compare(user_input, stored_hash):
     print("Match!")
 
@@ -408,22 +426,25 @@ if has_secure_memory():
 | Component | Implementation | Details |
 | --------- | -------------- | ------- |
 | **Encryption** | AES-256-GCM | Authenticated encryption, 128-bit tags |
-| **Key Derivation** | Argon2id | 64MB memory, 3 iterations, parallelism 4 |
+| **Key Derivation** | Argon2id | 64 MiB memory, 3 iterations, parallelism 4 |
 | **Key Commitment** | HMAC-SHA256 | Prevents partitioning oracle attacks |
 | **Vault Integrity** | HMAC-SHA256 | Detects tampering before decryption |
 | **Memory Clearing** | Best effort | Mutable buffers/libsodium where available; Python may retain copies |
-| **Timing Safety** | Constant-time | All password/hash comparisons |
+| **Timing Safety** | Constant-time primitives | Commitment, HMAC, and designated digest equality checks |
 | **Rate Limiting** | Local exponential backoff | CLI throttle only; offline guessing remains possible |
 | **Vault Import/Restore** | Full HMAC, decrypt, JSON-schema, read-back verification | Filesystem atomic publication; credential-store rollback is best effort |
 
 **Additional protections:** best-effort symlink preflight checks, opened-input
 regular-file and size validation, cumulative streaming limits, atomic final
-publication, user-only file permissions (`0o600`), and a 12-character password
-policy. Atomic publication protects against ordinary operation failures;
+publication, user-only file permissions (`0o600`), and strength validation for
+passwords created by the interactive encryption menu or manually entered by
+`ssc store`. Atomic publication protects against ordinary operation failures;
 hostile concurrent path replacement still requires descriptor-relative opening
 and is not claimed to be prevented. The temporary file is synced before
 replacement; parent-directory sync after replacement is best effort on
-supported platforms.
+supported platforms. Other CLI password prompts, including decryption and
+vault-master prompts, accept existing credentials for compatibility; low-level
+programmatic encryption functions accept caller-provided passphrases directly.
 
 **Password input:** When running interactively, passwords are hidden (using `getpass`). When stdin is piped or redirected (scripts, automation, tests), passwords are visible. This allows both secure interactive use and scriptable automation.
 
@@ -448,11 +469,8 @@ git clone https://github.com/TheRedTower/secure-string-cipher.git
 cd secure-string-cipher
 uv sync --extra dev --locked
 
-# Run checks with the locked environment
-uv run --locked ruff check src tests
-uv run --locked ruff format --check src tests
-uv run --locked mypy src
-uv run --locked pytest tests/ --cov=secure_string_cipher --cov-report=xml --cov-fail-under=85
+# Run the non-mutating local acceptance gate
+make ci
 ```
 
 See [DEVELOPER.md](DEVELOPER.md) for detailed development workflow and [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.

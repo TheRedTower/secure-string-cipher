@@ -36,6 +36,25 @@ if TYPE_CHECKING:
     from nacl._sodium import lib as _lib
 
 
+_FALLBACK_WIPE_CHUNK_SIZE = 64 * 1024
+
+
+def _writable_byte_view(
+    data: bytearray | memoryview | array.array,
+) -> memoryview:
+    """Return a one-dimensional byte view over a supported mutable buffer."""
+    view = memoryview(data)
+    try:
+        if view.readonly:
+            raise TypeError("Data must be a writable buffer")
+        if not view.c_contiguous:
+            raise TypeError("Data must be C-contiguous")
+
+        return view.cast("B")
+    finally:
+        view.release()
+
+
 def _sodium_memzero(data: bytearray | memoryview | array.array) -> bool:
     """
     Use libsodium's sodium_memzero to securely wipe memory.
@@ -45,20 +64,22 @@ def _sodium_memzero(data: bytearray | memoryview | array.array) -> bool:
     if not HAS_SODIUM or _ffi is None or _lib is None:
         return False
 
+    byte_view: memoryview | None = None
     try:
-        # Convert to bytes-like for FFI
-        if isinstance(data, memoryview):
-            # Get the underlying buffer
-            buf = _ffi.from_buffer(data)
-        elif isinstance(data, (bytearray, array.array)):
-            buf = _ffi.from_buffer(data)
-        else:
-            return False
+        byte_view = _writable_byte_view(data)
+        buf = _ffi.from_buffer(byte_view)
+        try:
+            _lib.sodium_memzero(buf, byte_view.nbytes)
+        finally:
+            # cffi keeps the buffer exported for the lifetime of this object.
+            del buf
 
-        _lib.sodium_memzero(buf, len(data))
         return True
-    except (TypeError, ValueError, AttributeError):
+    except (TypeError, ValueError, AttributeError, BufferError):
         return False
+    finally:
+        if byte_view is not None:
+            byte_view.release()
 
 
 def secure_wipe(data: bytes | bytearray | memoryview | array.array) -> None:
@@ -72,19 +93,27 @@ def secure_wipe(data: bytes | bytearray | memoryview | array.array) -> None:
         data: Mutable buffer (bytearray, memoryview, or array.array).
 
     Raises:
-        TypeError: If data is not a mutable buffer type.
+        TypeError: If data is not a writable, C-contiguous mutable buffer.
 
     Note: GC may have copied data elsewhere. Original immutable sources can't be wiped.
     """
     if not isinstance(data, (bytearray, memoryview, array.array)):
         raise TypeError("Data must be a mutable buffer type")
 
-    # Try libsodium first, fall back to Python implementation
-    if not _sodium_memzero(data):
-        _fallback_wipe(data)
+    byte_view: memoryview | None = None
+    try:
+        # Validate before either backend runs so rejected views cannot be
+        # partially overwritten by one backend and then fail in the other.
+        byte_view = _writable_byte_view(data)
 
-    if isinstance(data, memoryview):
-        data.release()
+        # Try libsodium first, fall back to Python implementation.
+        if not _sodium_memzero(byte_view):
+            _fallback_wipe(byte_view)
+    finally:
+        if byte_view is not None:
+            byte_view.release()
+        if isinstance(data, memoryview):
+            data.release()
 
 
 def _fallback_wipe(data: bytearray | memoryview | array.array) -> None:
@@ -94,16 +123,22 @@ def _fallback_wipe(data: bytearray | memoryview | array.array) -> None:
     Performs 3 passes of random data followed by zero fill.
     This may be optimized away by the compiler/interpreter.
     """
-    length = len(data)
+    byte_view = _writable_byte_view(data)
+    try:
+        # Bound temporary allocations while still operating on every byte of
+        # multi-byte array and memoryview elements.
+        for _ in range(3):
+            for start in range(0, byte_view.nbytes, _FALLBACK_WIPE_CHUNK_SIZE):
+                chunk_length = min(_FALLBACK_WIPE_CHUNK_SIZE, byte_view.nbytes - start)
+                byte_view[start : start + chunk_length] = secrets.token_bytes(
+                    chunk_length
+                )
 
-    # Overwrite with random data 3 times
-    for _ in range(3):
-        for i in range(length):
-            data[i] = secrets.randbelow(256)
-
-    # Final zero fill
-    for i in range(length):
-        data[i] = 0
+        for start in range(0, byte_view.nbytes, _FALLBACK_WIPE_CHUNK_SIZE):
+            chunk_length = min(_FALLBACK_WIPE_CHUNK_SIZE, byte_view.nbytes - start)
+            byte_view[start : start + chunk_length] = bytes(chunk_length)
+    finally:
+        byte_view.release()
 
 
 class SecureBytes:

@@ -59,8 +59,8 @@ def sanitize_filename(filename: str, max_length: int = 255) -> str:
         >>> sanitize_filename(".hidden")
         'hidden'
     """
-    # Normalize Unicode (NFKD decomposition)
-    # This prevents homoglyph attacks and normalizes lookalike characters
+    # Normalize Unicode (NFKD decomposition). This provides a consistent input
+    # representation but does not detect or prevent all homoglyphs.
     filename = unicodedata.normalize("NFKD", filename)
 
     # Control characters are in category 'C'
