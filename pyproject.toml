@@ -21,7 +21,7 @@ keywords = [
     "password-vault",
 ]
 dependencies = [
-    "cryptography==50.0.0",
+    "cryptography==50.0.1",
     "argon2-cffi==25.1.0",
     "pynacl==1.6.2",
     "pyperclip==1.11.0",
