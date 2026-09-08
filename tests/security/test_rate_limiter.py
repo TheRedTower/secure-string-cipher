@@ -54,6 +54,39 @@ class TestPersistentRateLimiter:
 
         assert limiter.get_remaining_attempts("decrypt", "file.enc") == 2
 
+    def test_reload_preserves_lockout_and_next_backoff(self, tmp_path, monkeypatch):
+        """Reload keeps the existing deadline and uses the next failure exponent."""
+        state_path = tmp_path / "rate_limits.json"
+        now = 1_000.0
+        monkeypatch.setattr(time, "time", lambda: now)
+
+        def load_limiter():
+            return PersistentRateLimiter(
+                str(state_path),
+                max_attempts=1,
+                window_seconds=60,
+                lockout_seconds=10,
+                backoff_multiplier=2,
+            )
+
+        limiter = load_limiter()
+        limiter.record_attempt("decrypt", "file.enc")
+        assert limiter.check_rate_limit("decrypt", "file.enc") == (False, 10)
+        first_record = json.loads(state_path.read_text())["decrypt:file.enc"]
+        assert first_record["lockout_until"] == 1_010
+        assert first_record["consecutive_failures"] == 1
+
+        now = 1_005.0
+        reloaded = load_limiter()
+        assert reloaded.check_rate_limit("decrypt", "file.enc") == (False, 5)
+        assert json.loads(state_path.read_text())["decrypt:file.enc"] == first_record
+
+        now = 1_011.0
+        assert reloaded.check_rate_limit("decrypt", "file.enc") == (False, 20)
+        second_record = json.loads(state_path.read_text())["decrypt:file.enc"]
+        assert second_record["lockout_until"] == 1_031
+        assert second_record["consecutive_failures"] == 2
+
     def test_filters_invalid_attempt_timestamps_and_loads_valid_sibling(self, tmp_path):
         """Bad timestamps are dropped without hiding a valid sibling record."""
         state_path = tmp_path / "rate_limits.json"

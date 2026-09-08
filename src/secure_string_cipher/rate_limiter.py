@@ -264,6 +264,8 @@ class PersistentRateLimiter(RateLimiter):
             ):
                 continue
 
+            # Validate the next backoff calculation, not the duration that
+            # produced the stored lockout_until; that timestamp is kept intact.
             try:
                 lockout_duration = self.lockout_seconds * (
                     self.backoff_multiplier**failures_value
