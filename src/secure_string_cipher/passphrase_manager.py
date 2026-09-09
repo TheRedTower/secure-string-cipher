@@ -32,7 +32,7 @@ import stat
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 from .atomic_io import atomic_binary_writer
 from .config import (
@@ -202,17 +202,13 @@ def _compute_vault_hmac(data: str, master_password: str, salt: bytes) -> str:
     return hmac.new(key, data.encode(), hashlib.sha256).hexdigest()
 
 
-def validate_raw_vault(
+def validate_raw_vault_document(
     vault_contents: str | bytes, master_password: str
-) -> dict[str, str]:
-    """Validate and decode supplied current-format vault contents.
+) -> tuple[int, dict[str, str] | Any]:
+    """Validate and decode supplied vault contents into Schema 1 or Schema 2 document.
 
     This function is side-effect free: it does not access a storage backend or
-    mutate active vault state. The legacy current format has no version or
-    entry-count field, so this reader adds no semantic entry limit. The shared
-    raw-byte ingestion cap is enforced before parsing.
-
-    All validation failures intentionally expose one generic message.
+    mutate active vault state.
     """
     try:
         vault_contents = _bounded_candidate_text(vault_contents)
@@ -251,19 +247,33 @@ def validate_raw_vault(
             raise ValueError
 
         decrypted_json = decrypt_text(encrypted_vault, master_password)
-        entries = json.loads(
-            decrypted_json,
-            object_pairs_hook=_vault_entries_object,
-        )
-        if not isinstance(entries, dict) or any(
-            type(label) is not str or type(passphrase) is not str
-            for label, passphrase in entries.items()
-        ):
-            raise ValueError
+        from .v2.vault_schema import dispatch_vault_document
 
-        return dict(entries)
+        return dispatch_vault_document(decrypted_json)
     except Exception:
         raise ValueError(_VAULT_FAILURE_MESSAGE) from None
+
+
+def validate_raw_vault(
+    vault_contents: str | bytes, master_password: str
+) -> dict[str, str]:
+    """Validate and decode supplied current-format vault contents.
+
+    This function is side-effect free: it does not access a storage backend or
+    mutate active vault state. The legacy current format has no version or
+    entry-count field, so this reader adds no semantic entry limit. The shared
+    raw-byte ingestion cap is enforced before parsing.
+
+    All validation failures intentionally expose one generic message.
+    """
+    doc_type, doc = validate_raw_vault_document(vault_contents, master_password)
+    if doc_type == 2:
+        from .v2.vault_schema import V2VaultDocument
+
+        assert isinstance(doc, V2VaultDocument)
+        return dict(doc.passphrases)
+    assert isinstance(doc, dict)
+    return dict(doc)
 
 
 class PassphraseVault:
@@ -417,6 +427,66 @@ class PassphraseVault:
             return None
         return self._publish_backup(vault_contents)
 
+    @property
+    def lock_target(self) -> Path | str:
+        """Return stable lock target for cooperative locking."""
+        if getattr(self, "_backend", None) == BACKEND_KEYCHAIN:
+            return "keychain:secure-string-cipher:__ssc_vault_data__"
+        if hasattr(self, "vault_path") and self.vault_path is not None:
+            return self.vault_path
+        return f"transient_vault:{id(self)}"
+
+    def _load_document(self, master_password: str) -> tuple[int, dict[str, str] | Any]:
+        """Load and authenticate complete vault document."""
+        try:
+            vault_contents = self.read_raw_vault()
+        except Exception:
+            raise ValueError(_VAULT_FAILURE_MESSAGE) from None
+
+        if vault_contents is None or not vault_contents:
+            return 1, {}
+
+        return validate_raw_vault_document(vault_contents, master_password)
+
+    def _save_document(
+        self,
+        doc_type: int,
+        doc: dict[str, str] | Any,
+        master_password: str,
+    ) -> None:
+        """Serialize, encrypt, and save complete vault document."""
+        if doc_type == 2:
+            from .v2.envelope import canonical_json
+            from .v2.vault_schema import V2VaultDocument
+
+            assert isinstance(doc, V2VaultDocument)
+            json_data = canonical_json(doc.to_dict()).decode("utf-8")
+        else:
+            assert isinstance(doc, dict)
+            json_data = json.dumps(doc, indent=2)
+
+        encrypted_vault = encrypt_text(json_data, master_password)
+
+        hmac_salt = secrets.token_bytes(_HMAC_SALT_SIZE)
+        vault_hmac = self._compute_hmac(encrypted_vault, master_password, hmac_salt)
+
+        vault_contents = (
+            f"{_VAULT_HEADER}\n"
+            f"{hmac_salt.hex()}\n"
+            f"---DATA---\n"
+            f"{encrypted_vault}\n"
+            f"---HMAC---\n"
+            f"{vault_hmac}"
+        )
+        raw_vault = _bounded_vault_bytes(vault_contents)
+        self._create_backup()
+
+        if self._backend == BACKEND_KEYCHAIN:
+            assert self._keychain is not None
+            self._keychain.store_vault(vault_contents)
+        else:
+            secure_atomic_write(self.vault_path, raw_vault, mode=0o600)
+
     def _load_vault(self, master_password: str) -> dict[str, str]:
         """Load and decrypt the vault with integrity verification.
 
@@ -440,37 +510,37 @@ class PassphraseVault:
         return validate_raw_vault(vault_contents, master_password)
 
     def _save_vault(self, vault_data: dict[str, str], master_password: str) -> None:
-        """Encrypt and save the vault with Argon2id HMAC.
+        """Encrypt and save the vault with Argon2id HMAC, preserving V2 structure if active.
 
         Args:
             vault_data: Dictionary mapping labels to passphrases
             master_password: Master password to encrypt the vault
         """
-        json_data = json.dumps(vault_data, indent=2)
-        encrypted_vault = encrypt_text(json_data, master_password)
+        try:
+            doc_type, doc = self._load_document(master_password)
+        except ValueError:
+            doc_type = 1
+            doc = {}
 
-        # Generate random salt for HMAC key derivation
-        hmac_salt = secrets.token_bytes(_HMAC_SALT_SIZE)
-        vault_hmac = self._compute_hmac(encrypted_vault, master_password, hmac_salt)
+        if doc_type == 2:
+            from .v2.vault_schema import V2VaultDocument, V2VaultMeta
 
-        # Build vault format
-        vault_contents = (
-            f"{_VAULT_HEADER}\n"
-            f"{hmac_salt.hex()}\n"
-            f"---DATA---\n"
-            f"{encrypted_vault}\n"
-            f"---HMAC---\n"
-            f"{vault_hmac}"
-        )
-        raw_vault = _bounded_vault_bytes(vault_contents)
-        self._create_backup()
-
-        if self._backend == BACKEND_KEYCHAIN:
-            assert self._keychain is not None
-            self._keychain.store_vault(vault_contents)
+            assert isinstance(doc, V2VaultDocument)
+            new_meta = V2VaultMeta(
+                vault_id=doc.vault_meta.vault_id,
+                revision=doc.vault_meta.revision + 1,
+                wrap_generation=doc.vault_meta.wrap_generation,
+                vault_kdf=doc.vault_meta.vault_kdf,
+            )
+            new_doc = V2VaultDocument(
+                schema_version=2,
+                vault_meta=new_meta,
+                passphrases=vault_data,
+                keys=dict(doc.keys),
+            )
+            self._save_document(2, new_doc, master_password)
         else:
-            # Use atomic write to prevent corruption during write
-            secure_atomic_write(self.vault_path, raw_vault, mode=0o600)
+            self._save_document(1, vault_data, master_password)
 
     def store_passphrase(
         self, label: str, passphrase: str, master_password: str
@@ -489,33 +559,35 @@ class PassphraseVault:
             raise ValueError("Label cannot be empty")
 
         label = label.strip()
+        from .v2.vault_lock import hold_vault_lock
 
-        try:
-            vault_data = self._load_vault(master_password)
-        except ValueError:
-            # Only initialize a fresh vault when there is no existing storage.
-            # Wrong master passwords or corrupted existing vaults must never
-            # overwrite keychain/file contents.
-            if self.vault_exists():
-                if (
-                    self._backend == BACKEND_FILE
-                    and self.vault_path.exists()
-                    and self.vault_path.stat().st_size == 0
-                ):
-                    vault_data = {}
+        with hold_vault_lock(self.lock_target):
+            try:
+                vault_data = self._load_vault(master_password)
+            except ValueError:
+                # Only initialize a fresh vault when there is no existing storage.
+                # Wrong master passwords or corrupted existing vaults must never
+                # overwrite keychain/file contents.
+                if self.vault_exists():
+                    if (
+                        self._backend == BACKEND_FILE
+                        and self.vault_path.exists()
+                        and self.vault_path.stat().st_size == 0
+                    ):
+                        vault_data = {}
+                    else:
+                        raise
                 else:
-                    raise
-            else:
-                vault_data = {}
+                    vault_data = {}
 
-        if label in vault_data:
-            raise ValueError(
-                f"Label '{label}' already exists. Use a different label or delete the existing one."
-            )
+            if label in vault_data:
+                raise ValueError(
+                    f"Label '{label}' already exists. Use a different label or delete the existing one."
+                )
 
-        vault_data[label] = passphrase
+            vault_data[label] = passphrase
 
-        self._save_vault(vault_data, master_password)
+            self._save_vault(vault_data, master_password)
 
     def retrieve_passphrase(self, label: str, master_password: str) -> str:
         """Retrieve a passphrase from the vault.
@@ -530,12 +602,15 @@ class PassphraseVault:
         Raises:
             ValueError: If label not found or decryption fails
         """
-        vault_data = self._load_vault(master_password)
+        from .v2.vault_lock import hold_vault_lock
 
-        if label not in vault_data:
-            raise ValueError(f"Passphrase with label '{label}' not found")
+        with hold_vault_lock(self.lock_target):
+            vault_data = self._load_vault(master_password)
 
-        return vault_data[label]
+            if label not in vault_data:
+                raise ValueError(f"Passphrase with label '{label}' not found")
+
+            return vault_data[label]
 
     def list_labels(self, master_password: str) -> list[str]:
         """List all passphrase labels in the vault.
@@ -559,13 +634,16 @@ class PassphraseVault:
         Raises:
             ValueError: If label not found or decryption fails
         """
-        vault_data = self._load_vault(master_password)
+        from .v2.vault_lock import hold_vault_lock
 
-        if label not in vault_data:
-            raise ValueError(f"Passphrase with label '{label}' not found")
+        with hold_vault_lock(self.lock_target):
+            vault_data = self._load_vault(master_password)
 
-        del vault_data[label]
-        self._save_vault(vault_data, master_password)
+            if label not in vault_data:
+                raise ValueError(f"Passphrase with label '{label}' not found")
+
+            del vault_data[label]
+            self._save_vault(vault_data, master_password)
 
     def update_passphrase(
         self, label: str, new_passphrase: str, master_password: str
@@ -580,13 +658,16 @@ class PassphraseVault:
         Raises:
             ValueError: If label not found or decryption fails
         """
-        vault_data = self._load_vault(master_password)
+        from .v2.vault_lock import hold_vault_lock
 
-        if label not in vault_data:
-            raise ValueError(f"Passphrase with label '{label}' not found")
+        with hold_vault_lock(self.lock_target):
+            vault_data = self._load_vault(master_password)
 
-        vault_data[label] = new_passphrase
-        self._save_vault(vault_data, master_password)
+            if label not in vault_data:
+                raise ValueError(f"Passphrase with label '{label}' not found")
+
+            vault_data[label] = new_passphrase
+            self._save_vault(vault_data, master_password)
 
     def vault_exists(self) -> bool:
         """Check if the vault exists (file or keychain).
@@ -674,70 +755,73 @@ class PassphraseVault:
         preserve_backup_identifiers: frozenset[str] = frozenset(),
     ) -> str | None:
         """Publish a normalized raw candidate with verification and rollback."""
-        try:
-            expected_entries = validate_raw_vault(candidate, master_password)
-        except ValueError:
-            raise VaultTransactionError(
-                "candidate_validation_failed", "Vault candidate validation failed."
-            ) from None
+        from .v2.vault_lock import hold_vault_lock
 
-        try:
-            previous_raw = self.read_raw_vault()
-        except Exception:
-            raise VaultTransactionError(
-                "active_read_failed",
-                "Vault transaction failed before publication.",
-            ) from None
-
-        backup_identifier = None
-        if previous_raw is not None and backup_current:
+        with hold_vault_lock(self.lock_target):
             try:
-                backup_identifier = self._publish_backup(
-                    previous_raw,
-                    preserve_identifiers=preserve_backup_identifiers,
-                )
+                expected_entries = validate_raw_vault(candidate, master_password)
+            except ValueError:
+                raise VaultTransactionError(
+                    "candidate_validation_failed", "Vault candidate validation failed."
+                ) from None
+
+            try:
+                previous_raw = self.read_raw_vault()
             except Exception:
                 raise VaultTransactionError(
-                    "backup_failed",
+                    "active_read_failed",
                     "Vault transaction failed before publication.",
                 ) from None
 
-        try:
-            self.write_raw_vault(candidate)
-            published_raw = self.read_raw_vault()
-            if published_raw is None or published_raw != candidate:
-                raise ValueError
-            published_entries = validate_raw_vault(published_raw, master_password)
-            if published_entries != expected_entries:
-                raise ValueError
-        except Exception:
+            backup_identifier = None
+            if previous_raw is not None and backup_current:
+                try:
+                    backup_identifier = self._publish_backup(
+                        previous_raw,
+                        preserve_identifiers=preserve_backup_identifiers,
+                    )
+                except Exception:
+                    raise VaultTransactionError(
+                        "backup_failed",
+                        "Vault transaction failed before publication.",
+                    ) from None
+
             try:
-                if previous_raw is None:
-                    self.delete_vault_storage()
-                    if self.read_raw_vault() is not None:
-                        raise ValueError
-                else:
-                    self.write_raw_vault(previous_raw)
-                    if self.read_raw_vault() != previous_raw:
-                        raise ValueError
+                self.write_raw_vault(candidate)
+                published_raw = self.read_raw_vault()
+                if published_raw is None or published_raw != candidate:
+                    raise ValueError
+                published_entries = validate_raw_vault(published_raw, master_password)
+                if published_entries != expected_entries:
+                    raise ValueError
             except Exception:
+                try:
+                    if previous_raw is None:
+                        self.delete_vault_storage()
+                        if self.read_raw_vault() is not None:
+                            raise ValueError
+                    else:
+                        self.write_raw_vault(previous_raw)
+                        if self.read_raw_vault() != previous_raw:
+                            raise ValueError
+                except Exception:
+                    raise VaultTransactionError(
+                        "rollback_failed",
+                        "Vault transaction failed and rollback failed; active vault may be inconsistent.",
+                        rollback_attempted=True,
+                        rollback_succeeded=False,
+                        backup_identifier=backup_identifier,
+                    ) from None
+
                 raise VaultTransactionError(
-                    "rollback_failed",
-                    "Vault transaction failed and rollback failed; active vault may be inconsistent.",
+                    "publication_failed",
+                    "Vault transaction failed; previous vault restored.",
                     rollback_attempted=True,
-                    rollback_succeeded=False,
+                    rollback_succeeded=True,
                     backup_identifier=backup_identifier,
                 ) from None
 
-            raise VaultTransactionError(
-                "publication_failed",
-                "Vault transaction failed; previous vault restored.",
-                rollback_attempted=True,
-                rollback_succeeded=True,
-                backup_identifier=backup_identifier,
-            ) from None
-
-        return backup_identifier
+            return backup_identifier
 
     def migrate_to_keychain(self, master_password: str) -> None:
         """Migrate vault data from file backend to keychain.
