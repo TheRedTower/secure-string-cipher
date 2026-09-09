@@ -70,7 +70,9 @@ def _deep_copy_json(value: Any) -> Any:
                 res[f.name] = _deep_copy_json(v)
         return res
     if isinstance(value, Mapping):
-        return {str(k): _deep_copy_json(v) for k, v in value.items()}
+        if any(not isinstance(k, str) for k in value):
+            raise TypeError("Dictionary keys must be strings")
+        return {k: _deep_copy_json(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_deep_copy_json(x) for x in value]
     return value

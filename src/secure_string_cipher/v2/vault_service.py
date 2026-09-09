@@ -8,7 +8,6 @@ and atomic migration from V1 flat vaults to V2 structured vaults.
 from __future__ import annotations
 
 import hashlib
-import math
 import re
 import secrets
 from collections.abc import Mapping
@@ -21,7 +20,10 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from secure_string_cipher.passphrase_manager import PassphraseVault
+from secure_string_cipher.passphrase_manager import (
+    _UNSPECIFIED_SNAPSHOT,
+    PassphraseVault,
+)
 from secure_string_cipher.v2.envelope import canonical_json
 from secure_string_cipher.v2.key_identity import (
     ExternalKeyReference,
@@ -54,14 +56,6 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _predicted_outer_vault_size(doc_bytes_len: int) -> int:
-    """Calculate predicted outer encoded vault size from document length L.
-
-    Formula from Section 11.5: 161 + 4 * ceil((L + 76) / 3) bytes.
-    """
-    return 161 + 4 * math.ceil((doc_bytes_len + 76) / 3)
-
-
 class V2VaultService:
     """Adapter managing structured V2 vault documents and managed key lifecycles."""
 
@@ -91,6 +85,7 @@ class V2VaultService:
         self, master_password: str, vault_kdf: V2VaultKdf
     ) -> bytes:
         """Derive the operation-scoped parallel inner-wrap root key."""
+        self._validate_password(master_password)
         salt_bytes = b64url_decode(vault_kdf.salt, expected_length=16)
         try:
             return hash_secret_raw(
@@ -101,9 +96,35 @@ class V2VaultService:
                 parallelism=vault_kdf.parallelism,
                 hash_len=vault_kdf.hash_len,
                 type=Type.ID,
+                version=19,
             )
-        except Exception as e:
-            raise ValueError(f"Vault root key derivation failed: {e}") from e
+        except Exception:
+            raise ValueError("Vault root key derivation failed") from None
+
+    @staticmethod
+    def _validate_password(master_password: str) -> None:
+        if not isinstance(master_password, str):
+            raise TypeError("Master password must be a string")
+        if len(master_password) > 65536 or len(master_password.encode("utf-8")) > 65536:
+            raise ValueError("Master password exceeds V2 input limit")
+
+    def _validate_inner_secrets(
+        self,
+        doc: V2VaultDocument,
+        master_password: str,
+        *,
+        root_key: bytes | None = None,
+    ) -> None:
+        """Verify all wrapped records using at most one operation-scoped root."""
+        self._validate_password(master_password)
+        for record in doc.keys.values():
+            if record.vault_secret is not None:
+                if root_key is None:
+                    root_key = self._derive_vault_root_key(
+                        master_password, doc.vault_meta.vault_kdf
+                    )
+                secret = self._unwrap_secret(root_key, record, doc.vault_meta)
+                del secret
 
     def _derive_vault_copy_kek(self, vault_root_key: bytes, salt_bytes: bytes) -> bytes:
         """Derive the per-record vault_copy_kek via HKDF-SHA256."""
@@ -253,9 +274,6 @@ class V2VaultService:
         self, master_password: str
     ) -> tuple[int, dict[str, str] | V2VaultDocument]:
         """Load and authenticate document from active backend."""
-        raw = self._vault.read_raw_vault()
-        if raw is None or not raw:
-            return 1, {}
         return self._vault._load_document(master_password)
 
     def _save_document_locked(
@@ -263,16 +281,34 @@ class V2VaultService:
         doc_type: int,
         doc: dict[str, str] | V2VaultDocument,
         master_password: str,
+        *,
+        expected_raw: str | None | object = _UNSPECIFIED_SNAPSHOT,
+        root_key: bytes | None = None,
     ) -> None:
         """Save document to active backend holding lock."""
-        self._vault._save_document(doc_type, doc, master_password)
+        self._vault._save_document(
+            doc_type,
+            doc,
+            master_password,
+            expected_raw=expected_raw,
+            validate_document=(
+                lambda candidate: self._validate_inner_secrets(
+                    candidate, master_password, root_key=root_key
+                )
+            )
+            if doc_type == 2
+            else None,
+        )
 
-    def _ensure_schema_2(self, master_password: str) -> tuple[V2VaultDocument, bool]:
-        """Ensure active vault is Schema 2, migrating if necessary."""
-        doc_type, doc = self._load_document_locked(master_password)
+    def _ensure_schema_2(
+        self, master_password: str
+    ) -> tuple[V2VaultDocument, bool, str | None]:
+        """Prepare a Schema 2 candidate without publishing an intermediate migration."""
+        self._validate_password(master_password)
+        doc_type, doc, raw = self._vault._read_document_snapshot(master_password)
         if doc_type == 2:
             assert isinstance(doc, V2VaultDocument)
-            return doc, False
+            return doc, False, raw
 
         # Migrate Schema 1 to Schema 2
         assert isinstance(doc, dict)
@@ -299,8 +335,7 @@ class V2VaultService:
             passphrases=doc,
             keys={},
         )
-        self._save_document_locked(2, v2_doc, master_password)
-        return v2_doc, True
+        return v2_doc, True, raw
 
     def create_key(
         self,
@@ -319,7 +354,7 @@ class V2VaultService:
         with hold_vault_lock(self.lock_target):
             # Resolve master password for vault access
             auth_password = master_password or ""
-            v2_doc, _ = self._ensure_schema_2(auth_password)
+            v2_doc, _, raw = self._ensure_schema_2(auth_password)
 
             # Ensure human id is unique among existing keys
             for existing in v2_doc.keys.values():
@@ -342,6 +377,7 @@ class V2VaultService:
             external_ref = ExternalKeyReference(path_hint=path_hint)
 
             vault_secret_dict: dict[str, object] | None = None
+            root_key = None
             if storage == KeyStorageMode.VAULT_COPY:
                 assert master_password is not None
                 root_key = self._derive_vault_root_key(
@@ -389,7 +425,9 @@ class V2VaultService:
                 keys=updated_keys,
             )
 
-            self._save_document_locked(2, new_doc, auth_password)
+            self._save_document_locked(
+                2, new_doc, auth_password, expected_raw=raw, root_key=root_key
+            )
             return key_record, secret_bytes
 
     def import_key(
@@ -408,7 +446,7 @@ class V2VaultService:
 
         with hold_vault_lock(self.lock_target):
             auth_password = master_password or ""
-            v2_doc, _ = self._ensure_schema_2(auth_password)
+            v2_doc, _, raw = self._ensure_schema_2(auth_password)
 
             for existing in v2_doc.keys.values():
                 if existing.id == keyfile_data.key_id:
@@ -432,6 +470,7 @@ class V2VaultService:
             external_ref = ExternalKeyReference(path_hint=path_hint)
 
             vault_secret_dict: dict[str, object] | None = None
+            root_key = None
             if storage == KeyStorageMode.VAULT_COPY:
                 assert master_password is not None
                 root_key = self._derive_vault_root_key(
@@ -479,7 +518,9 @@ class V2VaultService:
                 keys=updated_keys,
             )
 
-            self._save_document_locked(2, new_doc, auth_password)
+            self._save_document_locked(
+                2, new_doc, auth_password, expected_raw=raw, root_key=root_key
+            )
             return key_record
 
     def get_key(
@@ -561,7 +602,7 @@ class V2VaultService:
         self, identifier: str, new_status: KeyStatus, master_password: str
     ) -> KeyIdentity:
         with hold_vault_lock(self.lock_target):
-            v2_doc, _ = self._ensure_schema_2(master_password)
+            v2_doc, _, raw = self._ensure_schema_2(master_password)
 
             target_fp: str | None = None
             if identifier in v2_doc.keys:
@@ -615,7 +656,7 @@ class V2VaultService:
                 keys=updated_keys,
             )
 
-            self._save_document_locked(2, new_doc, master_password)
+            self._save_document_locked(2, new_doc, master_password, expected_raw=raw)
             return new_record
 
     def archive_key(self, identifier: str, master_password: str) -> KeyIdentity:
@@ -633,21 +674,26 @@ class V2VaultService:
     def migrate_schema(self, master_password: str) -> V2VaultDocument:
         """Migrate a flat V1 vault to a structured V2 vault idempotently."""
         with hold_vault_lock(self.lock_target):
-            v2_doc, migrated = self._ensure_schema_2(master_password)
+            v2_doc, migrated, raw = self._ensure_schema_2(master_password)
+            if migrated:
+                self._save_document_locked(2, v2_doc, master_password, expected_raw=raw)
+            else:
+                self._validate_inner_secrets(v2_doc, master_password)
             return v2_doc
 
     def change_master_password(self, old_password: str, new_password: str) -> None:
         """Change master password and re-wrap all inner vault-copy secrets."""
         with hold_vault_lock(self.lock_target):
-            doc_type, doc = self._load_document_locked(old_password)
+            doc_type, doc, raw = self._vault._read_document_snapshot(old_password)
 
             if doc_type == 1:
                 assert isinstance(doc, dict)
                 # Flat vault: re-save under new password
-                self._save_document_locked(1, doc, new_password)
+                self._save_document_locked(1, doc, new_password, expected_raw=raw)
                 return
 
             assert isinstance(doc, V2VaultDocument)
+            self._validate_password(new_password)
 
             # Derive old root key if wrapped keys exist
             wrapped_keys = [
@@ -753,4 +799,6 @@ class V2VaultService:
                         unwrapped = self._unwrap_secret(new_root_key, k, new_meta)
                         del unwrapped
 
-            self._save_document_locked(2, new_doc, new_password)
+            self._save_document_locked(
+                2, new_doc, new_password, expected_raw=raw, root_key=new_root_key
+            )

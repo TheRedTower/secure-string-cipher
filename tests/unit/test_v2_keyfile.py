@@ -207,11 +207,10 @@ def test_parse_bare_cr_rejected():
         parse_keyfile_content(bare_cr)
 
 
-def test_parse_missing_trailing_newline_rejected():
-    """Keyfile missing final trailing newline must be rejected."""
+def test_parse_missing_trailing_newline_accepted():
+    """The transport permits omission of the single final line ending."""
     no_newline = VALID_KEYFILE.rstrip("\n")
-    with pytest.raises(ValueError, match="must end with a newline"):
-        parse_keyfile_content(no_newline)
+    assert parse_keyfile_content(no_newline) == parse_keyfile_content(VALID_KEYFILE)
 
 
 def test_key_file_data_invalid_key_id():
@@ -235,8 +234,67 @@ def test_save_keyfile_cleanup_on_failure(tmp_path: Path):
     path = tmp_path / "failure_test.ssckey"
     tmp_path_file = path.with_suffix(path.suffix + ".tmp")
 
-    with patch("os.replace", side_effect=OSError("Disk write error")):
+    with patch("os.link", side_effect=OSError("Disk write error")):
         with pytest.raises(OSError, match="Disk write error"):
             save_keyfile(data, path)
 
     assert not tmp_path_file.exists()
+    assert list(tmp_path.glob(".*.tmp")) == []
+
+
+def test_secret_is_excluded_from_repr():
+    data = parse_keyfile_content(VALID_KEYFILE)
+    assert "secret_bytes" not in repr(data)
+    assert repr(VALID_SECRET) not in repr(data)
+
+
+def test_save_never_replaces_existing_key(tmp_path: Path):
+    path = tmp_path / "existing.ssckey"
+    path.write_bytes(b"previous synthetic key")
+    with pytest.raises(FileExistsError):
+        save_keyfile(parse_keyfile_content(VALID_KEYFILE), path)
+    assert path.read_bytes() == b"previous synthetic key"
+
+
+def test_save_rejects_destination_created_during_publication(tmp_path: Path):
+    path = tmp_path / "raced.ssckey"
+    real_link = os.link
+
+    def create_competing_key(source, destination):
+        Path(destination).write_bytes(b"competing synthetic key")
+        real_link(source, destination)
+
+    with (
+        patch("os.link", side_effect=create_competing_key),
+        pytest.raises(FileExistsError),
+    ):
+        save_keyfile(parse_keyfile_content(VALID_KEYFILE), path)
+    assert path.read_bytes() == b"competing synthetic key"
+    assert list(tmp_path.glob(".*.tmp")) == []
+
+
+def test_keyfile_rejects_symlinked_ancestor(tmp_path: Path):
+    real = tmp_path / "real"
+    (real / "nested").mkdir(parents=True)
+    link = tmp_path / "alias"
+    link.symlink_to(real, target_is_directory=True)
+    data = parse_keyfile_content(VALID_KEYFILE)
+    save_keyfile(data, real / "nested" / "test.ssckey")
+    with pytest.raises(OSError, match="symlink"):
+        load_keyfile(link / "nested" / "test.ssckey")
+    with pytest.raises(OSError, match="symlink"):
+        save_keyfile(data, link / "nested" / "new.ssckey")
+
+
+@pytest.mark.parametrize(
+    "created",
+    [
+        "2026-09-09Z",
+        "2026-09-09 00:00:00Z",
+        "2026-09-09T00:00:00.1Z",
+        "2026-02-30T00:00:00Z",
+    ],
+)
+def test_keyfile_rejects_noncanonical_dates(created):
+    with pytest.raises(ValueError):
+        parse_keyfile_content(VALID_KEYFILE.replace("2026-09-09T00:00:00Z", created))

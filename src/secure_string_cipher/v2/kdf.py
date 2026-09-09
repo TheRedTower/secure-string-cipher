@@ -151,6 +151,8 @@ def validate_argon2_params(
         v = version if version is not None else ARGON2_VERSION
 
     # Type checks (strictly int, no bool)
+    if type(v) is not int or v != ARGON2_VERSION:
+        raise ValueError("Argon2 version must be 19")
     for name, val in [
         ("memory_kib", mem),
         ("time_cost", tc),
@@ -223,6 +225,10 @@ def derive_argon2id(
 ) -> bytes:
     """Derive key material using Argon2id with Type.ID and version 19."""
     if isinstance(password, str):
+        if len(password) > MAX_PASSWORD_BYTES:
+            raise ValueError(
+                f"Password exceeds maximum length of {MAX_PASSWORD_BYTES} bytes"
+            )
         password_bytes = password.encode("utf-8")
     elif isinstance(password, (bytes, bytearray)):
         password_bytes = password

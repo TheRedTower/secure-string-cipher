@@ -42,8 +42,6 @@ MAX_TOTAL_NODES: int = 1024
 
 def deep_freeze(value: object) -> object:
     """Recursively freeze mappings and sequences into immutable snapshots."""
-    if isinstance(value, MappingProxyType):
-        return value
     if isinstance(value, Mapping):
         return MappingProxyType({k: deep_freeze(v) for k, v in value.items()})
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
@@ -262,8 +260,15 @@ class V2Header:
 
 def canonical_json(value: object) -> bytes:
     """Serialize protected header data as deterministic UTF-8 JSON bytes."""
+    return _canonical_json(value, node_limit=MAX_TOTAL_NODES)
+
+
+def _canonical_json(value: object, *, node_limit: int | None) -> bytes:
+    """Encode with shared type/depth checks and the caller's document bound."""
     counter = [0]
-    plain_object = _to_json_compatible(value, depth=0, counter=counter)
+    plain_object = _to_json_compatible(
+        value, depth=0, counter=counter, node_limit=node_limit
+    )
     return json.dumps(
         plain_object,
         sort_keys=True,
@@ -274,7 +279,11 @@ def canonical_json(value: object) -> bytes:
 
 
 def _to_json_compatible(
-    value: object, depth: int = 0, counter: list[int] | None = None
+    value: object,
+    depth: int = 0,
+    counter: list[int] | None = None,
+    *,
+    node_limit: int | None = MAX_TOTAL_NODES,
 ) -> object:
     """Convert v2 value objects into plain JSON-compatible containers.
 
@@ -288,7 +297,7 @@ def _to_json_compatible(
         counter = [0]
 
     counter[0] += 1
-    if counter[0] > MAX_TOTAL_NODES:
+    if node_limit is not None and counter[0] > node_limit:
         raise ValueError(
             f"JSON container exceeds maximum node limit ({MAX_TOTAL_NODES})"
         )
@@ -310,7 +319,9 @@ def _to_json_compatible(
         for f in fields(value):
             val = getattr(value, f.name)
             if val is not None:
-                result[f.name] = _to_json_compatible(val, depth + 1, counter)
+                result[f.name] = _to_json_compatible(
+                    val, depth + 1, counter, node_limit=node_limit
+                )
         return result
     if isinstance(value, (Mapping, MappingProxyType)):
         mapping_result: dict[str, object] = {}
@@ -319,10 +330,15 @@ def _to_json_compatible(
                 raise TypeError(
                     f"Dictionary keys must be strings, got {type(k).__name__}"
                 )
-            mapping_result[k] = _to_json_compatible(v, depth + 1, counter)
+            mapping_result[k] = _to_json_compatible(
+                v, depth + 1, counter, node_limit=node_limit
+            )
         return mapping_result
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return [_to_json_compatible(item, depth + 1, counter) for item in value]
+        return [
+            _to_json_compatible(item, depth + 1, counter, node_limit=node_limit)
+            for item in value
+        ]
     if isinstance(value, float):
         raise TypeError(
             "Floating-point numbers are not permitted in SSC canonical JSON"

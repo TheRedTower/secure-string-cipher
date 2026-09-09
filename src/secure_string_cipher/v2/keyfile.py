@@ -7,11 +7,14 @@ import contextlib
 import os
 import re
 import stat
-from dataclasses import dataclass
+import tempfile
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from secure_string_cipher.atomic_io import _sync_directory
 from secure_string_cipher.v2.key_identity import compute_fingerprint
+from secure_string_cipher.v2.paths import reject_symlink_components
 
 _KEY_ID_RE = re.compile(r"^[a-z][a-z0-9._-]{0,63}$")
 
@@ -37,12 +40,12 @@ class KeyFileData:
     kdf: str
     fingerprint: str
     created_at: str
-    secret_bytes: bytes
+    secret_bytes: bytes = field(repr=False)
 
     def __post_init__(self) -> None:
-        if self.version != 1:
+        if type(self.version) is not int or self.version != 1:
             raise ValueError("Unsupported keyfile version")
-        if not isinstance(self.key_id, str) or not _KEY_ID_RE.match(self.key_id):
+        if not isinstance(self.key_id, str) or not _KEY_ID_RE.fullmatch(self.key_id):
             raise ValueError("key_id must match pattern ^[a-z][a-z0-9._-]{0,63}$")
         if self.key_type != "symmetric-key":
             raise ValueError("Unsupported key type")
@@ -52,7 +55,10 @@ class KeyFileData:
             raise ValueError("Invalid fingerprint format")
         # Validate timestamp format
         try:
-            if not self.created_at.endswith("Z"):
+            if not re.fullmatch(
+                r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",
+                self.created_at,
+            ):
                 raise ValueError
             datetime.fromisoformat(self.created_at[:-1]).replace(tzinfo=timezone.utc)
         except ValueError as e:
@@ -60,8 +66,10 @@ class KeyFileData:
                 "Created timestamp must be in YYYY-MM-DDTHH:MM:SSZ format"
             ) from e
 
-        if len(self.secret_bytes) != 32:
+        if not isinstance(self.secret_bytes, bytes) or len(self.secret_bytes) != 32:
             raise ValueError("secret_bytes must be exactly 32 bytes")
+        if compute_fingerprint(self.secret_bytes) != self.fingerprint:
+            raise ValueError("Fingerprint mismatch")
 
 
 def _decode_b64_unpadded(b64_str: str) -> bytes:
@@ -93,6 +101,12 @@ def parse_keyfile_content(content: str) -> KeyFileData:
     Accepts canonical LF, or uniform CRLF converted at the outer armour boundary.
     Rejects mixed line endings or bare carriage returns.
     """
+    if (
+        not isinstance(content, str)
+        or len(content) > 8192
+        or len(content.encode("utf-8")) > 8192
+    ):
+        raise ValueError("Keyfile exceeds maximum permitted size (8192 bytes)")
     if "\r" in content:
         without_crlf = content.replace("\r\n", "")
         if "\r" in without_crlf:
@@ -103,9 +117,8 @@ def parse_keyfile_content(content: str) -> KeyFileData:
             )
         content = content.replace("\r\n", "\n")
 
-    if not content.endswith("\n"):
-        raise ValueError("Keyfile content must end with a newline")
-    content = content[:-1]
+    if content.endswith("\n"):
+        content = content[:-1]
 
     lines = content.split("\n")
     if len(lines) != 10:
@@ -113,9 +126,9 @@ def parse_keyfile_content(content: str) -> KeyFileData:
 
     if lines[0] != HEADER_BEGIN:
         raise ValueError("Invalid BEGIN delimiter")
-    if not lines[1].startswith("Version: "):
-        raise ValueError("Missing or misplaced Version field")
-    version = int(lines[1].split(": ", 1)[1])
+    if lines[1] != "Version: 1":
+        raise ValueError("Unsupported or malformed Version field")
+    version = 1
 
     if not lines[2].startswith("Key-ID: "):
         raise ValueError("Missing or misplaced Key-ID field")
@@ -186,6 +199,7 @@ def load_keyfile(path: Path) -> KeyFileData:
 
     Uses O_NOFOLLOW and fstat where supported to mitigate TOCTOU symlink race conditions.
     """
+    reject_symlink_components(path)
     if not path.is_file():
         raise OSError(f"{path} is not a regular file")
 
@@ -193,7 +207,7 @@ def load_keyfile(path: Path) -> KeyFileData:
     if path.is_symlink():
         raise OSError(f"{path} is a symlink, which is not permitted for keyfiles")
 
-    flags = os.O_RDONLY
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
 
@@ -230,38 +244,30 @@ def load_keyfile(path: Path) -> KeyFileData:
 
 
 def save_keyfile(data: KeyFileData, path: Path) -> None:
-    """Serialize and save KeyFileData to the target path atomically with 0600 permissions."""
-    if path.is_symlink():
-        raise OSError(f"{path} is a symlink, which is not permitted for keyfiles")
-    if path.parent.is_symlink():
-        raise OSError(
-            f"{path.parent} is a symlink, which is not permitted for keyfiles"
-        )
+    """Publish a complete owner-only keyfile without replacing another key.
+
+    Linking the completed temporary file fails if the destination appears
+    concurrently. Filesystems without hard-link support fail before publication.
+    """
+    reject_symlink_components(path)
+    if path.exists():
+        raise FileExistsError("Keyfile destination already exists")
 
     content = serialize_keyfile_content(data)
     content_bytes = content.encode("utf-8")
 
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-
-    created = False
+    fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    tmp_path = Path(name)
     try:
-        # Use os.open to strictly create with O_EXCL and 0600
-        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        created = True
-        try:
-            os.write(fd, content_bytes)
-        finally:
-            os.close(fd)
-
-        # Atomically replace
-        os.replace(tmp_path, path)
-
-        # Defense-in-depth: enforce 0600 on destination on POSIX
-        if os.name == "posix":
-            with contextlib.suppress(OSError):
-                os.chmod(path, 0o600)
-    except BaseException:
-        if created:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp_path)
-        raise
+        with os.fdopen(fd, "wb") as writer:
+            if os.name == "posix":
+                os.fchmod(writer.fileno(), 0o600)
+            writer.write(content_bytes)
+            writer.flush()
+            os.fsync(writer.fileno())
+        reject_symlink_components(path)
+        os.link(tmp_path, path)
+        _sync_directory(path.parent)
+    finally:
+        with contextlib.suppress(OSError):
+            tmp_path.unlink()

@@ -14,7 +14,7 @@ from datetime import datetime
 from types import MappingProxyType
 from typing import Any
 
-from secure_string_cipher.v2.envelope import canonical_json, deep_freeze
+from secure_string_cipher.v2.envelope import _canonical_json, deep_freeze
 from secure_string_cipher.v2.key_identity import (
     ExternalKeyReference,
     KeyIdentity,
@@ -322,6 +322,15 @@ class V2VaultDocument:
         }
 
 
+def canonical_vault_json(value: object) -> bytes:
+    """Keep the common encoding/depth policy without the header's node cap.
+
+    Vault size and key-count bounds apply separately; legacy passphrases have
+    no semantic entry-count limit.
+    """
+    return _canonical_json(value, node_limit=None)
+
+
 def _as_int(val: Any, default: int = 0) -> int:
     return val if isinstance(val, int) and not isinstance(val, bool) else default
 
@@ -592,7 +601,7 @@ def validate_v2_vault_document(
     )
 
     if raw_json_text is not None:
-        expected_canonical = canonical_json(v2_doc.to_dict())
+        expected_canonical = canonical_vault_json(v2_doc.to_dict())
         if expected_canonical != raw_json_text.encode("utf-8"):
             raise ValueError(
                 "V2 vault document does not match canonical JSON representation"

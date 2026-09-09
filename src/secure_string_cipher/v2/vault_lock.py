@@ -9,10 +9,14 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import os
+import stat
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+
+from .paths import reject_symlink_components
 
 __all__ = [
     "VaultBusyError",
@@ -35,16 +39,37 @@ def get_vault_lock_path(lock_target: Path | str) -> Path:
         # Named identity (e.g. keychain service/user)
         digest = hashlib.sha256(target_str.encode("utf-8")).hexdigest()[:16]
         lock_dir = Path.home() / ".secure_string_cipher"
+        reject_symlink_components(lock_dir)
         lock_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         return lock_dir / f".vault_{digest}.lock"
 
-    path = Path(lock_target).expanduser().resolve()
+    path = Path(lock_target).expanduser()
+    reject_symlink_components(path)
+    path = path.resolve()
     parent = path.parent
     parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     return parent / f".{path.name}.lock"
 
 
 _ACQUIRED_LOCKS: dict[Path, int] = {}
+_THREAD_LOCKS: dict[Path, threading.RLock] = {}
+_REGISTRY_LOCK = threading.Lock()
+_OPEN_FDS: set[int] = set()
+
+
+def _after_fork() -> None:
+    """A child must acquire its own locks, never inherit reentrant ownership."""
+    global _REGISTRY_LOCK
+    for fd in _OPEN_FDS:
+        os.close(fd)
+    _OPEN_FDS.clear()
+    _ACQUIRED_LOCKS.clear()
+    _THREAD_LOCKS.clear()
+    _REGISTRY_LOCK = threading.Lock()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_after_fork)
 
 
 # pyrefly: ignore [deprecated]
@@ -52,7 +77,7 @@ _ACQUIRED_LOCKS: dict[Path, int] = {}
 def hold_vault_lock(lock_target: Path | str, timeout: float = 10.0) -> Iterator[Path]:
     """Acquire a cooperative, advisory exclusive lock for the vault.
 
-    Supports re-entrant acquisition within the same process.
+    Supports re-entrant acquisition by the owning thread only.
 
     Args:
         lock_target: Absolute vault path or stable keychain identity string.
@@ -65,11 +90,26 @@ def hold_vault_lock(lock_target: Path | str, timeout: float = 10.0) -> Iterator[
         VaultBusyError: If the lock cannot be acquired within timeout.
     """
     lock_path = get_vault_lock_path(lock_target)
+    started = time.monotonic()
+    with _REGISTRY_LOCK:
+        thread_lock = _THREAD_LOCKS.setdefault(lock_path, threading.RLock())
+    if not thread_lock.acquire(timeout=max(0.0, timeout)):
+        raise VaultBusyError("Vault is currently locked by another thread.")
+    try:
+        with _hold_process_lock(
+            lock_path, max(0.0, timeout - (time.monotonic() - started))
+        ):
+            yield lock_path
+    finally:
+        thread_lock.release()
 
+
+@contextmanager
+def _hold_process_lock(lock_path: Path, timeout: float) -> Iterator[None]:
     if lock_path in _ACQUIRED_LOCKS:
         _ACQUIRED_LOCKS[lock_path] += 1
         try:
-            yield lock_path
+            yield
         finally:
             _ACQUIRED_LOCKS[lock_path] -= 1
             if _ACQUIRED_LOCKS[lock_path] == 0:
@@ -77,15 +117,25 @@ def hold_vault_lock(lock_target: Path | str, timeout: float = 10.0) -> Iterator[
         return
 
     # Open/create lock file with 0600 permissions
-    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
-    if os.name == "posix":
-        with contextlib.suppress(OSError):
-            os.chmod(lock_path, 0o600)
+    reject_symlink_components(lock_path)
+    fd = os.open(
+        lock_path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600
+    )
+    _OPEN_FDS.add(fd)
 
     locked = False
     start_time = time.monotonic()
 
     try:
+        status = os.fstat(fd)
+        if not stat.S_ISREG(status.st_mode) or status.st_nlink != 1:
+            raise OSError("Vault lock must be a regular file with one link.")
+        if os.name == "posix":
+            if status.st_uid != os.getuid():
+                raise OSError("Vault lock must be owned by the current user.")
+            os.fchmod(fd, 0o600)
+        elif status.st_size == 0:  # pragma: no cover - Windows
+            os.write(fd, b"\0")
         while True:
             try:
                 if os.name == "posix":
@@ -108,7 +158,7 @@ def hold_vault_lock(lock_target: Path | str, timeout: float = 10.0) -> Iterator[
                     ) from None
                 time.sleep(0.05)
 
-        yield lock_path
+        yield
 
     finally:
         if locked:
@@ -128,3 +178,4 @@ def hold_vault_lock(lock_target: Path | str, timeout: float = 10.0) -> Iterator[
 
         with contextlib.suppress(OSError):
             os.close(fd)
+        _OPEN_FDS.discard(fd)

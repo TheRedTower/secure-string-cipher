@@ -15,6 +15,7 @@ from secure_string_cipher.passphrase_manager import (
     PassphraseVault,
     _compute_vault_hmac,
     validate_raw_vault,
+    validate_raw_vault_document,
 )
 
 TEST_MASTER = "Public-Test-Only-Vault-Master-2026!"  # pragma: allowlist secret
@@ -217,8 +218,8 @@ def test_active_load_reuses_pure_validator(tmp_path: Path, valid_raw: str) -> No
     assert vault.vault_path.read_bytes() == valid_raw.encode("utf-8")
 
     with patch(
-        "secure_string_cipher.passphrase_manager.validate_raw_vault",
-        wraps=validate_raw_vault,
+        "secure_string_cipher.passphrase_manager.validate_raw_vault_document",
+        wraps=validate_raw_vault_document,
     ) as validator:
         assert vault.list_labels(TEST_MASTER) == sorted(EXPECTED_ENTRIES)
 

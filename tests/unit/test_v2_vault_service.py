@@ -210,7 +210,11 @@ def test_inner_wrap_tamper_rejection(vault_service: V2VaultService) -> None:
             passphrases=dict(v2_doc.passphrases),
             keys=tampered_keys,
         )
-        vault_service._save_document_locked(2, tampered_doc, TEST_MASTER)
+        # Construct authenticated hostile storage directly; production saves now
+        # reject unusable inner records before publishing.
+        vault_service.vault.write_raw_vault(
+            vault_service.vault._encode_document(2, tampered_doc, TEST_MASTER)
+        )
 
     # Unwrapping must fail authentication
     with pytest.raises(ValueError, match="authentication failed"):
@@ -353,7 +357,9 @@ def test_inner_wrap_aad_tamper_rejection(vault_service: V2VaultService) -> None:
             passphrases=dict(v2_doc.passphrases),
             keys=tampered_keys,
         )
-        vault_service._save_document_locked(2, tampered_doc, TEST_MASTER)
+        vault_service.vault.write_raw_vault(
+            vault_service.vault._encode_document(2, tampered_doc, TEST_MASTER)
+        )
 
     # AAD mismatch must cause unwrap authentication failure
     with pytest.raises(ValueError, match="authentication failed"):
