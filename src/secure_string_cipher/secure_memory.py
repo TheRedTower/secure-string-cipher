@@ -13,11 +13,22 @@ Limitations (even with libsodium):
 from __future__ import annotations
 
 import array
-import secrets
 from types import TracebackType
 from typing import TYPE_CHECKING
 
-# Try to use libsodium for secure memory operations via PyNaCl's internal FFI
+# Try to use libsodium for secure memory operations via PyNaCl's internal FFI.
+#
+# `nacl._sodium` is PyNaCl's private cffi module, not a documented public
+# API — it has no compatibility guarantee across PyNaCl releases. This is
+# accepted, known technical debt, not an oversight: `pynacl` is exact-pinned
+# in pyproject.toml, `_sodium_memzero`'s own try/except below treats any
+# AttributeError from a shape change as "fall back to the Python path"
+# rather than crashing, and `tests/security/test_secure_memory.py` exercises
+# both the libsodium and fallback code paths directly, so an incompatible
+# PyNaCl upgrade fails a test rather than silently losing sodium_memzero.
+# The durable fix is a supported public API or a small maintained native
+# extension; short of that, this import is re-verified on every PyNaCl
+# version bump rather than assumed stable.
 try:
     from nacl import bindings as _sodium_bindings
     from nacl._sodium import ffi as _ffi
@@ -87,7 +98,7 @@ def secure_wipe(data: bytes | bytearray | memoryview | array.array) -> None:
     Securely wipe sensitive data from memory.
 
     Uses libsodium's sodium_memzero() when available (guaranteed not optimized away).
-    Falls back to multi-pass random overwrite + zero fill otherwise.
+    Falls back to a single zero-fill pass otherwise.
 
     Args:
         data: Mutable buffer (bytearray, memoryview, or array.array).
@@ -120,20 +131,20 @@ def _fallback_wipe(data: bytearray | memoryview | array.array) -> None:
     """
     Best-effort Python memory wiping.
 
-    Performs 3 passes of random data followed by zero fill.
-    This may be optimized away by the compiler/interpreter.
+    A single zero-fill pass, matching what sodium_memzero() itself does.
+    RAM has no magnetic remanence for multiple random passes to defeat (that
+    concern is specific to spinning-disk forensics), and CPython has no
+    dead-store-elimination optimizer that would silently drop a real
+    buffer-protocol write the way a C compiler can drop a provably-dead
+    local `memset` — so the extra random passes a prior version of this
+    function performed added runtime cost without adding any real erasure
+    guarantee beyond what the final zero-fill already provides on its own.
     """
     byte_view = _writable_byte_view(data)
     try:
-        # Bound temporary allocations while still operating on every byte of
-        # multi-byte array and memoryview elements.
-        for _ in range(3):
-            for start in range(0, byte_view.nbytes, _FALLBACK_WIPE_CHUNK_SIZE):
-                chunk_length = min(_FALLBACK_WIPE_CHUNK_SIZE, byte_view.nbytes - start)
-                byte_view[start : start + chunk_length] = secrets.token_bytes(
-                    chunk_length
-                )
-
+        # Bounded per-chunk allocation, not a single `bytes(nbytes)`, so
+        # wiping a very large buffer does not itself require allocating an
+        # equally large temporary zero buffer.
         for start in range(0, byte_view.nbytes, _FALLBACK_WIPE_CHUNK_SIZE):
             chunk_length = min(_FALLBACK_WIPE_CHUNK_SIZE, byte_view.nbytes - start)
             byte_view[start : start + chunk_length] = bytes(chunk_length)

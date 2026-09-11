@@ -2,7 +2,7 @@
 Tests for secure memory operations.
 
 Tests verify:
-- Memory wiping with multiple overwrite passes
+- Memory wiping via the fallback single zero-fill pass
 - Context manager semantics and automatic cleanup
 - Exception safety (data wiped even on errors)
 - Constant-time comparison resistance
@@ -487,28 +487,28 @@ class TestLibsodiumIntegration:
 
         assert memoryview(data).cast("B").tobytes() == bytes(data.itemsize * len(data))
 
-    def test_fallback_wipe_bounds_random_allocations(self, monkeypatch):
-        """Verify fallback random passes allocate at most one bounded chunk."""
+    def test_fallback_wipe_zeros_in_bounded_chunks(self, monkeypatch):
+        """Verify the fallback zero-fills in at most one bounded chunk at a time."""
         from secure_string_cipher.secure_memory import _fallback_wipe
 
         chunk_size = secure_memory_module._FALLBACK_WIPE_CHUNK_SIZE
         data = bytearray(b"x" * (2 * chunk_size + 17))
         requested_lengths = []
 
-        def deterministic_token_bytes(length):
+        real_bytes = bytes
+
+        def recording_bytes(length):
             requested_lengths.append(length)
-            return b"\xa5" * length
+            return real_bytes(length)
 
         monkeypatch.setattr(
-            secure_memory_module.secrets,
-            "token_bytes",
-            deterministic_token_bytes,
+            secure_memory_module, "bytes", recording_bytes, raising=False
         )
 
         _fallback_wipe(data)
 
-        assert data == bytes(len(data))
-        assert requested_lengths == [chunk_size, chunk_size, 17] * 3
+        assert data == real_bytes(len(data))
+        assert requested_lengths == [chunk_size, chunk_size, 17]
 
     @pytest.mark.skipif(
         not __import__(
