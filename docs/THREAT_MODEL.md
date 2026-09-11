@@ -100,17 +100,24 @@ only protection; anyone who obtains the bytes has the key, with no secondary
 factor required. `--require all` is the only mitigation, and only for objects
 deliberately encrypted that way (§4.2).
 
-### 5.5. Key lifecycle is not enforced by encrypt/decrypt
+### 5.5. Key lifecycle enforcement is opt-in, not automatic
 `ssc key archive` / `revoke` / `destroy` change a status field on the vault's
-metadata record for that key. Neither `ssc encrypt --with key:ID` nor
-`ssc decrypt` consults that status — a revoked or archived `.ssckey` file
-still encrypts and decrypts normally, because key resolution reads the
-`.ssckey` file directly and never queries the vault record.
+metadata record for that key. By default, key resolution for
+`ssc encrypt --with key:ID` and `ssc decrypt` reads the `.ssckey` file
+directly and never queries the vault — a revoked or destroyed key you still
+physically hold keeps working, which is inherent to holding the file, not a
+bug. Passing `--vault LABEL` alongside a key source now unlocks the vault and
+rejects a `REVOKED`/`DESTROYED` key that this vault actually tracks (a bare
+`.ssckey` never registered in this vault can't be checked and is unaffected).
+`archive` never blocks use; it is bookkeeping only.
 
-### 5.6. Local rate limiting is bypassable and not private
-The CLI's exponential-backoff rate limiter keys its persisted state on the
-plaintext file path being decrypted. Copying the ciphertext to a new path
-resets the backoff. The state file (`~/.secure-cipher/rate_limits.json`) also
-accumulates an unbounded, unencrypted history of every file path ever
-decrypted or vault label attempted, with no eviction — treat it as a local
-disclosure risk, not just a rate-limiting one.
+### 5.6. Local rate limiting is bypassable, not a confidentiality risk
+The CLI's exponential-backoff rate limiter identifies a decrypt attempt by a
+salted HMAC of a bounded ciphertext prefix, not the file path — copying the
+ciphertext to a new path inherits the original's lockout rather than
+resetting it. The state file (`~/.secure-cipher/rate_limits.json`) stores
+only these salted HMAC keys (never plaintext paths or labels) and is capped
+at 500 records with LRU eviction. The remaining limitation is enforcement
+scope, not disclosure: it is a local, single-process CLI mechanism, so it
+cannot prevent an offline or distributed password-guessing attack against
+the ciphertext itself.

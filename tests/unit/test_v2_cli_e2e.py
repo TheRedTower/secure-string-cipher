@@ -15,12 +15,15 @@ from unittest.mock import MagicMock
 import pytest
 
 import secure_string_cipher.cli_args as cli_args
+from secure_string_cipher.passphrase_manager import PassphraseVault
 from secure_string_cipher.rate_limiter import PersistentRateLimiter
 from secure_string_cipher.utils import CryptoError
-from secure_string_cipher.v2.key_identity import compute_fingerprint
-from secure_string_cipher.v2.keyfile import KeyFileData, save_keyfile
+from secure_string_cipher.v2.key_identity import KeyStorageMode, compute_fingerprint
+from secure_string_cipher.v2.keyfile import KeyFileData, load_keyfile, save_keyfile
+from secure_string_cipher.v2.vault_service import V2VaultService
 
 PASSWORD = "correct horse battery staple"
+MASTER = "vault-master-password-2026!"  # pragma: allowlist secret
 _SECRET = b"\x5a" * 32
 _FINGERPRINT = compute_fingerprint(_SECRET)
 _KEY_ID = "e2e-key"
@@ -438,3 +441,184 @@ def test_v2_cli_decrypt_key_file_flag_rejected_for_password_grant(
     with pytest.raises(SystemExit) as excinfo:
         cli_args.cmd_decrypt(_decrypt_args(text=armored, key_file=str(key_path)))
     assert excinfo.value.code == cli_args.EXIT_INPUT_ERROR
+
+
+# =============================================================================
+# Key-status enforcement: opt-in via --vault, closes the gap where a revoked
+# or destroyed managed key still works because encrypt/decrypt normally
+# resolve .ssckey files straight off disk without ever consulting the vault.
+# =============================================================================
+
+
+def _register_key_in_vault(
+    home: Path, *, status: str | None = None, key_id: str = _KEY_ID
+) -> None:
+    """Register the standard test key (same fingerprint/secret _use_hermetic_home
+    writes to ~/.ssc/keys/) in this HOME's vault, and optionally set its status.
+    HOME must already be set to `home` before calling this.
+    """
+    vault = PassphraseVault()
+    service = V2VaultService(vault)
+    keyfile_path = home / "for-import.ssckey"
+    _make_keyfile(keyfile_path, key_id=key_id)
+    key_data = load_keyfile(keyfile_path)
+    service.import_key(key_data, KeyStorageMode.EXTERNAL_ONLY, master_password=MASTER)
+    if status == "revoked":
+        service.revoke_key(key_id, MASTER)
+    elif status == "destroyed":
+        service.destroy_key(key_id, MASTER)
+    elif status == "archived":
+        service.archive_key(key_id, MASTER)
+
+
+def _mock_master_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli_args, "_prompt_master_password", lambda: MASTER)
+
+
+def test_v2_cli_encrypt_with_vault_rejects_revoked_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    home = tmp_path / "home"
+    _use_hermetic_home(monkeypatch, home)
+    _register_key_in_vault(home, status="revoked")
+    _mock_master_password(monkeypatch)
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli_args.cmd_encrypt(
+            _encrypt_args(
+                text="secret", with_sources=[f"key:{_FINGERPRINT}"], vault="anything"
+            )
+        )
+    assert excinfo.value.code == cli_args.EXIT_AUTH_ERROR
+    assert "revoked" in capsys.readouterr().err.lower()
+
+
+def test_v2_cli_encrypt_with_vault_rejects_destroyed_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    home = tmp_path / "home"
+    _use_hermetic_home(monkeypatch, home)
+    _register_key_in_vault(home, status="destroyed")
+    _mock_master_password(monkeypatch)
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli_args.cmd_encrypt(
+            _encrypt_args(
+                text="secret", with_sources=[f"key:{_FINGERPRINT}"], vault="anything"
+            )
+        )
+    assert excinfo.value.code == cli_args.EXIT_AUTH_ERROR
+    assert "destroyed" in capsys.readouterr().err.lower()
+
+
+def test_v2_cli_encrypt_with_vault_allows_active_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    home = tmp_path / "home"
+    _use_hermetic_home(monkeypatch, home)
+    _register_key_in_vault(home, status=None)
+    _mock_master_password(monkeypatch)
+
+    rc = cli_args.cmd_encrypt(
+        _encrypt_args(
+            text="secret", with_sources=[f"key:{_FINGERPRINT}"], vault="anything"
+        )
+    )
+    assert rc == cli_args.EXIT_SUCCESS
+
+
+def test_v2_cli_encrypt_with_vault_allows_archived_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Archived is a "not primary" status, not a block — only revoke/destroy
+    are enforced."""
+    home = tmp_path / "home"
+    _use_hermetic_home(monkeypatch, home)
+    _register_key_in_vault(home, status="archived")
+    _mock_master_password(monkeypatch)
+
+    rc = cli_args.cmd_encrypt(
+        _encrypt_args(
+            text="secret", with_sources=[f"key:{_FINGERPRINT}"], vault="anything"
+        )
+    )
+    assert rc == cli_args.EXIT_SUCCESS
+
+
+def test_v2_cli_encrypt_without_vault_flag_ignores_revoked_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Without --vault, enforcement never runs: a physically-held .ssckey
+    file keeps working after revoke, matching documented behavior (this is
+    the existing, deliberately offline-friendly default, not the gap)."""
+    home = tmp_path / "home"
+    _use_hermetic_home(monkeypatch, home)
+    _register_key_in_vault(home, status="revoked")
+
+    rc = cli_args.cmd_encrypt(
+        _encrypt_args(text="secret", with_sources=[f"key:{_FINGERPRINT}"])
+    )
+    assert rc == cli_args.EXIT_SUCCESS
+
+
+def test_v2_cli_encrypt_with_vault_and_unregistered_key_still_works(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A bare .ssckey file that was never imported into this vault has
+    nothing to check against --vault should not block it."""
+    home = tmp_path / "home"
+    _use_hermetic_home(monkeypatch, home)
+    # Initialize an empty vault (no key registered) so vault_exists() is True
+    # and the enforcement path actually runs its lookup instead of short-
+    # circuiting on a missing vault file.
+    vault = PassphraseVault()
+    vault.store_passphrase("__init__", "init", MASTER)
+    _mock_master_password(monkeypatch)
+
+    rc = cli_args.cmd_encrypt(
+        _encrypt_args(
+            text="secret", with_sources=[f"key:{_FINGERPRINT}"], vault="anything"
+        )
+    )
+    assert rc == cli_args.EXIT_SUCCESS
+
+
+def test_v2_cli_decrypt_with_vault_rejects_revoked_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    home = tmp_path / "home"
+    _use_hermetic_home(monkeypatch, home)
+
+    rc = cli_args.cmd_encrypt(
+        _encrypt_args(text="secret", with_sources=[f"key:{_FINGERPRINT}"])
+    )
+    assert rc == cli_args.EXIT_SUCCESS
+    armored = _extract_armored(capsys.readouterr().out)
+
+    _register_key_in_vault(home, status="revoked")
+    _mock_master_password(monkeypatch)
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli_args.cmd_decrypt(_decrypt_args(text=armored, vault="anything"))
+    assert excinfo.value.code == cli_args.EXIT_AUTH_ERROR
+    assert "revoked" in capsys.readouterr().err.lower()
+
+
+def test_v2_cli_decrypt_with_vault_allows_active_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    home = tmp_path / "home"
+    _use_hermetic_home(monkeypatch, home)
+
+    rc = cli_args.cmd_encrypt(
+        _encrypt_args(text="secret", with_sources=[f"key:{_FINGERPRINT}"])
+    )
+    assert rc == cli_args.EXIT_SUCCESS
+    armored = _extract_armored(capsys.readouterr().out)
+
+    _register_key_in_vault(home, status=None)
+    _mock_master_password(monkeypatch)
+
+    rc = cli_args.cmd_decrypt(_decrypt_args(text=armored, vault="anything"))
+    assert rc == cli_args.EXIT_SUCCESS
+    assert capsys.readouterr().out.strip() == "secret"

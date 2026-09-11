@@ -62,6 +62,7 @@ from .v2.encrypt import (
     encrypt_v2_file,
     encrypt_v2_text,
 )
+from .v2.key_identity import KeyStatus
 from .v2.keyfile import KeyFileData, load_keyfile
 from .v2.vault_service import (
     KeyExportSurvivedRegistrationFailureError,
@@ -446,6 +447,8 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
         if has_password and keys and require_all:
             password = _prompt_password("Enter password: ", confirm=True)
             key_data = _resolve_v2_key_source(keys[0])
+            if getattr(args, "vault", None):
+                _enforce_v2_key_status(key_data.fingerprint)
             credential = CombinedCredential(
                 password, key_data.fingerprint, key_data.secret_bytes
             )
@@ -454,6 +457,8 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
             credential = PasswordCredential(password)
         elif keys:
             key_data = _resolve_v2_key_source(keys[0])
+            if getattr(args, "vault", None):
+                _enforce_v2_key_status(key_data.fingerprint)
             credential = KeyCredential(key_data.fingerprint, key_data.secret_bytes)
         else:
             _exit_error(EXIT_INPUT_ERROR, "Invalid --with combination.")
@@ -889,6 +894,45 @@ def _get_v2_password(args: argparse.Namespace) -> str:
     return _prompt_password("Enter password: ", confirm=False)
 
 
+def _enforce_v2_key_status(fingerprint: str) -> None:
+    """Reject a managed key that this vault has marked revoked or destroyed.
+
+    Encrypt/decrypt normally resolve ``.ssckey`` files straight off disk
+    (see ``_resolve_v2_key_source``) without ever touching the vault, so a
+    key you still physically hold keeps working even after ``ssc key
+    revoke``/``destroy`` — that's inherent to holding the file, not a bug.
+    This check is therefore opt-in: it only runs when the caller passes
+    ``--vault``, and even then a key with no matching vault record (a bare
+    ``.ssckey`` that was never registered) can't be checked and is let
+    through unchanged. It only closes the gap for keys this vault actually
+    tracks.
+    """
+    vault = PassphraseVault()
+    if not vault.vault_exists():
+        return
+    master = _prompt_master_password()
+    service = V2VaultService(vault)
+    try:
+        records = service.list_keys(master)
+    except Exception:
+        _exit_error(EXIT_AUTH_ERROR, "Could not unlock vault to check key status.")
+    for record in records:
+        if record.fingerprint != fingerprint:
+            continue
+        if record.status == KeyStatus.REVOKED:
+            _exit_error(
+                EXIT_AUTH_ERROR,
+                f"Key '{record.id}' is revoked in this vault; refusing to use it.",
+            )
+        if record.status == KeyStatus.DESTROYED:
+            _exit_error(
+                EXIT_AUTH_ERROR,
+                f"Key '{record.id}' has been destroyed in this vault; refusing "
+                "to use it.",
+            )
+        return
+
+
 def _resolve_v2_credential_from_header(
     header: V2Header, args: argparse.Namespace
 ) -> V2Credential:
@@ -912,6 +956,8 @@ def _resolve_v2_credential_from_header(
         if not grant.key_fingerprint:
             _exit_error(EXIT_AUTH_ERROR, "No usable access grant found in V2 header.")
         key_data = _resolve_v2_key_source(key_file_ref or grant.key_fingerprint)
+        if getattr(args, "vault", None):
+            _enforce_v2_key_status(grant.key_fingerprint)
         return CombinedCredential(
             passphrase=password,
             key_fingerprint=grant.key_fingerprint,
@@ -932,6 +978,8 @@ def _resolve_v2_credential_from_header(
         if not grant.key_fingerprint:
             _exit_error(EXIT_AUTH_ERROR, "No usable access grant found in V2 header.")
         key_data = _resolve_v2_key_source(key_file_ref or grant.key_fingerprint)
+        if getattr(args, "vault", None):
+            _enforce_v2_key_status(grant.key_fingerprint)
         return KeyCredential(
             key_fingerprint=grant.key_fingerprint, managed_secret=key_data.secret_bytes
         )

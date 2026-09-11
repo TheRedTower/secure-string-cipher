@@ -40,8 +40,12 @@ as an external finding.
 
 - **Per-grant Key Wrapping**: The access grant wraps a 32-byte Data Encryption
   Key (DEK), so the DEK is cryptographically independent of the credential.
-- Key status (`archive`/`revoke`/`destroy`) changes the vault record only;
-  encryption and decryption do not currently check a key's status.
+- **Key status enforcement (opt-in)**: `ssc encrypt --with key:ID` and
+  `ssc decrypt` resolve `.ssckey` files directly off disk by default and
+  never consult vault status — a key you still hold keeps working after
+  `archive`/`revoke`/`destroy`, which is inherent to holding the file.
+  Passing `--vault LABEL` alongside a key source now unlocks the vault and
+  rejects a `revoked`/`destroyed` key that this vault tracks.
 
 ### Changed
 
