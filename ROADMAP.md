@@ -25,19 +25,24 @@ independent third-party security audit. Cross-process vault locking and
 
 ---
 
-## SSC v2.0.0 — Managed Key Identity Utility (MERGED TO MAIN, NOT YET RELEASED)
+## SSC v2 (the `.ssc` container format) — shipping in package v2.0.0
 
-SSC v2.0.0 is a managed-key architecture alongside the v1 core, designed from
-[`docs/V2_MANAGED_KEYS_ARCHITECTURE.md`](docs/V2_MANAGED_KEYS_ARCHITECTURE.md)
+"v2" is the name of the managed-key container format, not the package
+version — the two happen to share a number in this release, but for an
+unrelated reason: it ships as part of package release **v2.0.0**, a major
+bump because `ssc vault backups`/`ssc vault restore` changed incompatibly
+(numeric indices → stable string identifiers) relative to v1.3.0 — see
+CHANGELOG.md's `[2.0.0]` entry. The managed-key feature itself is purely
+additive: no other existing v1 API/CLI/format changed or was removed.
+Designed from [`docs/V2_MANAGED_KEYS_ARCHITECTURE.md`](docs/V2_MANAGED_KEYS_ARCHITECTURE.md)
 and refined in
 [`docs/SSC_V2_REFINED_IMPLEMENTATION_SPEC.md`](docs/SSC_V2_REFINED_IMPLEMENTATION_SPEC.md).
 The full feature — container format, `.ssckey` identities, vault-backed key
 lifecycle, and CLI integration (`ssc encrypt --with ...`, `ssc key ...`) —
-merged to `main` in PR #40 (commit `59147fc`) on 2026-09-11, followed by 7
-more fixes from an automated PR review. `ssc key create` and `ssc key rename`
-now work end to end (a 2026-09-10 audit had found both broken; that audit is
-no longer current). What's still open before a release is a small, concrete
-list, not a general "incomplete" caveat — see the release gate below.
+merged to `main` in PR #40 (commit `59147fc`) on 2026-09-11, followed by
+fixes from three automated PR reviews and the release-gate closures below.
+`ssc key create` and `ssc key rename` work end to end (a 2026-09-10 audit
+had found both broken; that audit is no longer current).
 
 High-level v2 goals:
 
@@ -68,19 +73,20 @@ High-level v2 goals:
 - Auto-detect v1/v2 during decrypt.
 - Keep v2 explicit on encrypt until the format and tests are mature.
 
-Required v2.0.0 release gate (tracked live against this roadmap, not an
-external audit — current status as of 2026-09-11):
+Required v2.0.0 release gate — all items below are now closed as of
+2026-09-11; this roadmap no longer tracks an open release gate for v2.
 
-- golden compatibility fixtures for the KDF/wrap/commitment layers and the
-  three grant-header shapes exist; **container- and frame-level golden
-  vectors still do not exist** — round-trip and tamper tests cover
-  correctness extensively, but nothing pins the exact on-disk `.ssc`
-  byte format the way the header fixtures pin the header;
-- tamper tests exist for the header and frame layers;
-- vault migration tests exist.
-
-Closed as of 2026-09-11:
-
+- golden compatibility fixtures for the KDF/wrap/commitment layers, the
+  three grant-header shapes, tamper tests for the header and frame layers,
+  and vault migration tests all exist.
+- **Container/frame-level golden vector.** `tools/generate_v2_vectors.py`
+  now also generates a container through the real `encrypt_v2_file`,
+  checked in as `tests/fixtures/v2/golden_two_frame_container.ssc`
+  (`tests/unit/test_v2_container_golden.py`): the fixture's own bytes are
+  pinned by sha256, it must always decrypt to the exact recorded
+  plaintext, and both frames' raw magic/index/length/flags layout is
+  verified directly, not just via successful decryption. Necessarily
+  decrypt-only (frame nonces/salts are random every encryption by design).
 - **Key status (`archive`/`revoke`/`destroy`) enforcement at encrypt/decrypt
   time.** By default `cli_args.py::_resolve_v2_key_source` still resolves
   `.ssckey` files directly off disk without consulting vault status — a

@@ -2,14 +2,23 @@
 
 ## [Unreleased]
 
-## [2.0.0] - Merged to main, not yet released (see [ROADMAP.md](ROADMAP.md))
+## [2.0.0] - 2026-09-11
 
-This entry describes the v2 managed-key feature as it stands on `main`
-(merged via PR #40, commit `59147fc`, 2026-09-11) — it is not yet the source
-of a tagged release. A 2026-09-10 independent audit found several issues in
-an earlier state of this work; the ones that have since been fixed are noted
-as such below, and the ones still open are kept as a live gate, not restated
-as an external finding.
+This is a major version for one specific reason: **`ssc vault backups`/
+`ssc vault restore` changed incompatibly relative to v1.3.0** (see
+"BREAKING" under Changed below) — a change that already existed on `main`
+before this release was prepared, but had never been reflected in the
+package version. It is not related to, and not caused by, the managed-key
+feature described below, which is internally named "v2" for the `.ssc`
+container format it introduces but is itself purely additive — no other
+existing v1 public API, CLI command, or file format changed or was removed.
+See [ROADMAP.md](ROADMAP.md) for why the container-format name and the
+package version are only coincidentally the same number here. The
+managed-key feature merged to `main` via PR #40 (commit `59147fc`); a
+2026-09-10 independent audit found several issues in an earlier state of
+that work, all of which are fixed as of this release. The one intentionally
+deferred item is `ssc start` interactive-menu parity for v2 — see
+ROADMAP.md.
 
 ### Added
 
@@ -25,16 +34,39 @@ as an external finding.
   `V2VaultService`) with vault-backed storage for the `vault-copy` mode.
 - **Key Lifecycle Commands**: `ssc key create`, `import`, `show`, `export`,
   `list`, `rename`, `archive`, `revoke`, and `destroy` all work end to end
-  against a real `V2VaultService` backend. (An earlier draft of this work
-  had `create` unable to take a name and discarding the generated secret,
-  and `rename` as an unconditional stub; both are fixed.) Note: there is
-  still no CLI end-to-end test coverage for this command group — only the
-  underlying vault-service methods and CLI argument parsing are tested
-  directly.
+  against a real `V2VaultService` backend, with CLI end-to-end test coverage
+  for all nine subcommands. (An earlier draft of this work had `create`
+  unable to take a name and discarding the generated secret, and `rename`
+  as an unconditional stub; both are fixed.)
 - **Vault Service Upgrade**: `V2VaultService` bridges password and key
   storage across OS keychain and filesystem boundaries.
 - **V2 API Surface**: Exported public APIs under `secure_string_cipher.v2` for
   programmatic use.
+- **Container/frame-level golden vector**: a real `.ssc` container generated
+  through `encrypt_v2_file` is checked into `tests/fixtures/v2/` and must
+  always decrypt correctly, pinning the shipped wire format the way the
+  header-level golden vectors already pinned the header.
+
+### Changed
+
+- **BREAKING: `ssc vault backups` / `ssc vault restore` no longer use
+  numeric indices.** In v1.3.0, `ssc vault backups` printed `[0] ...`,
+  `[1] ...` and `ssc vault restore 0` took that index. Backups are now
+  identified by a stable string identifier: `ssc vault backups` prints
+  `<identifier>  <created_at>`, and `ssc vault restore <identifier>` takes
+  that identifier, not a position. A v1.3.0 script or alias that runs
+  `ssc vault restore 0` will now fail (or, if a backup happens to have the
+  literal identifier `0`, silently target the wrong thing) — there is no
+  compatibility shim, since a numeric index was never a safe way to
+  identify a specific backup in the first place (it shifted under
+  concurrent writes). This change was already present on `main` before
+  this release was prepared; it is the reason this is a major version,
+  not the managed-key feature below.
+- Legacy V4/V5 files (`.enc`) remain fully readable via legacy commands.
+- `ssc encrypt` argument parsing was updated to support `--with` and
+  `--require`. **`ssc decrypt` was not** — it has no `--with`/`--require`
+  flags; it detects `.ssc` files by magic bytes and resolves the credential
+  type from the file's own header.
 
 ### Security
 
@@ -46,17 +78,6 @@ as an external finding.
   `archive`/`revoke`/`destroy`, which is inherent to holding the file.
   Passing `--vault LABEL` alongside a key source now unlocks the vault and
   rejects a `revoked`/`destroyed` key that this vault tracks.
-
-### Changed
-
-- Legacy V4/V5 files (`.enc`) remain fully readable via legacy commands.
-- `ssc encrypt` argument parsing was updated to support `--with` and
-  `--require`. **`ssc decrypt` was not** — it has no `--with`/`--require`
-  flags; it detects `.ssc` files by magic bytes and resolves the credential
-  type from the file's own header.
-
-### Security
-
 - Added a streaming same-directory atomic writer and routed existing vault byte
   writes through it.
 - File encryption now publishes only after GCM finalization and sync. File
@@ -77,9 +98,11 @@ as an external finding.
   restore through the configured backend. Candidates authenticate before
   mutation; active raw state is backed up; publication is read back and
   revalidated; post-write failures attempt rollback and report its status.
-- Vault backups now use collision-resistant stable identifiers, atomic
-  no-overwrite publication, restrictive POSIX permissions, and retention that
-  protects both the selected restore source and new pre-replacement snapshot.
+- Vault backup publication is now atomic and no-overwrite, uses restrictive
+  POSIX permissions, and retention protects both the selected restore
+  source and the new pre-replacement snapshot. The collision-resistant
+  stable identifiers this relies on are what made `ssc vault restore`'s
+  interface change (see **BREAKING** under Changed) necessary.
 - Restored writer/reader compatibility by treating stored filenames as bounded
   metadata, authenticating version 5 before destination sanitization, and
   continuing to ignore version 4 names for automatic output selection.
