@@ -7,6 +7,12 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+# Cancel a superseded run when new commits land on the same PR/branch, but
+# never cancel a run already in progress on main — that history stays complete.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 permissions:
   contents: read
 
@@ -16,7 +22,7 @@ jobs:
     name: Code Quality Checks
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Set up Python 3.14
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -25,7 +31,7 @@ jobs:
         allow-prereleases: true
 
     - name: Install uv
-      uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
+      uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
       with:
         version: "0.9.17"
         enable-cache: true
@@ -69,13 +75,10 @@ jobs:
         git diff --exit-code -- .secrets.baseline
 
     - name: Security scan - Production Vulnerabilities
-      run: |
-        audit_requirements="$(mktemp)"
-        trap 'rm -f "$audit_requirements"' EXIT
-        uv export --quiet --locked --no-dev --no-emit-project \
-          --output-file "$audit_requirements"
-        uv run --locked pip-audit --requirement "$audit_requirements" \
-          --require-hashes --disable-pip --desc
+      run: make dependency-audit
+
+    - name: Build package
+      run: make build
 
   # Test matrix runs in parallel after quality checks pass
   test:
@@ -88,7 +91,7 @@ jobs:
         python-version: ["3.12", "3.13", "3.14"]
 
     steps:
-    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -97,7 +100,7 @@ jobs:
         allow-prereleases: true
 
     - name: Install uv
-      uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
+      uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
       with:
         version: "0.9.17"
         enable-cache: true
@@ -123,24 +126,26 @@ jobs:
         fi
 
   platform-safety:
-    name: Platform Safety (${{ matrix.os }})
+    name: Platform Safety (${{ matrix.os }} - ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     needs: quality
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.12", "3.13", "3.14"]
 
     steps:
-    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Set up Python 3.12
+    - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
       with:
-        python-version: "3.12"
+        python-version: ${{ matrix.python-version }}
+        allow-prereleases: true
 
     - name: Install uv
-      uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
+      uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
       with:
         version: "0.9.17"
         enable-cache: true
@@ -160,4 +165,7 @@ jobs:
         tests/unit/test_vault_transport.py
         tests/unit/test_vault_candidate_validation.py
         tests/unit/test_vault_transactions.py
+        tests/unit/test_v2_vault_transactions.py
+        tests/unit/test_v2_output_safety.py
+        tests/unit/test_v2_keyfile.py
         -n 0

@@ -2,6 +2,50 @@
 
 ## [Unreleased]
 
+## [2.0.0] - Unreleased, incomplete (see [ROADMAP.md](ROADMAP.md))
+
+This entry describes work in progress on `codex/v2-module-skeleton`, not a
+release. A 2026-09-10 independent audit found several of the items below do
+not work as described; each is annotated below rather than restated as fact.
+
+### Added
+
+- **V2 Container Format (`.ssc`)**: A new binary-framed format (`V2Header`)
+  with a canonical-JSON protected header and AEAD DEK wrapping. Each object
+  carries exactly **one** access grant — there is no multi-grant access
+  control despite earlier drafts of this entry claiming otherwise.
+- **Combined authentication**: Encrypt with `--with password --with key:ID
+  --require all` to require both together in a single grant.
+  `--require any` with more than one source is rejected by the CLI.
+- **Managed Keys**: `.ssckey` identity files (random 256-bit secrets, not
+  deterministic; there is no `KeyManager` class — the implementation is
+  `V2VaultService`) with vault-backed storage for the `vault-copy` mode.
+- **Key Lifecycle Commands**: `ssc key import`, `ssc key show`, `ssc key
+  export`, `ssc key archive`, `ssc key revoke`, `ssc key destroy`, and `ssc
+  key list` work. `ssc key create` cannot take a name yet and its default
+  mode does not persist the generated secret anywhere recoverable —
+  treat it as non-functional pending a fix. `ssc key rename` is registered
+  but unconditionally exits with an error; the backing method does not exist.
+- **Vault Service Upgrade**: `V2VaultService` bridges password and key
+  storage across OS keychain and filesystem boundaries.
+- **V2 API Surface**: Exported public APIs under `secure_string_cipher.v2` for
+  programmatic use.
+
+### Security
+
+- **Per-grant Key Wrapping**: The access grant wraps a 32-byte Data Encryption
+  Key (DEK), so the DEK is cryptographically independent of the credential.
+- Key status (`archive`/`revoke`/`destroy`) changes the vault record only;
+  encryption and decryption do not currently check a key's status.
+
+### Changed
+
+- Legacy V4/V5 files (`.enc`) remain fully readable via legacy commands.
+- `ssc encrypt` argument parsing was updated to support `--with` and
+  `--require`. **`ssc decrypt` was not** — it has no `--with`/`--require`
+  flags; it detects `.ssc` files by magic bytes and resolves the credential
+  type from the file's own header.
+
 ### Security
 
 - Added a streaming same-directory atomic writer and routed existing vault byte

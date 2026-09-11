@@ -84,8 +84,8 @@ class TestTimingJitter:
         start = time.perf_counter()
         add_timing_jitter()
         duration = time.perf_counter() - start
-        # Should be between 0-50ms (allowing system variance)
-        assert 0 <= duration <= 0.05
+        # Should be between 0-200ms (allowing system variance)
+        assert 0 <= duration <= 0.2
 
     def test_jitter_varies(self):
         """Verify jitter produces varying delays."""

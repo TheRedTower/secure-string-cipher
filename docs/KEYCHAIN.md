@@ -99,8 +99,10 @@ ssc vault backend keychain
 
 Import, backup listing, and restore use this configured backend; they do not
 silently instantiate a file-only vault. Backup files remain encrypted raw vault
-records in the configured backup directory. There is no cross-process vault
-lock, and the focused CI matrix mocks credential-store behavior rather than
+records in the configured backup directory. Vault mutations hold a
+cooperative, advisory cross-process lock (bounded timeout); it has not been
+exercised against real multi-process contention on every supported platform,
+and the focused CI matrix mocks credential-store behavior rather than
 exercising a real logged-in OS keychain.
 
 ## Troubleshooting
