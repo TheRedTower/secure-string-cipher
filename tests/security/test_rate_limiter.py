@@ -9,8 +9,11 @@ Tests verify:
 - Decorator functionality
 """
 
+import hashlib
+import hmac
 import json
 import math
+import secrets
 import sys
 import threading
 import time
@@ -26,24 +29,51 @@ from secure_string_cipher.rate_limiter import (
 )
 
 
+def _derive_key(salt: bytes, operation: str, identifier: str = "") -> str:
+    """Independently reproduce PersistentRateLimiter._make_key's on-disk format.
+
+    Deliberately re-derives the formula from spec rather than calling the
+    implementation under test, so these tests would catch a regression in
+    that formula rather than trivially agreeing with it.
+    """
+    raw = f"{operation}:{identifier}".encode()
+    digest = hmac.new(salt, raw, hashlib.sha256).hexdigest()[:32]
+    return f"{operation}:{digest}"
+
+
+def _write_state_file(state_path, records, *, salt=None):
+    """Write a rate-limiter state file keyed exactly as the real code would.
+
+    `records` maps (operation, identifier) -> a dict of AttemptRecord fields
+    (attempts/lockout_until/consecutive_failures, last_seen optional).
+    Returns the salt used, so callers needing to inject more entries later
+    (or assert against the raw file) can reuse the same derivation.
+    """
+    if salt is None:
+        salt = secrets.token_bytes(32)
+    data = {"__salt__": salt.hex()}
+    for (operation, identifier), fields in records.items():
+        data[_derive_key(salt, operation, identifier)] = fields
+    state_path.write_text(json.dumps(data), encoding="utf-8")
+    return salt
+
+
 class TestPersistentRateLimiter:
     """Persistence loading rejects malformed records without crashing."""
 
     @staticmethod
-    def _write_valid_state(state_path, *, operation="decrypt:file.enc"):
+    def _write_valid_state(state_path, *, operation="decrypt", identifier="file.enc"):
         """Write one recent failed attempt and return its timestamp."""
         timestamp = time.time()
-        state_path.write_text(
-            json.dumps(
-                {
-                    operation: {
-                        "attempts": [timestamp],
-                        "lockout_until": 0.0,
-                        "consecutive_failures": 1,
-                    }
+        _write_state_file(
+            state_path,
+            {
+                (operation, identifier): {
+                    "attempts": [timestamp],
+                    "lockout_until": 0.0,
+                    "consecutive_failures": 1,
                 }
-            ),
-            encoding="utf-8",
+            },
         )
         return timestamp
 
@@ -55,6 +85,21 @@ class TestPersistentRateLimiter:
         limiter = PersistentRateLimiter(str(state_path), max_attempts=3)
 
         assert limiter.get_remaining_attempts("decrypt", "file.enc") == 2
+
+    def test_persisted_keys_do_not_reveal_the_identifier(self, tmp_path):
+        """The on-disk file must not contain the plaintext identifier."""
+        state_path = tmp_path / "rate_limits.json"
+        limiter = PersistentRateLimiter(str(state_path), max_attempts=1)
+        limiter.record_attempt(
+            "decrypt_file", "/home/alice/very-secret-report.pdf.enc", success=False
+        )
+
+        raw = state_path.read_text()
+        assert "very-secret-report" not in raw
+        assert "/home/alice" not in raw
+        # The operation name staying readable is fine; only the identifier
+        # component must be unrecoverable from the file.
+        assert "decrypt_file:" in raw
 
     def test_reload_preserves_lockout_and_next_backoff(self, tmp_path, monkeypatch):
         """Reload keeps the existing deadline and uses the next failure exponent."""
@@ -74,18 +119,24 @@ class TestPersistentRateLimiter:
         limiter = load_limiter()
         limiter.record_attempt("decrypt", "file.enc")
         assert limiter.check_rate_limit("decrypt", "file.enc") == (False, 10)
-        first_record = json.loads(state_path.read_text())["decrypt:file.enc"]
+        disk_key = limiter._make_key("decrypt", "file.enc")
+        first_record = json.loads(state_path.read_text())[disk_key]
         assert first_record["lockout_until"] == 1_010
         assert first_record["consecutive_failures"] == 1
 
         now = 1_005.0
         reloaded = load_limiter()
         assert reloaded.check_rate_limit("decrypt", "file.enc") == (False, 5)
-        assert json.loads(state_path.read_text())["decrypt:file.enc"] == first_record
+        reloaded_record = dict(json.loads(state_path.read_text())[disk_key])
+        # last_seen legitimately advances on every check; compare everything else.
+        reloaded_record.pop("last_seen", None)
+        expected = dict(first_record)
+        expected.pop("last_seen", None)
+        assert reloaded_record == expected
 
         now = 1_011.0
         assert reloaded.check_rate_limit("decrypt", "file.enc") == (False, 20)
-        second_record = json.loads(state_path.read_text())["decrypt:file.enc"]
+        second_record = json.loads(state_path.read_text())[disk_key]
         assert second_record["lockout_until"] == 1_031
         assert second_record["consecutive_failures"] == 2
 
@@ -96,18 +147,17 @@ class TestPersistentRateLimiter:
         """An unrepresentable next delay must not discard an existing lockout."""
         state_path = tmp_path / "rate_limits.json"
         monkeypatch.setattr(time, "time", lambda: 1_000.0)
-        state_path.write_text(
-            json.dumps(
-                {
-                    "decrypt:": {
-                        "attempts": [1_000.0],
-                        "lockout_until": deadline,
-                        "consecutive_failures": 2,
-                    }
+        salt = _write_state_file(
+            state_path,
+            {
+                ("decrypt", ""): {
+                    "attempts": [1_000.0],
+                    "lockout_until": deadline,
+                    "consecutive_failures": 2,
                 }
-            ),
-            encoding="utf-8",
+            },
         )
+        disk_key = _derive_key(salt, "decrypt")
 
         for _ in range(2):
             limiter = PersistentRateLimiter(
@@ -119,7 +169,7 @@ class TestPersistentRateLimiter:
             allowed, wait = limiter.check_rate_limit("decrypt")
             assert not allowed
             assert math.isfinite(wait) and wait > 0
-            record = json.loads(state_path.read_text())["decrypt:"]
+            record = json.loads(state_path.read_text())[disk_key]
             assert record["lockout_until"] == (
                 deadline if deadline > 1_000 else sys.float_info.max
             )
@@ -130,29 +180,28 @@ class TestPersistentRateLimiter:
     ):
         state_path = tmp_path / "rate_limits.json"
         monkeypatch.setattr(time, "time", lambda: 1_000.0)
-        state_path.write_text(
-            json.dumps(
-                {
-                    "decrypt:": {
-                        "attempts": [1_000.0],
-                        "lockout_until": 1_010.0,
-                        "consecutive_failures": failures,
-                    }
+        salt = _write_state_file(
+            state_path,
+            {
+                ("decrypt", ""): {
+                    "attempts": [1_000.0],
+                    "lockout_until": 1_010.0,
+                    "consecutive_failures": failures,
                 }
-            ),
-            encoding="utf-8",
+            },
         )
+        disk_key = _derive_key(salt, "decrypt")
         limiter = PersistentRateLimiter(str(state_path), max_attempts=1)
         assert limiter.check_rate_limit("decrypt") == (False, 10)
         assert (
-            json.loads(state_path.read_text())["decrypt:"]["consecutive_failures"]
+            json.loads(state_path.read_text())[disk_key]["consecutive_failures"]
             == 1_000
         )
 
         monkeypatch.setattr(time, "time", lambda: 1_011.0)
         allowed, wait = limiter.check_rate_limit("decrypt")
         assert not allowed and math.isfinite(wait)
-        record = json.loads(state_path.read_text())["decrypt:"]
+        record = json.loads(state_path.read_text())[disk_key]
         assert record["consecutive_failures"] == 1_000
         assert math.isfinite(record["lockout_until"])
         assert not PersistentRateLimiter(str(state_path)).check_rate_limit("decrypt")[0]
@@ -169,8 +218,9 @@ class TestPersistentRateLimiter:
         limiter.record_attempt("decrypt")
         allowed, wait = limiter.check_rate_limit("decrypt")
         assert not allowed and math.isfinite(wait)
+        disk_key = limiter._make_key("decrypt")
         assert (
-            json.loads(state_path.read_text())["decrypt:"]["lockout_until"]
+            json.loads(state_path.read_text())[disk_key]["lockout_until"]
             == sys.float_info.max
         )
         assert not PersistentRateLimiter(str(state_path)).check_rate_limit("decrypt")[0]
@@ -179,30 +229,28 @@ class TestPersistentRateLimiter:
         """Bad timestamps are dropped without hiding a valid sibling record."""
         state_path = tmp_path / "rate_limits.json"
         timestamp = time.time()
-        state_path.write_text(
-            json.dumps(
-                {
-                    "mixed-attempts:": {
-                        "attempts": [
-                            timestamp,
-                            True,
-                            float("nan"),
-                            float("inf"),
-                            float("-inf"),
-                            10**400,
-                            -1,
-                        ],
-                        "lockout_until": 0.0,
-                        "consecutive_failures": 1,
-                    },
-                    "valid:": {
-                        "attempts": [timestamp],
-                        "lockout_until": 0.0,
-                        "consecutive_failures": 1,
-                    },
-                }
-            ),
-            encoding="utf-8",
+        _write_state_file(
+            state_path,
+            {
+                ("mixed-attempts", ""): {
+                    "attempts": [
+                        timestamp,
+                        True,
+                        float("nan"),
+                        float("inf"),
+                        float("-inf"),
+                        10**400,
+                        -1,
+                    ],
+                    "lockout_until": 0.0,
+                    "consecutive_failures": 1,
+                },
+                ("valid", ""): {
+                    "attempts": [timestamp],
+                    "lockout_until": 0.0,
+                    "consecutive_failures": 1,
+                },
+            },
         )
 
         limiter = PersistentRateLimiter(str(state_path), max_attempts=3)
@@ -237,18 +285,16 @@ class TestPersistentRateLimiter:
             "consecutive_failures": 1,
         }
         invalid_record[field] = invalid_value
-        state_path.write_text(
-            json.dumps(
-                {
-                    "invalid:": invalid_record,
-                    "valid:": {
-                        "attempts": [timestamp],
-                        "lockout_until": 0.0,
-                        "consecutive_failures": 1,
-                    },
-                }
-            ),
-            encoding="utf-8",
+        _write_state_file(
+            state_path,
+            {
+                ("invalid", ""): invalid_record,
+                ("valid", ""): {
+                    "attempts": [timestamp],
+                    "lockout_until": 0.0,
+                    "consecutive_failures": 1,
+                },
+            },
         )
 
         limiter = PersistentRateLimiter(str(state_path), max_attempts=3)
@@ -262,7 +308,7 @@ class TestPersistentRateLimiter:
     ):
         """A failed reload must not erase the last valid in-memory state."""
         state_path = tmp_path / "rate_limits.json"
-        self._write_valid_state(state_path, operation="keep:")
+        self._write_valid_state(state_path, operation="keep", identifier="")
         limiter = PersistentRateLimiter(str(state_path), max_attempts=3)
 
         if replacement is None:
@@ -276,11 +322,18 @@ class TestPersistentRateLimiter:
     def test_oversized_json_integer_preserves_loaded_records(self, tmp_path):
         """JSON integer parse limits are treated as malformed persisted state."""
         state_path = tmp_path / "rate_limits.json"
-        self._write_valid_state(state_path, operation="keep:")
+        self._write_valid_state(state_path, operation="keep", identifier="")
         limiter = PersistentRateLimiter(str(state_path), max_attempts=3)
+        bad_key = limiter._make_key("bad", "")
+        # Built as a raw literal rather than via json.dumps: the point is an
+        # absurdly large integer *token* in the source text, which is what
+        # exercises Python's integer-string conversion length guard.
+        oversized_int = "9" * 5_000
         state_path.write_text(
-            '{"bad:": {"attempts": [], "lockout_until": '
-            + ("9" * 5_000)
+            "{"
+            + json.dumps(bad_key)
+            + ': {"attempts": [], "lockout_until": '
+            + oversized_int
             + ', "consecutive_failures": 0}}',
             encoding="utf-8",
         )
@@ -288,6 +341,37 @@ class TestPersistentRateLimiter:
         limiter._load_state()
 
         assert limiter.get_remaining_attempts("keep") == 2
+
+    def test_stale_records_are_pruned_and_persisted_count_is_bounded(
+        self, tmp_path, monkeypatch
+    ):
+        """Fully-expired, unescalated records are dropped; overflow is capped."""
+        from secure_string_cipher import rate_limiter as rl_module
+
+        monkeypatch.setattr(rl_module, "_MAX_PERSISTED_RECORDS", 5)
+        now = 1_000.0
+        monkeypatch.setattr(time, "time", lambda: now)
+
+        limiter = PersistentRateLimiter(
+            str(tmp_path / "rate_limits.json"), max_attempts=100, window_seconds=10_000
+        )
+        # A record that fails once, then succeeds: fully resettable, prunable.
+        limiter.record_attempt("decrypt_file", "prunable", success=False)
+        limiter.record_attempt("decrypt_file", "prunable", success=True)
+
+        # More distinct identifiers than the (monkeypatched) cap allows.
+        for i in range(10):
+            now = 1_000.0 + i
+            limiter.record_attempt("decrypt_file", f"id-{i}", success=False)
+
+        on_disk = json.loads((tmp_path / "rate_limits.json").read_text())
+        record_keys = [k for k in on_disk if k != "__salt__"]
+        assert len(record_keys) <= 5
+        prunable_key = limiter._make_key("decrypt_file", "prunable")
+        assert prunable_key not in on_disk
+        # The most recently touched identifiers should be the ones retained.
+        for i in range(6, 10):
+            assert limiter._make_key("decrypt_file", f"id-{i}") in on_disk
 
 
 class TestRateLimiterBasic:

@@ -1,0 +1,313 @@
+{
+  "hkdf": [
+    {
+      "ikm": "CwsLCwsLCwsLCwsLCwsLCwsLCwsLCw",
+      "salt": "AAAAAAAAAAAAAAAAAA",
+      "info": "secure-string-cipher/v2/password/dek-wrap/aes-256-gcm",
+      "okm": "aQA8H-jEYjiOY7B4hub2K3po7p9QOGcbRVnKmVLjA9k"
+    }
+  ],
+  "argon2": [
+    {
+      "password": "cGFzc3dvcmQxMjM",
+      "salt": "QUFBQUFBQUFBQUFBQUFBQQ",
+      "version": 19,
+      "memory_kib": 65536,
+      "time_cost": 3,
+      "parallelism": 4,
+      "hash_len": 32,
+      "output": "rkvhR3RNslgVKFG-9mjuAcH3xrUWXjCMCIfP5GGy4H8"
+    }
+  ],
+  "grants": {
+    "password": {
+      "password": "password123",
+      "argon2_salt": "QUFBQUFBQUFBQUFBQUFBQQ",
+      "dek": "REREREREREREREREREREREREREREREREREREREREREQ",
+      "r": "rkvhR3RNslgVKFG-9mjuAcH3xrUWXjCMCIfP5GGy4H8",
+      "kek": "3PSylhQwfLKeAQ6zNfm_RbtO6rweTjo_xyiIMbJseYk",
+      "k_commit": "UZw50YTst8vuBevL6UM1wHbcpVvTVZ5NKNc5_kwwS60",
+      "wrap_aad": "U1NDMi93cmFwL3YxAJTZK5-bgzQCN4jDyEuu3cIM8IlBUDCxo68NpyjYm0Gj",
+      "wrapped_dek": "DMQBp2EzwZaAzyZRKyhHL6Fqy9MHs6HdO51Xp14J4lA",
+      "tag": "A2JuZnjFd53hKcj_tWExXA",
+      "commit_value": "qtyqQXUfL3dbsQUE-4JzM6TD1n_CCzqRgAuQkn70U_8",
+      "payload_header_digest": "4Lzk0rtZq_ZWa98P8_2weguUcncqzaCTIARMtaR02cA",
+      "complete_header": {
+        "format": "SSC2",
+        "version": 2,
+        "object_id": "T09PT09PT09PT09PT09PTw",
+        "object_type": "text",
+        "payload": {
+          "type": "text",
+          "alg": "aes-256-gcm",
+          "kdf": {
+            "alg": "hkdf-sha256",
+            "salt": "UFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFA"
+          },
+          "metadata_policy": "hidden",
+          "nonce": "Tk5OTk5OTk5OTk5O",
+          "plaintext_length": 100
+        },
+        "metadata": {
+          "policy": "hidden"
+        },
+        "access": {
+          "version": 1,
+          "policy": "single-grant",
+          "grants": [
+            {
+              "grant_id": "grant-0",
+              "type": "password",
+              "password_kdf": {
+                "alg": "argon2id",
+                "version": 19,
+                "memory_kib": 65536,
+                "time_cost": 3,
+                "parallelism": 4,
+                "hash_len": 32,
+                "salt": "QUFBQUFBQUFBQUFBQUFBQQ"
+              },
+              "kek_derivation": {
+                "alg": "hkdf-sha256",
+                "salt": "S0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0s"
+              },
+              "wrap_alg": "aes-256-gcm",
+              "wrap_nonce": "V1dXV1dXV1dXV1dX",
+              "commitment": {
+                "alg": "hmac-sha256",
+                "kdf": {
+                  "alg": "hkdf-sha256",
+                  "salt": "Q0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0M"
+                },
+                "value": "qtyqQXUfL3dbsQUE-4JzM6TD1n_CCzqRgAuQkn70U_8"
+              },
+              "wrapped_dek": "DMQBp2EzwZaAzyZRKyhHL6Fqy9MHs6HdO51Xp14J4lA",
+              "tag": "A2JuZnjFd53hKcj_tWExXA"
+            }
+          ]
+        }
+      }
+    },
+    "managed_key": {
+      "managed_secret": "TU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU0",
+      "fingerprint": "ssc-k1-VFLJKNAZMJW4K4M3AX5BT2IM4AADH3462TYKWJ6NDIVIEXLNO6DQ",
+      "dek": "REREREREREREREREREREREREREREREREREREREREREQ",
+      "r": "TU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU0",
+      "kek": "WmMv6D-fzB6V-m5eahsN_cACEWLpUjlc20ixCuyKpSY",
+      "k_commit": "JAKdvGDF1KKZz8z6DV5NXsG-j6i5WDwSEMSWZMzyTM8",
+      "wrap_aad": "U1NDMi93cmFwL3YxAMtV2wJbrARUy7-zHYcK5VkD8cW8WPxA2wFm1zL2heVh",
+      "wrapped_dek": "OXmEbOHURN4RFwEnZxzU-JTq8BHpFkoEEMm6FamtdGk",
+      "tag": "T615zSoMmUrCuCKJL0BRzw",
+      "commit_value": "CXdmhocFc5lshaWFAO6-ZpXvwFgr__MjhoSNSTx6BAs",
+      "payload_header_digest": "rN1U7rF3QacD6b7FagudcRFqLywYpyVmV8lGJxLyEoc",
+      "complete_header": {
+        "format": "SSC2",
+        "version": 2,
+        "object_id": "T09PT09PT09PT09PT09PTw",
+        "object_type": "text",
+        "payload": {
+          "type": "text",
+          "alg": "aes-256-gcm",
+          "kdf": {
+            "alg": "hkdf-sha256",
+            "salt": "UFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFA"
+          },
+          "metadata_policy": "hidden",
+          "nonce": "Tk5OTk5OTk5OTk5O",
+          "plaintext_length": 100
+        },
+        "metadata": {
+          "policy": "hidden"
+        },
+        "access": {
+          "version": 1,
+          "policy": "single-grant",
+          "grants": [
+            {
+              "grant_id": "grant-0",
+              "type": "managed-key",
+              "key_fingerprint": "ssc-k1-VFLJKNAZMJW4K4M3AX5BT2IM4AADH3462TYKWJ6NDIVIEXLNO6DQ",
+              "kek_derivation": {
+                "alg": "hkdf-sha256",
+                "salt": "S0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0s"
+              },
+              "wrap_alg": "aes-256-gcm",
+              "wrap_nonce": "V1dXV1dXV1dXV1dX",
+              "commitment": {
+                "alg": "hmac-sha256",
+                "kdf": {
+                  "alg": "hkdf-sha256",
+                  "salt": "Q0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0M"
+                },
+                "value": "CXdmhocFc5lshaWFAO6-ZpXvwFgr__MjhoSNSTx6BAs"
+              },
+              "wrapped_dek": "OXmEbOHURN4RFwEnZxzU-JTq8BHpFkoEEMm6FamtdGk",
+              "tag": "T615zSoMmUrCuCKJL0BRzw"
+            }
+          ]
+        }
+      }
+    },
+    "combined": {
+      "password": "password123",
+      "argon2_salt": "QUFBQUFBQUFBQUFBQUFBQQ",
+      "managed_secret": "TU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU0",
+      "fingerprint": "ssc-k1-VFLJKNAZMJW4K4M3AX5BT2IM4AADH3462TYKWJ6NDIVIEXLNO6DQ",
+      "dek": "REREREREREREREREREREREREREREREREREREREREREQ",
+      "m": "mFCVtko4JBP_F5rdneWkOONKGbsJ0PQ4mAUoz-NOfZ8",
+      "r": "zMuGUjL1zoVDIjHzM4HPKX8K7PY-q6w_LdszM8ivXZA",
+      "kek": "WEQDRg58ynKF1wuViEqG2kgEjadl5jTawE3mgED1mkk",
+      "k_commit": "egMWV-708rpLkG98_ngBKhORrDwXIORqE_0O46Umyt0",
+      "wrap_aad": "U1NDMi93cmFwL3YxAOL5bF4oOMbZXTEB8wRS2j97NgoqxS0HweeMi5bL1qc0",
+      "wrapped_dek": "d-fBW43_8vvqBIUXrykrsIvFIKkp-pnfPOPXpNz7I90",
+      "tag": "iYDzy_qJOlrY6s4MFwxPPg",
+      "commit_value": "lnCd1qayB8tNGUaPWwuDRY82ACdnImGaMCohqIBA0Tk",
+      "payload_header_digest": "SKC5bRZsphIMj8I-wy8yBTNlQRNU6c6Pqko4MmcW574",
+      "complete_header": {
+        "format": "SSC2",
+        "version": 2,
+        "object_id": "T09PT09PT09PT09PT09PTw",
+        "object_type": "text",
+        "payload": {
+          "type": "text",
+          "alg": "aes-256-gcm",
+          "kdf": {
+            "alg": "hkdf-sha256",
+            "salt": "UFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFA"
+          },
+          "metadata_policy": "hidden",
+          "nonce": "Tk5OTk5OTk5OTk5O",
+          "plaintext_length": 100
+        },
+        "metadata": {
+          "policy": "hidden"
+        },
+        "access": {
+          "version": 1,
+          "policy": "single-grant",
+          "grants": [
+            {
+              "grant_id": "grant-0",
+              "type": "combined-password-managed-key",
+              "password_kdf": {
+                "alg": "argon2id",
+                "version": 19,
+                "memory_kib": 65536,
+                "time_cost": 3,
+                "parallelism": 4,
+                "hash_len": 32,
+                "salt": "QUFBQUFBQUFBQUFBQUFBQQ"
+              },
+              "key_fingerprint": "ssc-k1-VFLJKNAZMJW4K4M3AX5BT2IM4AADH3462TYKWJ6NDIVIEXLNO6DQ",
+              "combined_kdf": {
+                "alg": "hkdf-sha256",
+                "salt": "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo",
+                "managed_key_salt": "WVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVk"
+              },
+              "kek_derivation": {
+                "alg": "hkdf-sha256",
+                "salt": "S0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0s"
+              },
+              "wrap_alg": "aes-256-gcm",
+              "wrap_nonce": "V1dXV1dXV1dXV1dX",
+              "commitment": {
+                "alg": "hmac-sha256",
+                "kdf": {
+                  "alg": "hkdf-sha256",
+                  "salt": "Q0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0M"
+                },
+                "value": "lnCd1qayB8tNGUaPWwuDRY82ACdnImGaMCohqIBA0Tk"
+              },
+              "wrapped_dek": "d-fBW43_8vvqBIUXrykrsIvFIKkp-pnfPOPXpNz7I90",
+              "tag": "iYDzy_qJOlrY6s4MFwxPPg"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "vault": {
+    "inner_wrap": {
+      "password": "password123",
+      "argon2_salt": "QUFBQUFBQUFBQUFBQUFBQQ",
+      "managed_secret": "TU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU0",
+      "fingerprint": "ssc-k1-VFLJKNAZMJW4K4M3AX5BT2IM4AADH3462TYKWJ6NDIVIEXLNO6DQ",
+      "vault_copy_aad": "U1NDMi92YXVsdC1jb3B5L3YxAMJaRwmLO7Uc3jsEzFnzKR78m2RPfb_KxkbI98QkFOnC",
+      "wrapped_material": "tDDzL-EQpj7dQ3jmGcxsrY58J1LTCsYOk99H6dlUTEY",
+      "tag": "xxXfNx4JhPpGj1JkX9n8wQ",
+      "v_context": {
+        "schema_version": 2,
+        "vault_id": "VlZWVlZWVlZWVlZWVlZWVg",
+        "wrap_generation": 1,
+        "vault_kdf": {
+          "alg": "argon2id",
+          "version": 19,
+          "memory_kib": 65536,
+          "time_cost": 3,
+          "parallelism": 4,
+          "hash_len": 32,
+          "salt": "QUFBQUFBQUFBQUFBQUFBQQ"
+        },
+        "record_id": "UlJSUlJSUlJSUlJSUlJSUg",
+        "key_type": "symmetric-key",
+        "fingerprint": "ssc-k1-VFLJKNAZMJW4K4M3AX5BT2IM4AADH3462TYKWJ6NDIVIEXLNO6DQ",
+        "storage": "vault-copy",
+        "protection": "vault-wrapped",
+        "wrap_alg": "aes-256-gcm",
+        "kek_derivation": {
+          "alg": "hkdf-sha256",
+          "salt": "U1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1M"
+        },
+        "nonce": "Tk5OTk5OTk5OTk5O"
+      }
+    }
+  },
+  "keyfile": {
+    "round_trip": {
+      "content": "-----BEGIN SSC SYMMETRIC KEY-----\nVersion: 1\nKey-ID: test-key\nType: symmetric-key\nKDF: hkdf-sha256\nFingerprint: ssc-k1-VFLJKNAZMJW4K4M3AX5BT2IM4AADH3462TYKWJ6NDIVIEXLNO6DQ\nCreated: 2026-09-09T00:00:00Z\n\nTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU0\n-----END SSC SYMMETRIC KEY-----\n",
+      "secret": "TU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU0",
+      "fingerprint": "ssc-k1-VFLJKNAZMJW4K4M3AX5BT2IM4AADH3462TYKWJ6NDIVIEXLNO6DQ",
+      "sha256": "0d61e9f1edf0359e1c5938aa166b629b8b54c3b5cecccf8e182ee03ea1cb2b35"
+    }
+  },
+  "migration": {
+    "flat_to_v2": {
+      "legacy_input": {
+        "gmail": "secret123",
+        "github": "token456",
+        "schema_version": "this-is-a-password",
+        "vault_meta": "also-a-password",
+        "items": "yet-another-password"
+      },
+      "v2_output": {
+        "schema_version": 2,
+        "vault_meta": {
+          "vault_id": "VlZWVlZWVlZWVlZWVlZWVg",
+          "revision": 1,
+          "wrap_generation": 1,
+          "vault_kdf": {
+            "alg": "argon2id",
+            "version": 19,
+            "memory_kib": 65536,
+            "time_cost": 3,
+            "parallelism": 4,
+            "hash_len": 32,
+            "salt": "QUFBQUFBQUFBQUFBQUFBQQ"
+          }
+        },
+        "items": {
+          "passphrases": {
+            "github": "token456",
+            "gmail": "secret123",
+            "items": "yet-another-password",
+            "schema_version": "this-is-a-password",
+            "vault_meta": "also-a-password"
+          },
+          "keys": {}
+        }
+      },
+      "vault_id": "VlZWVlZWVlZWVlZWVlZWVg",
+      "argon2_salt": "QUFBQUFBQUFBQUFBQUFBQQ"
+    }
+  }
+}

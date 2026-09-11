@@ -86,6 +86,7 @@ class TestEncryptionFuzz:
         decrypted = decrypt_text(ciphertext, passphrase)
         assert decrypted == text
 
+    @pytest.mark.timeout(120)
     @FUZZ_SETTINGS
     @given(
         plaintext=st.text(

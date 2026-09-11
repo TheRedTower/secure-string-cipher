@@ -1,0 +1,7 @@
+{
+  "gmail": "secret123",
+  "github": "token456",
+  "schema_version": "this-is-a-password",
+  "vault_meta": "also-a-password",
+  "items": "yet-another-password"
+}

@@ -9,9 +9,12 @@ Provides configurable rate limiting for sensitive operations like:
 Uses exponential backoff to slow down repeated failures.
 """
 
+import hashlib
+import hmac
 import json
 import math
 import os
+import secrets
 import sys
 import tempfile
 import threading
@@ -39,6 +42,10 @@ class AttemptRecord:
     attempts: list[float] = field(default_factory=list)
     lockout_until: float = 0.0
     consecutive_failures: int = 0
+    # Wall-clock time this record was last touched by a check/attempt. Not
+    # security-critical (only used to choose eviction order), so a missing or
+    # malformed value on load defaults to 0.0 rather than discarding the record.
+    last_seen: float = 0.0
 
 
 P = ParamSpec("P")
@@ -46,6 +53,16 @@ R = TypeVar("R")
 
 # Bounds untrusted exponentiation while remaining well beyond a practical lockout.
 _MAX_PERSISTED_CONSECUTIVE_FAILURES = 1_000
+
+# Reserved on-disk key holding the per-installation salt used to derive
+# PersistentRateLimiter's stored keys; never treated as an attempt record.
+_SALT_KEY = "__salt__"
+_SALT_BYTES = 32
+
+# Hard cap on persisted records, enforced on save: once exceeded, the
+# least-recently-touched records are evicted first. Bounds on-disk growth
+# regardless of how many distinct operations/identifiers are ever seen.
+_MAX_PERSISTED_RECORDS = 500
 
 
 def _nonnegative_finite_float(value: object) -> float | None:
@@ -131,6 +148,7 @@ class RateLimiter:
 
         with self._lock:
             record = self._records[key]
+            record.last_seen = now
 
             # Check if currently locked out
             if now < record.lockout_until:
@@ -172,6 +190,7 @@ class RateLimiter:
 
         with self._lock:
             record = self._records[key]
+            record.last_seen = now
 
             if success:
                 # Reset on success
@@ -224,7 +243,16 @@ class RateLimiter:
 
 
 class PersistentRateLimiter(RateLimiter):
-    """Rate limiter that persists attempts across CLI processes."""
+    """Rate limiter that persists attempts across CLI processes.
+
+    Persisted keys are salted-HMAC hashes of ``f"{operation}:{identifier}"``,
+    not the plaintext identifier: the state file otherwise accumulates an
+    unbounded, human-readable history of every vault label and file path ever
+    attempted. The salt is generated once and stored alongside the records
+    (reserved key ``__salt__``) so the same identifier maps to the same
+    on-disk key across process restarts, without that mapping being
+    reversible by anyone who only has the state file.
+    """
 
     def __init__(
         self,
@@ -243,7 +271,16 @@ class PersistentRateLimiter(RateLimiter):
         if state_path is None:
             state_path = str(get_config_dir() / "rate_limits.json")
         self.state_path = state_path
+        # Fallback for a fresh or unreadable state file; _load_state below
+        # overwrites this with the persisted salt when one is found on disk.
+        self._salt = secrets.token_bytes(_SALT_BYTES)
         self._load_state()
+
+    def _make_key(self, operation: str, identifier: str = "") -> str:
+        """Salted-hash the identifier; keep the operation name as a readable prefix."""
+        raw = f"{operation}:{identifier}".encode()
+        digest = hmac.new(self._salt, raw, hashlib.sha256).hexdigest()[:32]
+        return f"{operation}:{digest}"
 
     def _load_state(self) -> None:
         """Load persisted rate-limit state."""
@@ -256,8 +293,18 @@ class PersistentRateLimiter(RateLimiter):
         if not isinstance(data, dict):
             return
 
+        loaded_salt: bytes | None = None
+        raw_salt = data.get(_SALT_KEY)
+        if isinstance(raw_salt, str):
+            with suppress(ValueError):
+                candidate = bytes.fromhex(raw_salt)
+                if len(candidate) == _SALT_BYTES:
+                    loaded_salt = candidate
+
         loaded_records: dict[str, AttemptRecord] = {}
         for key, value in data.items():
+            if key == _SALT_KEY:
+                continue
             if not isinstance(key, str) or not isinstance(value, dict):
                 continue
 
@@ -281,17 +328,50 @@ class PersistentRateLimiter(RateLimiter):
             ):
                 continue
 
+            last_seen = _nonnegative_finite_float(value.get("last_seen", 0.0)) or 0.0
+
             loaded_records[key] = AttemptRecord(
                 attempts=attempts,
                 lockout_until=lockout_until,
                 consecutive_failures=min(
                     failures_value, _MAX_PERSISTED_CONSECUTIVE_FAILURES
                 ),
+                last_seen=last_seen,
             )
 
         with self._lock:
             self._records.clear()
             self._records.update(loaded_records)
+            if loaded_salt is not None:
+                self._salt = loaded_salt
+
+    def _prune_locked(self, now: float) -> None:
+        """Evict records under `self._lock`; caller must already hold it.
+
+        First drops any record that is fully expired and carries no
+        escalation state (safe: behaviorally indistinguishable from never
+        having existed). If the count is still over the cap, evicts the
+        least-recently-touched remaining records until it isn't — a coarser
+        bound that accepts losing some escalation memory for records that
+        have been quiet a long time, in exchange for a hard growth limit.
+        """
+        for key in list(self._records.keys()):
+            record = self._records[key]
+            self._cleanup_old_attempts(record, now)
+            if (
+                not record.attempts
+                and record.consecutive_failures == 0
+                and now >= record.lockout_until
+            ):
+                del self._records[key]
+
+        overflow = len(self._records) - _MAX_PERSISTED_RECORDS
+        if overflow > 0:
+            oldest_keys = sorted(
+                self._records, key=lambda k: self._records[k].last_seen
+            )[:overflow]
+            for key in oldest_keys:
+                del self._records[key]
 
     def _save_state(self) -> None:
         """Persist rate-limit state atomically."""
@@ -303,14 +383,17 @@ class PersistentRateLimiter(RateLimiter):
             return
 
         with self._lock:
-            data = {
+            self._prune_locked(time.time())
+            data: dict[str, object] = {
                 key: {
                     "attempts": record.attempts,
                     "lockout_until": record.lockout_until,
                     "consecutive_failures": record.consecutive_failures,
+                    "last_seen": record.last_seen,
                 }
                 for key, record in self._records.items()
             }
+            data[_SALT_KEY] = self._salt.hex()
 
         try:
             fd, temp_path = tempfile.mkstemp(
