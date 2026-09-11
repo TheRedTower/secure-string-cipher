@@ -11,9 +11,13 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
 import sys
 from pathlib import Path
-from typing import NoReturn
+from typing import TYPE_CHECKING, NoReturn
+
+if TYPE_CHECKING:
+    from .v2.envelope import V2Header
 
 from . import __version__
 from .audit_log import AuditEvent, get_audit_logger
@@ -49,6 +53,17 @@ from .passphrase_manager import (
 from .rate_limiter import PersistentRateLimiter
 from .timing_safe import check_password_strength
 from .utils import colorize, secure_overwrite
+from .v2.decrypt import decrypt_v2_file, decrypt_v2_text
+from .v2.encrypt import (
+    CombinedCredential,
+    KeyCredential,
+    PasswordCredential,
+    V2Credential,
+    encrypt_v2_file,
+    encrypt_v2_text,
+)
+from .v2.keyfile import KeyFileData, load_keyfile
+from .v2.vault_service import V2VaultService
 from .vault_transport import canonicalize_cli_vault_candidate
 
 # Global rate limiter for CLI authentication attempts
@@ -63,6 +78,9 @@ EXIT_INPUT_ERROR = 1  # Invalid arguments, missing flags
 EXIT_AUTH_ERROR = 2  # Wrong password, decryption failed
 EXIT_VAULT_ERROR = 3  # Not initialized, label not found
 EXIT_FILE_ERROR = 4  # Not found, permission denied
+
+# Generic V2 decryption failure message (never includes exception internals).
+_V2_DECRYPT_FAILURE_MESSAGE = "Decryption failed. Wrong password/key or corrupted data."
 
 # =============================================================================
 # Global State
@@ -97,6 +115,30 @@ def _remove_one_terminal_line_ending(data: bytes) -> bytes:
     if data.endswith(b"\n"):
         return data[:-1]
     return data
+
+
+_RATE_LIMIT_IDENTITY_PREFIX_BYTES = 4096
+
+
+def _file_rate_limit_identity(path: Path) -> str:
+    """Derive a rate-limit identifier from ciphertext content, not its path.
+
+    Every SSC container (v4/v5 or v2) carries fresh random salt/nonce/commitment
+    material within its first few dozen bytes, so hashing a bounded prefix gives
+    a stable per-object fingerprint: copying or renaming the same ciphertext to
+    a new path yields the same identifier (so its lockout state survives),
+    while a distinct encryption of the same plaintext gets its own fresh
+    budget, as intended. Falls back to the path string if the file cannot be
+    read here (rare: permission change or deletion racing this read); that
+    degrades to the previous, weaker behavior only in that corner case rather
+    than skipping the rate-limit check entirely.
+    """
+    try:
+        with open(path, "rb") as f:
+            prefix = f.read(_RATE_LIMIT_IDENTITY_PREFIX_BYTES)
+    except OSError:
+        return str(path)
+    return hashlib.sha256(prefix).hexdigest()[:32]
 
 
 def _print_info(message: str) -> None:
@@ -354,6 +396,10 @@ def cmd_start(args: argparse.Namespace) -> int:
 
 def cmd_encrypt(args: argparse.Namespace) -> int:
     """Encrypt text or file."""
+    # Positional alias for file
+    if getattr(args, "positional_path", None) and not args.file and not args.text:
+        args.file = args.positional_path
+
     # Validate: must have -t or -f
     if not args.text and not args.file:
         _exit_error(EXIT_INPUT_ERROR, "Must specify --text or --file.")
@@ -361,32 +407,132 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
     if args.text and args.file:
         _exit_error(EXIT_INPUT_ERROR, "Cannot specify both --text and --file.")
 
+    is_v2 = bool(getattr(args, "with_sources", None))
+
+    if is_v2:
+        sources = args.with_sources
+        require_all = args.require == "all"
+
+        has_password = "password" in sources
+        keys = [s[4:] for s in sources if s.startswith("key:")]
+
+        if len(sources) != has_password + len(keys) or any(not k for k in keys):
+            _exit_error(
+                EXIT_INPUT_ERROR, "Invalid --with source. Use 'password' or 'key:ID'"
+            )
+
+        if len(keys) > 1:
+            _exit_error(EXIT_INPUT_ERROR, "Cannot specify multiple key sources.")
+
+        if len(sources) > 1 and not require_all:
+            _exit_error(EXIT_INPUT_ERROR, "Multiple sources require --require all")
+
+        credential: V2Credential
+        if has_password and keys and require_all:
+            password = _prompt_password("Enter password: ", confirm=True)
+            key_data = _resolve_v2_key_source(keys[0])
+            credential = CombinedCredential(
+                password, key_data.fingerprint, key_data.secret_bytes
+            )
+        elif has_password:
+            password = _prompt_password("Enter password: ", confirm=True)
+            credential = PasswordCredential(password)
+        elif keys:
+            key_data = _resolve_v2_key_source(keys[0])
+            credential = KeyCredential(key_data.fingerprint, key_data.secret_bytes)
+        else:
+            _exit_error(EXIT_INPUT_ERROR, "Invalid --with combination.")
+
+        if args.text:
+            try:
+                ciphertext = encrypt_v2_text(args.text, credential)
+                print(ciphertext)
+                _audit_encryption(AuditEvent.ENCRYPT_TEXT, True)
+                _print_info("✓ Encrypted successfully")
+                return EXIT_SUCCESS
+            except CryptoError:
+                _audit_encryption(
+                    AuditEvent.ENCRYPT_TEXT, False, error="encryption_failed"
+                )
+                _exit_error(EXIT_INPUT_ERROR, "Encryption failed.")
+        elif args.file:
+            if args.file == "-":
+                _exit_error(EXIT_INPUT_ERROR, "V2 does not support stdin streaming.")
+            filepath_obj = Path(args.file)
+            if not filepath_obj.exists():
+                _exit_error(EXIT_FILE_ERROR, f"File not found: {args.file}")
+
+            output_path = (
+                Path(args.output)
+                if getattr(args, "output", None)
+                else filepath_obj.with_suffix(filepath_obj.suffix + ".ssc")
+            )
+
+            if output_path.exists() and not args.force:
+                _exit_error(
+                    EXIT_FILE_ERROR,
+                    f"{output_path} already exists.\nRun again with --force to overwrite.",
+                )
+
+            try:
+                encrypt_v2_file(
+                    filepath_obj, output_path, credential, overwrite=args.force
+                )
+                _audit_encryption(
+                    AuditEvent.ENCRYPT_FILE, True, file_path=str(filepath_obj)
+                )
+                _print_info(f"✓ Encrypted to {output_path}")
+                return EXIT_SUCCESS
+            except _FileInputError:
+                _audit_encryption(
+                    AuditEvent.ENCRYPT_FILE,
+                    False,
+                    file_path=str(filepath_obj),
+                    error="input_rejected",
+                )
+                _exit_error(EXIT_FILE_ERROR, "Input file rejected.")
+            except CryptoError:
+                _audit_encryption(
+                    AuditEvent.ENCRYPT_FILE,
+                    False,
+                    file_path=str(filepath_obj),
+                    error="encryption_failed",
+                )
+                _exit_error(EXIT_INPUT_ERROR, "Encryption failed.")
+            except PermissionError:
+                _exit_error(EXIT_FILE_ERROR, f"Permission denied: {args.file}")
+            except OSError:
+                _exit_error(EXIT_FILE_ERROR, "File error.")
+
+        return EXIT_SUCCESS
+
+    # ==================== V1 Encryption ====================
+
     # Validate mutually exclusive options
-    if args.vault and args.key_file:
+    if args.vault and getattr(args, "key_file", None):
         _exit_error(
             EXIT_INPUT_ERROR,
             "Cannot specify both --vault and --key-file. Choose one.",
         )
 
     # Validate file existence and overwrite BEFORE prompting for password
-    output_path = None
+    v1_output_path: Path | None = None
     if args.file and args.file != "-":
         filepath = Path(args.file)
 
         if not filepath.exists():
             _exit_error(EXIT_FILE_ERROR, f"File not found: {args.file}")
 
-        output_path = filepath.with_suffix(filepath.suffix + ".enc")
+        v1_output_path = filepath.with_suffix(filepath.suffix + ".enc")
 
         # Check overwrite
-        if output_path.exists() and not args.force:
+        if v1_output_path.exists() and not args.force:
             _exit_error(
                 EXIT_FILE_ERROR,
-                f"{output_path} already exists.\nRun again with --force to overwrite.",
+                f"{v1_output_path} already exists.\nRun again with --force to overwrite.",
             )
 
     # Get password/key
-    password: str
     if args.vault:
         password = _get_password_from_vault(args.vault)
     elif getattr(args, "key_file", None):
@@ -438,19 +584,19 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
                 _exit_error(EXIT_FILE_ERROR, "File error.")
 
         filepath_obj = Path(filepath)
-        output_path = filepath_obj.with_suffix(filepath_obj.suffix + ".enc")
+        v1_output_path = filepath_obj.with_suffix(filepath_obj.suffix + ".enc")
 
         try:
             encrypt_file(
                 str(filepath_obj),
-                str(output_path),
+                str(v1_output_path),
                 password,
                 overwrite=args.force,
             )
             _audit_encryption(
                 AuditEvent.ENCRYPT_FILE, True, file_path=str(filepath_obj)
             )
-            _print_info(f"✓ Encrypted to {output_path}")
+            _print_info(f"✓ Encrypted to {v1_output_path}")
             return EXIT_SUCCESS
         except _FileInputError:
             _audit_encryption(
@@ -523,7 +669,14 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
             )
 
     rate_operation = "decrypt_text" if args.text else "decrypt_file"
-    rate_identifier = str(args.file) if args.file else ""
+    if args.text or not args.file or args.file == "-":
+        # No persistent on-disk ciphertext to fingerprint: text is identified
+        # by operation alone, "-" is stdin (nothing to copy/rename to bypass).
+        rate_identifier = str(args.file) if args.file else ""
+    else:
+        # Identify by ciphertext content, not path: renaming or copying the
+        # same encrypted file must not reset its lockout state.
+        rate_identifier = _file_rate_limit_identity(Path(args.file))
     allowed, wait = _cli_limiter.check_rate_limit(rate_operation, rate_identifier)
     if not allowed:
         _audit_rate_limit(rate_operation, wait, rate_identifier)
@@ -532,19 +685,33 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
             f"Too many failed attempts. Please wait {wait:.0f} seconds.",
         )
 
-    # Get password/key
-    password: str
-    if args.vault:
-        password = _get_password_from_vault(args.vault)
-    elif getattr(args, "key_file", None):
+    is_v2 = False
+    is_message = False
+
+    # Format detection
+    if args.text:
+        is_message = args.text.startswith("-----BEGIN SSC MESSAGE-----")
+        if not is_message and args.text.startswith("SSC2"):
+            # A raw V2 container shouldn't be passed as string, but maybe it's base64 encoded?
+            # V2 messages are armored, so if it's not a message, it's V1 text.
+            pass
+    elif args.file and args.file != "-":
+        filepath = Path(args.file)
         try:
-            password = _get_password_from_key_file(args.key_file)
-        except CryptoError:
-            raise
+            with open(filepath, "rb") as f:
+                magic = f.read(5)
+            if magic.startswith(b"SSC2"):
+                is_v2 = True
+            elif magic.startswith(b"SSCV2"):
+                is_v2 = False
         except Exception:
-            _exit_error(EXIT_FILE_ERROR, "Key file error.")
-    else:
-        password = _prompt_password("Enter password: ", confirm=False)
+            pass
+
+    if is_message or is_v2:
+        return _cmd_decrypt_v2(args, is_message, rate_identifier)
+
+    # V1 Decryption
+    password = _get_v1_password(args)
 
     # Decrypt text
     if args.text:
@@ -613,7 +780,7 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
                 restore_filename=restore_filename,
                 overwrite=args.force,
             )
-            _cli_limiter.record_attempt("decrypt_file", str(filepath_obj), success=True)
+            _cli_limiter.record_attempt("decrypt_file", rate_identifier, success=True)
             _audit_encryption(
                 AuditEvent.DECRYPT_FILE, True, file_path=str(filepath_obj)
             )
@@ -633,9 +800,7 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
                     EXIT_FILE_ERROR,
                     "Output file already exists.\nRun again with --force to overwrite.",
                 )
-            _cli_limiter.record_attempt(
-                "decrypt_file", str(filepath_obj), success=False
-            )
+            _cli_limiter.record_attempt("decrypt_file", rate_identifier, success=False)
             _audit_encryption(
                 AuditEvent.DECRYPT_FILE,
                 False,
@@ -651,6 +816,192 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
             _exit_error(EXIT_FILE_ERROR, "File error.")
 
     return EXIT_SUCCESS
+
+
+def _get_v1_password(args: argparse.Namespace) -> str:
+    """Resolve password for V1 decryption."""
+    if args.vault:
+        return _get_password_from_vault(args.vault)
+    elif getattr(args, "key_file", None):
+        try:
+            return _get_password_from_key_file(args.key_file)
+        except CryptoError:
+            raise
+        except Exception:
+            _exit_error(EXIT_FILE_ERROR, "Key file error.")
+    else:
+        return _prompt_password("Enter password: ", confirm=False)
+
+
+def _resolve_v2_key_source(key_ref: str) -> KeyFileData:
+    """Resolve a V2 key reference to validated keyfile data.
+
+    ``key_ref`` is either a path to a ``.ssckey`` file or a fingerprint/key-id
+    registered under ``~/.ssc/keys/``. Shared by encryption (``key:X`` sources)
+    and decryption (``--key-file`` or header grant fingerprints) so both sides
+    use one resolution model. ``load_keyfile`` always receives a ``Path``.
+    """
+    candidate = Path(key_ref).expanduser()
+    if candidate.suffix == ".ssckey" or candidate.is_file():
+        try:
+            return load_keyfile(candidate)
+        except Exception:
+            _exit_error(EXIT_FILE_ERROR, "Could not load key file.")
+
+    keys_dir = Path.home() / ".ssc" / "keys"
+    if keys_dir.is_dir():
+        for child in sorted(keys_dir.iterdir()):
+            if child.suffix != ".ssckey":
+                continue
+            try:
+                key_data = load_keyfile(child)
+            except Exception:
+                continue
+            if key_ref in (key_data.fingerprint, key_data.key_id):
+                return key_data
+
+    _exit_error(
+        EXIT_FILE_ERROR,
+        "Key not found: provide a .ssckey path or a fingerprint/key-id "
+        "present in ~/.ssc/keys/.",
+    )
+
+
+def _get_v2_password(args: argparse.Namespace) -> str:
+    """Resolve the password component of a V2 credential (vault or prompt)."""
+    if getattr(args, "vault", None):
+        return _get_password_from_vault(args.vault)
+    return _prompt_password("Enter password: ", confirm=False)
+
+
+def _resolve_v2_credential_from_header(
+    header: V2Header, args: argparse.Namespace
+) -> V2Credential:
+    from .v2.envelope import GrantType
+
+    has_password = any(g.type == GrantType.PASSWORD for g in header.access.grants)
+    has_key = any(g.type == GrantType.MANAGED_KEY for g in header.access.grants)
+    has_combined = any(
+        g.type == GrantType.COMBINED_PASSWORD_MANAGED_KEY for g in header.access.grants
+    )
+
+    key_file_ref = getattr(args, "key_file", None)
+
+    if has_combined:
+        password = _get_v2_password(args)
+        grant = next(
+            g
+            for g in header.access.grants
+            if g.type == GrantType.COMBINED_PASSWORD_MANAGED_KEY
+        )
+        if not grant.key_fingerprint:
+            _exit_error(EXIT_AUTH_ERROR, "No usable access grant found in V2 header.")
+        key_data = _resolve_v2_key_source(key_file_ref or grant.key_fingerprint)
+        return CombinedCredential(
+            passphrase=password,
+            key_fingerprint=grant.key_fingerprint,
+            managed_secret=key_data.secret_bytes,
+        )
+
+    if has_password:
+        if key_file_ref:
+            _exit_error(
+                EXIT_INPUT_ERROR,
+                "--key-file is only usable with V2 key-protected containers.",
+            )
+        password = _get_v2_password(args)
+        return PasswordCredential(passphrase=password)
+
+    if has_key:
+        grant = next(g for g in header.access.grants if g.type == GrantType.MANAGED_KEY)
+        if not grant.key_fingerprint:
+            _exit_error(EXIT_AUTH_ERROR, "No usable access grant found in V2 header.")
+        key_data = _resolve_v2_key_source(key_file_ref or grant.key_fingerprint)
+        return KeyCredential(
+            key_fingerprint=grant.key_fingerprint, managed_secret=key_data.secret_bytes
+        )
+
+    _exit_error(EXIT_AUTH_ERROR, "No usable access grant found in V2 header.")
+
+
+def _cmd_decrypt_v2(
+    args: argparse.Namespace, is_message: bool, rate_identifier: str = ""
+) -> int:
+    import base64
+    import json
+
+    from .v2.header_parser import parse_header_stream, validate_v2_header
+    from .v2.message import unarmor_message
+    from .v2.vault_schema import _reject_duplicate_object_hook
+
+    if is_message:
+        # Armored messages carry the header as raw canonical JSON (Base64),
+        # not the binary SSC2 framing parse_header_stream expects. Mirror
+        # decrypt_v2_text: unarmor, decode, then validate the JSON header.
+        try:
+            parsed = unarmor_message(args.text)
+            raw_bytes = base64.b64decode(parsed.header_b64, validate=True)
+            header_dict = json.loads(
+                raw_bytes.decode("utf-8"),
+                object_pairs_hook=_reject_duplicate_object_hook,
+            )
+            header = validate_v2_header(header_dict, raw_bytes)
+        except Exception:
+            _cli_limiter.record_attempt("decrypt_text", "", success=False)
+            _audit_encryption(AuditEvent.DECRYPT_TEXT, False, error="decryption_failed")
+            _exit_error(EXIT_AUTH_ERROR, _V2_DECRYPT_FAILURE_MESSAGE)
+
+        cred = _resolve_v2_credential_from_header(header, args)
+        try:
+            plaintext = decrypt_v2_text(args.text, cred)
+            _cli_limiter.record_attempt("decrypt_text", "", success=True)
+            print(plaintext)
+            _audit_encryption(AuditEvent.DECRYPT_TEXT, True)
+            _print_info("✓ Decrypted successfully (V2)")
+            return EXIT_SUCCESS
+        except CryptoError:
+            _cli_limiter.record_attempt("decrypt_text", "", success=False)
+            _audit_encryption(AuditEvent.DECRYPT_TEXT, False, error="decryption_failed")
+            _exit_error(EXIT_AUTH_ERROR, _V2_DECRYPT_FAILURE_MESSAGE)
+
+    # File decrypt V2 (real binary SSC2 container: magic + length prefix).
+    filepath = Path(args.file)
+    try:
+        with open(filepath, "rb") as f:
+            header, _ = parse_header_stream(f)
+    except (OSError, PermissionError):
+        _exit_error(EXIT_FILE_ERROR, "File error.")
+    except Exception:
+        _cli_limiter.record_attempt("decrypt_file", rate_identifier, success=False)
+        _audit_encryption(AuditEvent.DECRYPT_FILE, False, error="decryption_failed")
+        _exit_error(EXIT_AUTH_ERROR, _V2_DECRYPT_FAILURE_MESSAGE)
+
+    cred = _resolve_v2_credential_from_header(header, args)
+
+    explicit_output = getattr(args, "output", None)
+    try:
+        decrypted_path = decrypt_v2_file(
+            filepath,
+            cred,
+            output_path=Path(explicit_output) if explicit_output else None,
+            overwrite=getattr(args, "force", False),
+        )
+        _cli_limiter.record_attempt("decrypt_file", rate_identifier, success=True)
+        _audit_encryption(AuditEvent.DECRYPT_FILE, True, file_path=str(filepath))
+        _print_info(f"✓ Decrypted V2 container to {decrypted_path}")
+        return EXIT_SUCCESS
+    except CryptoError as e:
+        if str(e).startswith("Output file already exists:"):
+            _exit_error(
+                EXIT_FILE_ERROR,
+                "Output file already exists.\nRun again with --force to overwrite.",
+            )
+        _cli_limiter.record_attempt("decrypt_file", rate_identifier, success=False)
+        _audit_encryption(AuditEvent.DECRYPT_FILE, False, error="decryption_failed")
+        _exit_error(EXIT_AUTH_ERROR, _V2_DECRYPT_FAILURE_MESSAGE)
+    except (OSError, PermissionError):
+        _exit_error(EXIT_FILE_ERROR, "File error.")
+    return EXIT_INPUT_ERROR
 
 
 # =============================================================================
@@ -940,6 +1291,7 @@ def cmd_vault_restore(args: argparse.Namespace) -> int:
     """Validate and transactionally restore an exact backup identifier."""
     vault = PassphraseVault()
     print(f"Backup: {args.identifier}")
+
     print(f"Target backend: {vault.backend}")
     master = _prompt_master_password()
     try:
@@ -975,14 +1327,257 @@ def cmd_vault_restore(args: argparse.Namespace) -> int:
         _exit_error(EXIT_VAULT_ERROR, "Restore failed; active vault was preserved.")
 
 
+def cmd_vault_migrate_schema(args: argparse.Namespace) -> int:
+    """Migrate vault schema (V2)."""
+    vault = PassphraseVault()
+    master = _prompt_master_password()
+    service = V2VaultService(vault)
+    try:
+        service.migrate_schema(master)
+        _audit_vault(AuditEvent.VAULT_MIGRATE_SCHEMA, True, vault)
+        _print_info("✓ Vault schema migrated to V2.")
+        return EXIT_SUCCESS
+    except Exception:
+        _audit_vault(
+            AuditEvent.VAULT_MIGRATE_SCHEMA, False, vault, error="migration_failed"
+        )
+        _exit_error(EXIT_VAULT_ERROR, "Schema migration failed.")
+
+
+def cmd_vault_change_password(args: argparse.Namespace) -> int:
+    """Change master password."""
+    vault = PassphraseVault()
+    _print_info("Enter current master password:")
+    old_master = _prompt_master_password()
+    _print_info("Enter new master password:")
+    new_master = _prompt_master_password()
+    service = V2VaultService(vault)
+    try:
+        service.change_master_password(old_master, new_master)
+        _audit_vault(AuditEvent.VAULT_CHANGE_PASSWORD, True, vault)
+        _print_info("✓ Master password changed.")
+        return EXIT_SUCCESS
+    except Exception:
+        _audit_vault(
+            AuditEvent.VAULT_CHANGE_PASSWORD, False, vault, error="change_failed"
+        )
+        _exit_error(EXIT_VAULT_ERROR, "Password change failed.")
+
+
 def cmd_vault(args: argparse.Namespace) -> int:
     """Vault subcommand router."""
     # This shouldn't be called directly - subparsers handle routing
     _exit_error(
         EXIT_INPUT_ERROR,
         "Must specify vault subcommand: list, delete, export, import, reset, "
-        "migrate, status, backend, backups, restore",
+        "migrate, status, backend, backups, restore, migrate-schema, change-password",
     )
+
+
+# =============================================================================
+# Command: key
+# =============================================================================
+
+
+def cmd_key_create(args: argparse.Namespace) -> int:
+    """Generate new managed key."""
+    from .v2.vault_schema import KeyStorageMode
+
+    ext_path = str(args.external_file) if getattr(args, "external_file", None) else None
+    vault_copy = getattr(args, "vault_copy", False)
+    storage_mode = (
+        KeyStorageMode.VAULT_COPY if vault_copy else KeyStorageMode.EXTERNAL_ONLY
+    )
+
+    if not vault_copy and ext_path is None:
+        _exit_error(
+            EXIT_INPUT_ERROR,
+            "An external-only key needs --external-file PATH to save the "
+            "generated secret, or use --vault-copy to store it in the vault "
+            "instead. Neither was given, so no key was created.",
+        )
+
+    vault = PassphraseVault()
+    master = _prompt_master_password()
+    service = V2VaultService(vault)
+    try:
+        identity, _ = service.create_key(
+            key_id=args.id,
+            storage=storage_mode,
+            master_password=master,
+            export_path=Path(ext_path) if ext_path is not None else None,
+        )
+        _audit_vault(AuditEvent.KEY_CREATE, True, vault)
+        _print_info(f"✓ Key created: {identity.fingerprint} ({identity.id})")
+        return EXIT_SUCCESS
+    except Exception:
+        _audit_vault(AuditEvent.KEY_CREATE, False, vault, error="creation_failed")
+        _exit_error(EXIT_VAULT_ERROR, "Key creation failed.")
+
+
+def cmd_key_import(args: argparse.Namespace) -> int:
+    """Register existing .ssckey."""
+    vault = PassphraseVault()
+    master = _prompt_master_password()
+    service = V2VaultService(vault)
+    try:
+        from .v2.keyfile import load_keyfile
+        from .v2.vault_schema import KeyStorageMode
+
+        key_data = load_keyfile(Path(args.file))
+        storage_mode = (
+            KeyStorageMode.VAULT_COPY
+            if getattr(args, "vault_copy", False)
+            else KeyStorageMode.EXTERNAL_ONLY
+        )
+
+        identity = service.import_key(
+            keyfile_data=key_data,
+            storage=storage_mode,
+            master_password=master,
+            path_hint=str(args.file),
+        )
+        _audit_vault(AuditEvent.KEY_IMPORT, True, vault)
+        _print_info(f"✓ Key imported: {identity.fingerprint} ({identity.id})")
+        return EXIT_SUCCESS
+    except Exception:
+        _audit_vault(AuditEvent.KEY_IMPORT, False, vault, error="import_failed")
+        _exit_error(EXIT_VAULT_ERROR, "Key import failed.")
+
+
+def cmd_key_list(args: argparse.Namespace) -> int:
+    """Show all registered keys."""
+    vault = PassphraseVault()
+    master = _prompt_master_password()
+    service = V2VaultService(vault)
+    try:
+        keys = service.list_keys(master)
+        if not keys:
+            _print_info("No keys found.")
+            return EXIT_SUCCESS
+
+        for key in keys:
+            print(f"{key.id}: {key.fingerprint} ({key.status.value})")
+        _audit_vault(AuditEvent.VAULT_LIST, True, vault)
+        return EXIT_SUCCESS
+    except Exception:
+        _audit_vault(AuditEvent.VAULT_LIST, False, vault, error="key_listing_failed")
+        _exit_error(EXIT_VAULT_ERROR, "Key listing failed.")
+
+
+def cmd_key_show(args: argparse.Namespace) -> int:
+    """Full details of a key."""
+    vault = PassphraseVault()
+    master = _prompt_master_password()
+    service = V2VaultService(vault)
+    try:
+        identity, _ = service.get_key(args.id, master)
+        print(f"ID: {identity.id}")
+        print(f"Fingerprint: {identity.fingerprint}")
+        print(f"Status: {identity.status.value}")
+        print(f"Type: {identity.type.value}")
+        print(f"Storage: {identity.storage.value}")
+        print(f"Created: {identity.created_at}")
+        _audit_vault(AuditEvent.VAULT_RETRIEVE, True, vault)
+        return EXIT_SUCCESS
+    except Exception:
+        _audit_vault(
+            AuditEvent.VAULT_RETRIEVE, False, vault, error="key_retrieval_failed"
+        )
+        _exit_error(EXIT_VAULT_ERROR, "Failed to get key details.")
+
+
+def cmd_key_export(args: argparse.Namespace) -> int:
+    """Export .ssckey to explicit destination."""
+    vault = PassphraseVault()
+    master = _prompt_master_password()
+    service = V2VaultService(vault)
+    try:
+        service.export_key(args.id, Path(args.dest), master)
+        _audit_vault(AuditEvent.KEY_EXPORT, True, vault)
+        _print_info(f"✓ Key exported to {args.dest}")
+        return EXIT_SUCCESS
+    except Exception:
+        _audit_vault(AuditEvent.KEY_EXPORT, False, vault, error="export_failed")
+        _exit_error(EXIT_VAULT_ERROR, "Key export failed.")
+
+
+def cmd_key_rename(args: argparse.Namespace) -> int:
+    """Change human ID."""
+    vault = PassphraseVault()
+    master = _prompt_master_password()
+    service = V2VaultService(vault)
+    try:
+        service.rename_key(args.id, args.new_id, master)
+        _audit_vault(AuditEvent.KEY_RENAME, True, vault)
+        _print_info(f"✓ Key {args.id} renamed to {args.new_id}")
+        return EXIT_SUCCESS
+    except Exception:
+        _audit_vault(AuditEvent.KEY_RENAME, False, vault, error="rename_failed")
+        _exit_error(EXIT_VAULT_ERROR, "Key rename failed.")
+
+
+def cmd_key_archive(args: argparse.Namespace) -> int:
+    """Set status=archived."""
+    vault = PassphraseVault()
+    master = _prompt_master_password()
+    service = V2VaultService(vault)
+    try:
+        service.archive_key(args.id, master)
+        _audit_vault(AuditEvent.KEY_ARCHIVE, True, vault)
+        _print_info(f"✓ Key {args.id} archived.")
+        return EXIT_SUCCESS
+    except Exception:
+        _audit_vault(AuditEvent.KEY_ARCHIVE, False, vault, error="archive_failed")
+        _exit_error(EXIT_VAULT_ERROR, "Key archiving failed.")
+
+
+def cmd_key_revoke(args: argparse.Namespace) -> int:
+    """Set status=revoked."""
+    vault = PassphraseVault()
+    master = _prompt_master_password()
+    service = V2VaultService(vault)
+    try:
+        service.revoke_key(args.id, master)
+        _audit_vault(AuditEvent.KEY_REVOKE, True, vault)
+        _print_info(f"✓ Key {args.id} revoked.")
+        return EXIT_SUCCESS
+    except Exception:
+        _audit_vault(AuditEvent.KEY_REVOKE, False, vault, error="revoke_failed")
+        _exit_error(EXIT_VAULT_ERROR, "Key revocation failed.")
+
+
+def cmd_key_destroy(args: argparse.Namespace) -> int:
+    """Remove inner secret."""
+    if not getattr(args, "confirm", False):
+        print(
+            "This will permanently destroy the key secret. Continue? (y/n): ",
+            end="",
+            flush=True,
+        )
+        if input().strip().lower() != "y":
+            _exit_error(EXIT_INPUT_ERROR, "Key destruction cancelled.")
+
+    vault = PassphraseVault()
+    master = _prompt_master_password()
+    service = V2VaultService(vault)
+    try:
+        service.destroy_key(args.id, master)
+        _audit_vault(AuditEvent.KEY_DESTROY, True, vault)
+        _print_info(f"✓ Key {args.id} destroyed.")
+        return EXIT_SUCCESS
+    except Exception:
+        _audit_vault(AuditEvent.KEY_DESTROY, False, vault, error="destroy_failed")
+        _exit_error(EXIT_VAULT_ERROR, "Key destruction failed.")
+
+
+def cmd_key(args: argparse.Namespace) -> int:
+    """Key subcommand router."""
+    if hasattr(args, "key_command") and args.key_command is None:
+        _exit_error(
+            EXIT_INPUT_ERROR, "A key command is required. Try 'ssc key --help'."
+        )
+    return EXIT_SUCCESS
 
 
 # =============================================================================
@@ -1111,6 +1706,31 @@ Examples:
         "--force",
         action="store_true",
         help="Overwrite existing output file",
+    )
+    encrypt_parser.add_argument(
+        "--with",
+        action="append",
+        dest="with_sources",
+        metavar="SOURCE",
+        help="V2 authentication source (e.g. 'password' or 'key:ID')",
+    )
+    encrypt_parser.add_argument(
+        "--require",
+        choices=["all", "any"],
+        default="any",
+        help="V2 authentication requirement when using multiple sources",
+    )
+    encrypt_parser.add_argument(
+        "-o",
+        "--output",
+        metavar="PATH",
+        help="Output file path (V2 only)",
+    )
+    encrypt_parser.add_argument(
+        "positional_path",
+        metavar="PATH",
+        nargs="?",
+        help="File to encrypt (positional alias for file workflow)",
     )
     encrypt_parser.set_defaults(func=cmd_encrypt)
 
@@ -1309,7 +1929,103 @@ Examples:
     )
     vault_restore_parser.set_defaults(func=cmd_vault_restore)
 
+    # vault migrate-schema
+    vault_migrate_schema_parser = vault_subparsers.add_parser(
+        "migrate-schema",
+        help="Explicit schema migration (separate from backend migration)",
+    )
+    vault_migrate_schema_parser.set_defaults(func=cmd_vault_migrate_schema)
+
+    # vault change-password
+    vault_change_pwd_parser = vault_subparsers.add_parser(
+        "change-password",
+        help="Master password change with inner-key rewrapping",
+    )
+    vault_change_pwd_parser.set_defaults(func=cmd_vault_change_password)
+
     vault_parser.set_defaults(func=cmd_vault)
+
+    # --- key ---
+    key_parser = subparsers.add_parser(
+        "key",
+        help="Manage V2 encryption keys",
+        description="Manage lifecycle of V2 managed keys.",
+    )
+    key_subparsers = key_parser.add_subparsers(dest="key_command", title="key commands")
+
+    # key create
+    key_create_parser = key_subparsers.add_parser(
+        "create", help="Generate new managed key"
+    )
+    key_create_parser.add_argument("id", metavar="ID", help="New key ID")
+    key_create_parser.add_argument(
+        "--external-file",
+        metavar="PATH",
+        help="Write the generated .ssckey to this path",
+    )
+    key_create_parser.add_argument(
+        "--vault-copy", action="store_true", help="Store a copy in the secure vault"
+    )
+    key_create_parser.set_defaults(func=cmd_key_create)
+
+    # key import
+    key_import_parser = key_subparsers.add_parser(
+        "import", help="Register existing .ssckey"
+    )
+    key_import_parser.add_argument("file", metavar="PATH", help="Path to .ssckey file")
+    key_import_parser.add_argument(
+        "--vault-copy", action="store_true", help="Store a copy in the secure vault"
+    )
+    key_import_parser.set_defaults(func=cmd_key_import)
+
+    # key list
+    key_list_parser = key_subparsers.add_parser("list", help="Show all registered keys")
+    key_list_parser.set_defaults(func=cmd_key_list)
+
+    # key show
+    key_show_parser = key_subparsers.add_parser("show", help="Full details of a key")
+    key_show_parser.add_argument("id", metavar="ID", help="Key ID")
+    key_show_parser.set_defaults(func=cmd_key_show)
+
+    # key export
+    key_export_parser = key_subparsers.add_parser(
+        "export", help="Export .ssckey to explicit destination"
+    )
+    key_export_parser.add_argument("id", metavar="ID", help="Key ID")
+    key_export_parser.add_argument("dest", metavar="PATH", help="Destination path")
+    key_export_parser.set_defaults(func=cmd_key_export)
+
+    # key rename
+    key_rename_parser = key_subparsers.add_parser("rename", help="Change human ID")
+    key_rename_parser.add_argument("id", metavar="ID", help="Current key ID")
+    key_rename_parser.add_argument("new_id", metavar="NEW_ID", help="New key ID")
+    key_rename_parser.set_defaults(func=cmd_key_rename)
+
+    # key archive
+    key_archive_parser = key_subparsers.add_parser(
+        "archive", help="Set status=archived (blocks new encryption)"
+    )
+    key_archive_parser.add_argument("id", metavar="ID", help="Key ID")
+    key_archive_parser.set_defaults(func=cmd_key_archive)
+
+    # key revoke
+    key_revoke_parser = key_subparsers.add_parser(
+        "revoke", help="Set status=revoked (blocks encryption and decryption)"
+    )
+    key_revoke_parser.add_argument("id", metavar="ID", help="Key ID")
+    key_revoke_parser.set_defaults(func=cmd_key_revoke)
+
+    # key destroy
+    key_destroy_parser = key_subparsers.add_parser(
+        "destroy", help="Remove inner secret, leaving tombstone"
+    )
+    key_destroy_parser.add_argument("id", metavar="ID", help="Key ID")
+    key_destroy_parser.add_argument(
+        "--confirm", action="store_true", help="Skip confirmation prompt"
+    )
+    key_destroy_parser.set_defaults(func=cmd_key_destroy)
+
+    key_parser.set_defaults(func=cmd_key)
 
     # --- shred ---
     shred_parser = subparsers.add_parser(

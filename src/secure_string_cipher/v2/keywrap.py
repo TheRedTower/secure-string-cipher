@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 from collections.abc import Mapping
-from dataclasses import fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum
 from typing import Any
 
@@ -30,6 +30,9 @@ __all__ = [
     "DekUnwrapError",
     "GrantCommitmentError",
     "KeyWrapError",
+    "ProjectionMContext",
+    "ProjectionQ",
+    "ProjectionW",
     "build_projection_m_context",
     "build_projection_q",
     "build_projection_w",
@@ -58,6 +61,36 @@ class DekUnwrapError(KeyWrapError):
     """Raised when AEAD DEK decryption or authentication fails."""
 
 
+@dataclass(frozen=True, slots=True)
+class ProjectionW:
+    """Nominal wrapper for the W projection (wrap-AAD input, Section 8.2).
+
+    Instances are constructed ONLY by :func:`build_projection_w`.
+    """
+
+    mapping: Mapping[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectionQ:
+    """Nominal wrapper for the Q projection (commitment transcript input).
+
+    Instances are constructed ONLY by :func:`build_projection_q`.
+    """
+
+    mapping: Mapping[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectionMContext:
+    """Nominal wrapper for the M_context projection (metadata/payload AAD input).
+
+    Instances are constructed ONLY by :func:`build_projection_m_context`.
+    """
+
+    mapping: Mapping[str, Any]
+
+
 def _deep_copy_json(value: Any) -> Any:
     """Recursively convert and copy dataclasses and mappings to plain json containers."""
     if isinstance(value, Enum):
@@ -78,13 +111,18 @@ def _deep_copy_json(value: Any) -> Any:
     return value
 
 
-def build_projection_m_context(header: Mapping[str, Any] | V2Header) -> dict[str, Any]:
+def build_projection_m_context(
+    header: Mapping[str, Any] | V2Header,
+) -> ProjectionMContext:
     """Construct M_context projection (Section 8.2).
 
     M_context = {
       format, version, object_id, object_type, payload,
       metadata: metadata container with only ciphertext and tag omitted
     }
+
+    The ``metadata`` member is included whenever the header carries a metadata
+    mapping, even if it is empty after stripping ``ciphertext``/``tag``.
     """
     h = _deep_copy_json(header)
     raw_meta = h.get("metadata", {})
@@ -95,24 +133,30 @@ def build_projection_m_context(header: Mapping[str, Any] | V2Header) -> dict[str
     meta.pop("ciphertext", None)
     meta.pop("tag", None)
 
-    return {
-        "format": h["format"],
-        "version": h["version"],
-        "object_id": h["object_id"],
-        "object_type": h["object_type"],
-        "payload": h["payload"],
-        "metadata": meta,
-    }
+    return ProjectionMContext(
+        {
+            "format": h["format"],
+            "version": h["version"],
+            "object_id": h["object_id"],
+            "object_type": h["object_type"],
+            "payload": h["payload"],
+            "metadata": meta,
+        }
+    )
 
 
-def compute_metadata_aad(header: Mapping[str, Any] | V2Header) -> bytes:
+def compute_metadata_aad(projection: ProjectionMContext) -> bytes:
     """Compute metadata_aad = b"SSC2/metadata/v1\0" || H(C(M_context))."""
-    m_ctx = build_projection_m_context(header)
-    h_m = hashlib.sha256(canonical_json(m_ctx)).digest()
+    if not isinstance(projection, ProjectionMContext):
+        raise TypeError(
+            "compute_metadata_aad requires a ProjectionMContext from "
+            f"build_projection_m_context, got {type(projection).__name__}"
+        )
+    h_m = hashlib.sha256(canonical_json(projection.mapping)).digest()
     return b"SSC2/metadata/v1\0" + h_m
 
 
-def build_projection_w(header: Mapping[str, Any] | V2Header) -> dict[str, Any]:
+def build_projection_w(header: Mapping[str, Any] | V2Header) -> ProjectionW:
     """Construct projection W (Section 8.2).
 
     W = complete header with only these fields omitted:
@@ -135,33 +179,22 @@ def build_projection_w(header: Mapping[str, Any] | V2Header) -> dict[str, Any]:
         raise ValueError(f"Malformed header structure for projection W: {e}") from e
 
     assert isinstance(w, dict)
-    return w
+    return ProjectionW(w)
 
 
-def compute_wrap_aad(header_or_w: Mapping[str, Any] | V2Header) -> bytes:
+def compute_wrap_aad(projection: ProjectionW) -> bytes:
     """Compute wrap_aad = b"SSC2/wrap/v1\0" || H(C(W))."""
-    if (
-        isinstance(header_or_w, Mapping)
-        and "access" in header_or_w
-        and "grants" in header_or_w["access"]  # type: ignore[index]
-        and isinstance(header_or_w["access"]["grants"], list)  # type: ignore[index]
-        and len(header_or_w["access"]["grants"]) > 0  # type: ignore[index]
-        and "wrapped_dek" not in header_or_w["access"]["grants"][0]  # type: ignore[index]
-        and "tag" not in header_or_w["access"]["grants"][0]  # type: ignore[index]
-        and (
-            "commitment" not in header_or_w["access"]["grants"][0]  # type: ignore[index]
-            or "value" not in header_or_w["access"]["grants"][0].get("commitment", {})  # type: ignore[index]
+    if not isinstance(projection, ProjectionW):
+        raise TypeError(
+            "compute_wrap_aad requires a ProjectionW from build_projection_w, "
+            f"got {type(projection).__name__}"
         )
-    ):
-        w = _deep_copy_json(header_or_w)
-    else:
-        w = build_projection_w(header_or_w)
 
-    h_w = hashlib.sha256(canonical_json(w)).digest()
+    h_w = hashlib.sha256(canonical_json(projection.mapping)).digest()
     return b"SSC2/wrap/v1\0" + h_w
 
 
-def build_projection_q(header: Mapping[str, Any] | V2Header) -> dict[str, Any]:
+def build_projection_q(header: Mapping[str, Any] | V2Header) -> ProjectionQ:
     """Construct projection Q (Section 8.2).
 
     Q = complete header after DEK wrapping, with only this field omitted:
@@ -184,28 +217,18 @@ def build_projection_q(header: Mapping[str, Any] | V2Header) -> dict[str, Any]:
         raise ValueError(f"Malformed header structure for projection Q: {e}") from e
 
     assert isinstance(q, dict)
-    return q
+    return ProjectionQ(q)
 
 
-def compute_commitment_transcript(header_or_q: Mapping[str, Any] | V2Header) -> bytes:
+def compute_commitment_transcript(projection: ProjectionQ) -> bytes:
     """Compute commitment transcript = b"SSC2/commit/v1\0" || H(C(Q))."""
-    if (
-        isinstance(header_or_q, Mapping)
-        and "access" in header_or_q
-        and "grants" in header_or_q["access"]  # type: ignore[index]
-        and isinstance(header_or_q["access"]["grants"], list)  # type: ignore[index]
-        and len(header_or_q["access"]["grants"]) > 0  # type: ignore[index]
-        and "wrapped_dek" in header_or_q["access"]["grants"][0]  # type: ignore[index]
-        and (
-            "commitment" not in header_or_q["access"]["grants"][0]  # type: ignore[index]
-            or "value" not in header_or_q["access"]["grants"][0].get("commitment", {})  # type: ignore[index]
+    if not isinstance(projection, ProjectionQ):
+        raise TypeError(
+            "compute_commitment_transcript requires a ProjectionQ from "
+            f"build_projection_q, got {type(projection).__name__}"
         )
-    ):
-        q = _deep_copy_json(header_or_q)
-    else:
-        q = build_projection_q(header_or_q)
 
-    h_q = hashlib.sha256(canonical_json(q)).digest()
+    h_q = hashlib.sha256(canonical_json(projection.mapping)).digest()
     return b"SSC2/commit/v1\0" + h_q
 
 
@@ -271,13 +294,18 @@ def unwrap_dek_aead(
 
 def compute_grant_commitment(
     k_commit: bytes,
-    header_or_q: Mapping[str, Any] | V2Header,
+    projection_q: ProjectionQ,
 ) -> str:
     """Compute base64url HMAC-SHA256 grant commitment over transcript Q."""
+    if not isinstance(projection_q, ProjectionQ):
+        raise TypeError(
+            "compute_grant_commitment requires a ProjectionQ from "
+            f"build_projection_q, got {type(projection_q).__name__}"
+        )
     if len(k_commit) != 32:
         raise ValueError(f"k_commit must be 32 bytes, got {len(k_commit)}")
 
-    transcript = compute_commitment_transcript(header_or_q)
+    transcript = compute_commitment_transcript(projection_q)
     h = HMAC(k_commit, hashes.SHA256())
     h.update(transcript)
     return b64url_encode(h.finalize())
@@ -285,10 +313,15 @@ def compute_grant_commitment(
 
 def verify_grant_commitment(
     k_commit: bytes,
-    header_or_q: Mapping[str, Any] | V2Header,
+    projection_q: ProjectionQ,
     expected_commitment_b64: str,
 ) -> bool:
     """Verify grant commitment using constant-time comparison."""
+    if not isinstance(projection_q, ProjectionQ):
+        raise TypeError(
+            "verify_grant_commitment requires a ProjectionQ from "
+            f"build_projection_q, got {type(projection_q).__name__}"
+        )
     if len(k_commit) != 32:
         raise ValueError(f"k_commit must be 32 bytes, got {len(k_commit)}")
     if not isinstance(expected_commitment_b64, str):
@@ -299,7 +332,7 @@ def verify_grant_commitment(
     except Exception:
         return False
 
-    transcript = compute_commitment_transcript(header_or_q)
+    transcript = compute_commitment_transcript(projection_q)
     h = HMAC(k_commit, hashes.SHA256())
     h.update(transcript)
     actual_bytes = h.finalize()
@@ -415,7 +448,7 @@ def wrap_dek_for_grant(
 
     # 5. Construct Q, compute commitment
     q = build_projection_q(h)
-    commitment_value = compute_grant_commitment(k_commit=k_commit, header_or_q=q)
+    commitment_value = compute_grant_commitment(k_commit=k_commit, projection_q=q)
     grant["commitment"]["value"] = commitment_value
 
     assert isinstance(h, dict)

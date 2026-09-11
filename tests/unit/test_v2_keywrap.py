@@ -126,14 +126,14 @@ class TestHeaderProjections:
         )
         w = build_projection_w(header)
 
-        g = w["access"]["grants"][0]
+        g = w.mapping["access"]["grants"][0]
         assert "wrapped_dek" not in g
         assert "tag" not in g
         assert "value" not in g["commitment"]
 
         # Ensure all other fields remain intact
-        assert w["format"] == "SSC2"
-        assert w["object_id"] == header["object_id"]
+        assert w.mapping["format"] == "SSC2"
+        assert w.mapping["object_id"] == header["object_id"]
         assert g["wrap_nonce"] == header["access"]["grants"][0]["wrap_nonce"]
         assert g["commitment"]["alg"] == "hmac-sha256"
 
@@ -143,7 +143,7 @@ class TestHeaderProjections:
         )
         q = build_projection_q(header)
 
-        g = q["access"]["grants"][0]
+        g = q.mapping["access"]["grants"][0]
         # Q MUST retain wrapped_dek and tag
         assert "wrapped_dek" in g
         assert "tag" in g
@@ -172,30 +172,87 @@ class TestHeaderProjections:
         }
         m_ctx = build_projection_m_context(header)
 
-        assert "access" not in m_ctx
-        assert m_ctx["metadata"]["policy"] == "encrypted"
-        assert m_ctx["metadata"]["nonce"] == header["metadata"]["nonce"]
-        assert "ciphertext" not in m_ctx["metadata"]
-        assert "tag" not in m_ctx["metadata"]
+        assert "access" not in m_ctx.mapping
+        assert m_ctx.mapping["metadata"]["policy"] == "encrypted"
+        assert m_ctx.mapping["metadata"]["nonce"] == header["metadata"]["nonce"]
+        assert "ciphertext" not in m_ctx.mapping["metadata"]
+        assert "tag" not in m_ctx.mapping["metadata"]
 
     def test_aad_transcript_prefixes_and_lengths(self) -> None:
         header = _create_sample_header_dict(
             include_wrapped=True, include_commitment_value=True
         )
-        meta_aad = compute_metadata_aad(header)
+        meta_aad = compute_metadata_aad(build_projection_m_context(header))
         assert meta_aad.startswith(b"SSC2/metadata/v1\0")
         assert len(meta_aad) == len(b"SSC2/metadata/v1\0") + 32
 
-        wrap_aad = compute_wrap_aad(header)
+        wrap_aad = compute_wrap_aad(build_projection_w(header))
         assert wrap_aad.startswith(b"SSC2/wrap/v1\0")
         assert len(wrap_aad) == len(b"SSC2/wrap/v1\0") + 32
 
-        commit_transcript = compute_commitment_transcript(header)
+        commit_transcript = compute_commitment_transcript(build_projection_q(header))
         assert commit_transcript.startswith(b"SSC2/commit/v1\0")
         assert len(commit_transcript) == len(b"SSC2/commit/v1\0") + 32
 
         digest = compute_payload_header_digest(header)
         assert len(digest) == 32
+
+
+class TestProjectionNominalTypes:
+    """A5: projections are nominal types; compute_* reject raw headers/dicts."""
+
+    def test_compute_wrap_aad_rejects_full_header(self) -> None:
+        header = _create_sample_header_dict(include_wrapped=True)
+        with pytest.raises(TypeError, match="requires a ProjectionW"):
+            compute_wrap_aad(header)  # type: ignore[arg-type]
+
+    def test_compute_wrap_aad_rejects_plain_projection_dict(self) -> None:
+        header = _create_sample_header_dict(include_wrapped=True)
+        w_dict = build_projection_w(header).mapping
+        with pytest.raises(TypeError, match="requires a ProjectionW"):
+            compute_wrap_aad(w_dict)  # type: ignore[arg-type]
+
+    def test_transcript_rejects_projection_w(self) -> None:
+        header = _create_sample_header_dict(include_wrapped=True)
+        w = build_projection_w(header)
+        with pytest.raises(TypeError, match="requires a ProjectionQ"):
+            compute_commitment_transcript(w)  # type: ignore[arg-type]
+
+    def test_metadata_aad_rejects_raw_header(self) -> None:
+        header = _create_sample_header_dict()
+        with pytest.raises(TypeError, match="requires a ProjectionMContext"):
+            compute_metadata_aad(header)  # type: ignore[arg-type]
+
+    def test_grant_commitment_rejects_raw_header(self) -> None:
+        header = _create_sample_header_dict(include_wrapped=True)
+        with pytest.raises(TypeError, match="requires a ProjectionQ"):
+            compute_grant_commitment(os.urandom(32), header)  # type: ignore[arg-type]
+        with pytest.raises(TypeError, match="requires a ProjectionQ"):
+            verify_grant_commitment(os.urandom(32), header, "x")  # type: ignore[arg-type]
+
+    def test_m_context_includes_empty_metadata_mapping(self) -> None:
+        """A4 pin: M_context carries the metadata member even when it is empty
+        after stripping ciphertext/tag (the previously divergent edge case)."""
+        header = _create_sample_header_dict()
+
+        header["metadata"] = {}
+        m_empty = build_projection_m_context(header)
+        assert "metadata" in m_empty.mapping
+        assert m_empty.mapping["metadata"] == {}
+
+        header["metadata"] = {"ciphertext": "YQ", "tag": "YQ"}
+        m_stripped = build_projection_m_context(header)
+        assert m_stripped.mapping["metadata"] == {}
+
+        # Both produce identical digests (metadata member present, empty)
+        import hashlib
+
+        from secure_string_cipher.v2.envelope import canonical_json
+
+        assert (
+            hashlib.sha256(canonical_json(m_empty.mapping)).digest()
+            == hashlib.sha256(canonical_json(m_stripped.mapping)).digest()
+        )
 
 
 class TestDirectAeadWrapUnwrap:
@@ -294,12 +351,13 @@ class TestDirectGrantCommitment:
             include_wrapped=True, include_commitment_value=False
         )
         k_commit = os.urandom(32)
+        q = build_projection_q(header)
 
-        comm = compute_grant_commitment(k_commit, header)
+        comm = compute_grant_commitment(k_commit, q)
         assert isinstance(comm, str)
         assert len(comm) == 43  # 32 bytes base64url unpadded
 
-        assert verify_grant_commitment(k_commit, header, comm) is True
+        assert verify_grant_commitment(k_commit, q, comm) is True
 
     def test_commitment_fails_on_wrong_key(self) -> None:
         header = _create_sample_header_dict(
@@ -308,28 +366,35 @@ class TestDirectGrantCommitment:
         k_commit1 = os.urandom(32)
         k_commit2 = os.urandom(32)
 
-        comm = compute_grant_commitment(k_commit1, header)
-        assert verify_grant_commitment(k_commit2, header, comm) is False
+        comm = compute_grant_commitment(k_commit1, build_projection_q(header))
+        assert (
+            verify_grant_commitment(k_commit2, build_projection_q(header), comm)
+            is False
+        )
 
     def test_commitment_fails_on_tampered_transcript(self) -> None:
         header = _create_sample_header_dict(
             include_wrapped=True, include_commitment_value=False
         )
         k_commit = os.urandom(32)
-        comm = compute_grant_commitment(k_commit, header)
+        comm = compute_grant_commitment(k_commit, build_projection_q(header))
 
         # Tamper header field covered by Q
         tampered_header = dict(header)
         tampered_header["object_id"] = b64url_encode(os.urandom(16))
-        assert verify_grant_commitment(k_commit, tampered_header, comm) is False
+        assert (
+            verify_grant_commitment(k_commit, build_projection_q(tampered_header), comm)
+            is False
+        )
 
     def test_commitment_fails_on_invalid_format(self) -> None:
         header = _create_sample_header_dict(
             include_wrapped=True, include_commitment_value=False
         )
         k_commit = os.urandom(32)
-        assert verify_grant_commitment(k_commit, header, "not-valid-b64!@#$") is False
-        assert verify_grant_commitment(k_commit, header, 12345) is False  # type: ignore[arg-type]
+        q = build_projection_q(header)
+        assert verify_grant_commitment(k_commit, q, "not-valid-b64!@#$") is False
+        assert verify_grant_commitment(k_commit, q, 12345) is False  # type: ignore[arg-type]
 
 
 class TestHighLevelGrantWrapAndUnwrap:
@@ -686,10 +751,11 @@ class TestKeywrapEdgeCoverage:
 
     def test_commitment_key_lengths(self) -> None:
         header = _create_sample_header_dict(include_wrapped=True)
+        q = build_projection_q(header)
         with pytest.raises(ValueError, match="k_commit must be 32 bytes"):
-            compute_grant_commitment(os.urandom(16), header)
+            compute_grant_commitment(os.urandom(16), q)
         with pytest.raises(ValueError, match="k_commit must be 32 bytes"):
-            verify_grant_commitment(os.urandom(16), header, "abc")
+            verify_grant_commitment(os.urandom(16), q, "abc")
 
     def test_wrap_dek_for_grant_validation_errors(self) -> None:
         # Invalid DEK length

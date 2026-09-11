@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import contextlib
 import os
 import re
@@ -15,6 +14,7 @@ from pathlib import Path
 from secure_string_cipher.atomic_io import _sync_directory
 from secure_string_cipher.v2.key_identity import compute_fingerprint
 from secure_string_cipher.v2.paths import reject_symlink_components
+from secure_string_cipher.v2.vault_schema import b64url_decode, b64url_encode
 
 _KEY_ID_RE = re.compile(r"^[a-z][a-z0-9._-]{0,63}$")
 
@@ -70,29 +70,6 @@ class KeyFileData:
             raise ValueError("secret_bytes must be exactly 32 bytes")
         if compute_fingerprint(self.secret_bytes) != self.fingerprint:
             raise ValueError("Fingerprint mismatch")
-
-
-def _decode_b64_unpadded(b64_str: str) -> bytes:
-    """Decode strict URL-safe Base64 without padding."""
-    if "=" in b64_str:
-        raise ValueError("Base64 padding is not permitted")
-    if "+" in b64_str or "/" in b64_str:
-        raise ValueError("Standard Base64 characters are not permitted")
-    if any(c.isspace() for c in b64_str):
-        raise ValueError("Whitespace in Base64 is not permitted")
-
-    padded = b64_str + "=" * (-len(b64_str) % 4)
-    decoded = base64.urlsafe_b64decode(padded)
-
-    if base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=") != b64_str:
-        raise ValueError("Invalid Base64 trailing bits")
-
-    return decoded
-
-
-def _encode_b64_unpadded(data: bytes) -> str:
-    """Encode to strict URL-safe Base64 without padding."""
-    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
 
 
 def parse_keyfile_content(content: str) -> KeyFileData:
@@ -154,7 +131,7 @@ def parse_keyfile_content(content: str) -> KeyFileData:
         raise ValueError("Missing empty line before secret")
 
     b64_secret = lines[8]
-    secret_bytes = _decode_b64_unpadded(b64_secret)
+    secret_bytes = b64url_decode(b64_secret)
 
     if lines[9] != HEADER_END:
         raise ValueError("Invalid END delimiter")
@@ -176,7 +153,7 @@ def parse_keyfile_content(content: str) -> KeyFileData:
 
 def serialize_keyfile_content(data: KeyFileData) -> str:
     """Serialize KeyFileData to a V2 .ssckey string with LF endings."""
-    b64_secret = _encode_b64_unpadded(data.secret_bytes)
+    b64_secret = b64url_encode(data.secret_bytes)
     return "\n".join(
         [
             HEADER_BEGIN,

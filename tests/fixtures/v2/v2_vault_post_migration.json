@@ -1,0 +1,27 @@
+{
+  "schema_version": 2,
+  "vault_meta": {
+    "vault_id": "VlZWVlZWVlZWVlZWVlZWVg",
+    "revision": 1,
+    "wrap_generation": 1,
+    "vault_kdf": {
+      "alg": "argon2id",
+      "version": 19,
+      "memory_kib": 65536,
+      "time_cost": 3,
+      "parallelism": 4,
+      "hash_len": 32,
+      "salt": "QUFBQUFBQUFBQUFBQUFBQQ"
+    }
+  },
+  "items": {
+    "passphrases": {
+      "github": "token456",
+      "gmail": "secret123",
+      "items": "yet-another-password",
+      "schema_version": "this-is-a-password",
+      "vault_meta": "also-a-password"
+    },
+    "keys": {}
+  }
+}

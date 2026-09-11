@@ -14,6 +14,7 @@ __all__ = [
     "AccessPolicy",
     "CommitmentDescriptor",
     "GrantType",
+    "MAX_PLAINTEXT_FILE_SIZE",
     "MetadataPolicy",
     "PayloadDescriptor",
     "PayloadType",
@@ -38,6 +39,11 @@ VALID_CHUNK_SIZES: frozenset[int] = frozenset(
 
 MAX_CONTAINER_DEPTH: int = 16
 MAX_TOTAL_NODES: int = 1024
+
+# Spec §5 raw-size limit (100 MiB), shared by both the encrypt-side check
+# (v2/encrypt.py) and the decrypt-side cumulative caps (v2/payload.py) so
+# they cannot silently drift apart.
+MAX_PLAINTEXT_FILE_SIZE: int = 104857600
 
 
 def deep_freeze(value: object) -> object:

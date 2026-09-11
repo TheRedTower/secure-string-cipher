@@ -45,6 +45,17 @@ class AuditEvent(Enum):
     VAULT_RETRIEVE = "vault_retrieve"
     VAULT_DELETE = "vault_delete"
     VAULT_LIST = "vault_list"
+    VAULT_MIGRATE_SCHEMA = "vault_migrate_schema"
+    VAULT_CHANGE_PASSWORD = "vault_change_password"
+
+    # Key operations (V2)
+    KEY_CREATE = "key_create"
+    KEY_IMPORT = "key_import"
+    KEY_EXPORT = "key_export"
+    KEY_RENAME = "key_rename"
+    KEY_ARCHIVE = "key_archive"
+    KEY_REVOKE = "key_revoke"
+    KEY_DESTROY = "key_destroy"
 
     # Security events
     AUTH_SUCCESS = "auth_success"
@@ -332,7 +343,7 @@ class AuditLogger:
         """
         details: dict[str, Any] = {}
         if file_path:
-            details["file"] = str(file_path)
+            details["file"] = file_path
         if error:
             details["error"] = error
         self.log(event_type, success=success, details=details if details else None)
@@ -356,7 +367,7 @@ class AuditLogger:
         """
         details: dict[str, Any] = {}
         if vault_path:
-            details["vault"] = str(vault_path)
+            details["vault"] = vault_path
         if label:
             details["label"] = label
         if error:
