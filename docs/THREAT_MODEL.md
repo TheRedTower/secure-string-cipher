@@ -1,9 +1,12 @@
 # Threat Model: Secure String Cipher V2
 
-> **Status:** V2 is in-progress and unreleased (see [ROADMAP.md](../ROADMAP.md)).
-> This document was substantially corrected on 2026-09-10 after an independent
-> audit found several claims below did not match the shipped implementation;
-> those corrections are noted inline rather than silently applied.
+> **Status:** V2 is merged to `main` (PR #40, commit `59147fc`,
+> 2026-09-11) but not yet the source of a tagged release (see
+> [ROADMAP.md](../ROADMAP.md) for the remaining release gate). This document
+> was substantially corrected on 2026-09-10 after an independent audit found
+> several claims did not match the implementation at the time; most of that
+> audit's findings are now fixed (see ROADMAP.md), and the core security
+> content below still holds.
 
 ## 1. Overview
 Secure String Cipher V2 adds a new `.ssc` container **alongside** the existing
@@ -32,7 +35,7 @@ object can be opened by more than one independent credential.
 | **Passive Eavesdropper** | Read access to `.ssc` files on disk. | AES-256-GCM encryption of payload. The access grant does not reveal the DEK. |
 | **Active Tamperer** | Write access to `.ssc` files; ability to alter ciphertext, metadata, or the grant. | GCM authentication tag; HMAC-SHA256 grant commitment; strict header field validation and canonical-JSON re-verification. |
 | **Brute-force Attacker** | Offline computational capability to guess passwords. | Argon2id KDF (memory-hard; `time_cost=3`, `memory_kib=65536`, `parallelism=4` — OWASP-baseline, not unusually high); local CLI rate limiting on the interactive path only (see §5.4 — it does not slow an attacker operating directly against a copied file). |
-| **Key Compromiser** | Access to a stolen password or `.ssckey` file. | A grant built with `--require all` needs both components together, so a stolen password alone (or a stolen key alone) is insufficient for that object. **Not addressed**: `.ssckey` files store the raw 256-bit secret in plaintext (base64), so possession of the file is possession of the key — see §5.5. Revoking or archiving a key in the vault does not currently stop that key from decrypting — see §5.6. |
+| **Key Compromiser** | Access to a stolen password or `.ssckey` file. | A grant built with `--require all` needs both components together, so a stolen password alone (or a stolen key alone) is insufficient for that object. **Not addressed**: `.ssckey` files store the raw 256-bit secret in plaintext (base64), so possession of the file is possession of the key — see §5.4. Revoking or destroying a key in the vault does not stop a copy of that key's file from decrypting unless `--vault LABEL` is also passed — see §5.5. |
 
 ## 4. Key Security Mechanisms in V2
 

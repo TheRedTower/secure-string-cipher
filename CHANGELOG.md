@@ -2,11 +2,14 @@
 
 ## [Unreleased]
 
-## [2.0.0] - Unreleased, incomplete (see [ROADMAP.md](ROADMAP.md))
+## [2.0.0] - Merged to main, not yet released (see [ROADMAP.md](ROADMAP.md))
 
-This entry describes work in progress on `codex/v2-module-skeleton`, not a
-release. A 2026-09-10 independent audit found several of the items below do
-not work as described; each is annotated below rather than restated as fact.
+This entry describes the v2 managed-key feature as it stands on `main`
+(merged via PR #40, commit `59147fc`, 2026-09-11) — it is not yet the source
+of a tagged release. A 2026-09-10 independent audit found several issues in
+an earlier state of this work; the ones that have since been fixed are noted
+as such below, and the ones still open are kept as a live gate, not restated
+as an external finding.
 
 ### Added
 
@@ -20,12 +23,14 @@ not work as described; each is annotated below rather than restated as fact.
 - **Managed Keys**: `.ssckey` identity files (random 256-bit secrets, not
   deterministic; there is no `KeyManager` class — the implementation is
   `V2VaultService`) with vault-backed storage for the `vault-copy` mode.
-- **Key Lifecycle Commands**: `ssc key import`, `ssc key show`, `ssc key
-  export`, `ssc key archive`, `ssc key revoke`, `ssc key destroy`, and `ssc
-  key list` work. `ssc key create` cannot take a name yet and its default
-  mode does not persist the generated secret anywhere recoverable —
-  treat it as non-functional pending a fix. `ssc key rename` is registered
-  but unconditionally exits with an error; the backing method does not exist.
+- **Key Lifecycle Commands**: `ssc key create`, `import`, `show`, `export`,
+  `list`, `rename`, `archive`, `revoke`, and `destroy` all work end to end
+  against a real `V2VaultService` backend. (An earlier draft of this work
+  had `create` unable to take a name and discarding the generated secret,
+  and `rename` as an unconditional stub; both are fixed.) Note: there is
+  still no CLI end-to-end test coverage for this command group — only the
+  underlying vault-service methods and CLI argument parsing are tested
+  directly.
 - **Vault Service Upgrade**: `V2VaultService` bridges password and key
   storage across OS keychain and filesystem boundaries.
 - **V2 API Surface**: Exported public APIs under `secure_string_cipher.v2` for

@@ -319,7 +319,7 @@ output_path = decrypt_v2_file(
 
 **Key V2 Concepts**:
 - **Credentials**: `PasswordCredential(passphrase)`, `KeyCredential(key_fingerprint, managed_secret)` (a 32-byte managed-key secret plus its fingerprint — not a "direct" arbitrary-length key), or `CombinedCredential(passphrase, key_fingerprint, managed_secret)`.
-- **`V2VaultService`** (`secure_string_cipher.v2.vault_service`): the actual key-lifecycle implementation — there is no separate `KeyManager` class. Managed keys are random 256-bit secrets (not deterministic). The `ssc key` CLI subcommands wrap this service, but `ssc key create`/`rename` do not currently work end to end (see ROADMAP.md); use `load_keyfile`/`save_keyfile` (`secure_string_cipher.v2.keyfile`) directly if you need a working key today.
+- **`V2VaultService`** (`secure_string_cipher.v2.vault_service`): the actual key-lifecycle implementation — there is no separate `KeyManager` class. Managed keys are random 256-bit secrets (not deterministic). The `ssc key` CLI subcommands (`create`/`import`/`show`/`export`/`list`/`rename`/`archive`/`revoke`/`destroy`) all wrap this service and work end to end (see ROADMAP.md for the remaining release gate — CLI end-to-end test coverage and frame-level golden vectors, not functional bugs). `load_keyfile`/`save_keyfile` (`secure_string_cipher.v2.keyfile`) remain the direct API for working with a `.ssckey` file's bytes.
 
 ---
 
