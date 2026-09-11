@@ -959,6 +959,79 @@ class TestCmdDecryptPaths:
         assert stdout.buffer.getvalue() == b""
 
 
+class TestCmdDecryptRateLimitBypass:
+    """Regression coverage for the rate-limiter path-keyed leak/bypass fix.
+
+    Previously, decrypt_file was rate-limited by keying on the raw file
+    path: copying or renaming the same ciphertext to a new path reset its
+    lockout, and the persisted state file stored every attempted path in
+    plaintext. Both are fixed by identifying the record from ciphertext
+    content and salted-hashing the on-disk key (see
+    ``_file_rate_limit_identity`` and ``PersistentRateLimiter._make_key``).
+    """
+
+    def _attempt(self, path, output_dir, limiter):
+        args = argparse.Namespace(
+            text=None,
+            file=str(path),
+            vault=None,
+            key_file=None,
+            force=False,
+            output=str(output_dir / f"out-{path.name}"),
+            restore_filename=True,
+        )
+        with (
+            patch.object(cli_args, "_prompt_password", return_value="WrongPassword!1"),
+            patch("secure_string_cipher.cli_args._cli_limiter", limiter),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_decrypt(args)
+        return exc_info.value.code
+
+    def test_copied_ciphertext_inherits_the_original_lockout(self, tmp_path, capsys):
+        from secure_string_cipher.rate_limiter import PersistentRateLimiter
+
+        plaintext = tmp_path / "plain.txt"
+        plaintext.write_text("secret content")
+        original = tmp_path / "secret.txt.enc"
+        encrypt_file(str(plaintext), str(original), "CorrectHorseBattery1!")
+        copy_path = tmp_path / "renamed_copy.enc"
+        copy_path.write_bytes(original.read_bytes())
+
+        limiter = PersistentRateLimiter(
+            str(tmp_path / "rate_limits.json"), max_attempts=1, lockout_seconds=9999
+        )
+
+        # First wrong-password attempt against the original: allowed through
+        # (fresh budget), fails authentication, and triggers the lockout.
+        assert self._attempt(original, tmp_path, limiter) == EXIT_AUTH_ERROR
+        capsys.readouterr()
+
+        # A byte-identical COPY at a different path must be rejected by the
+        # still-active lockout, not treated as a fresh identifier with its
+        # own full budget — the old, path-keyed behavior would have allowed
+        # this attempt through.
+        assert self._attempt(copy_path, tmp_path, limiter) == EXIT_AUTH_ERROR
+        assert "Too many failed attempts" in capsys.readouterr().err
+
+    def test_persisted_state_does_not_contain_the_file_path(self, tmp_path, capsys):
+        from secure_string_cipher.rate_limiter import PersistentRateLimiter
+
+        plaintext = tmp_path / "plain.txt"
+        plaintext.write_text("secret content")
+        secret_named = tmp_path / "quarterly-earnings-confidential.txt.enc"
+        encrypt_file(str(plaintext), str(secret_named), "CorrectHorseBattery1!")
+
+        state_path = tmp_path / "rate_limits.json"
+        limiter = PersistentRateLimiter(str(state_path), max_attempts=5)
+        self._attempt(secret_named, tmp_path, limiter)
+        capsys.readouterr()
+
+        raw_state = state_path.read_text()
+        assert "quarterly-earnings-confidential" not in raw_state
+        assert str(tmp_path) not in raw_state
+
+
 # =============================================================================
 # cmd_store
 # =============================================================================

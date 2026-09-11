@@ -1129,3 +1129,87 @@ class TestShredCommand:
 
         assert result == EXIT_SUCCESS
         mock_secure_overwrite.assert_not_called()
+
+
+# =============================================================================
+# Key Command Parser and Guard Tests
+#
+# Regression coverage for two fixes: `ssc key create` previously had no
+# positional ID (P0-2) and its default mode silently discarded the generated
+# secret (P0-1); `ssc key rename` previously always failed (P0-6).
+# =============================================================================
+
+
+class TestKeyCreateParser:
+    def test_key_create_requires_positional_id(self):
+        """`ssc key create` with no ID must be a parser error, not accepted."""
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(["key", "create"])
+        assert exc_info.value.code == 2
+
+    def test_key_create_accepts_id_and_flags(self):
+        parser = create_parser()
+        args = parser.parse_args(
+            ["key", "create", "my-key", "--external-file", "out.ssckey"]
+        )
+        assert args.id == "my-key"
+        assert args.external_file == "out.ssckey"
+        assert args.vault_copy is False
+
+    def test_key_create_vault_copy_flag(self):
+        parser = create_parser()
+        args = parser.parse_args(["key", "create", "my-key", "--vault-copy"])
+        assert args.vault_copy is True
+
+
+class TestKeyRenameParser:
+    def test_key_rename_requires_both_positionals(self):
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(["key", "rename", "old-id"])
+        assert exc_info.value.code == 2
+
+    def test_key_rename_parses_id_and_new_id(self):
+        parser = create_parser()
+        args = parser.parse_args(["key", "rename", "old-id", "new-id"])
+        assert args.id == "old-id"
+        assert args.new_id == "new-id"
+
+
+class TestKeyCreateGuard:
+    """`cmd_key_create` must refuse to run before touching the vault when the
+    caller asked for an external-only key with nowhere to save it — the
+    original bug generated and then discarded the secret unconditionally."""
+
+    def test_external_only_without_destination_is_rejected_before_vault_access(self):
+        args = argparse.Namespace(id="my-key", external_file=None, vault_copy=False)
+
+        with patch("secure_string_cipher.cli_args.PassphraseVault") as mock_vault_cls:
+            with pytest.raises(SystemExit) as exc_info:
+                cli_args.cmd_key_create(args)
+
+        assert exc_info.value.code == EXIT_INPUT_ERROR
+        mock_vault_cls.assert_not_called()
+
+    def test_external_file_given_proceeds_past_the_guard(self):
+        args = argparse.Namespace(
+            id="my-key", external_file="out.ssckey", vault_copy=False
+        )
+
+        with patch("secure_string_cipher.cli_args.PassphraseVault") as mock_vault_cls:
+            mock_vault_cls.side_effect = RuntimeError("stop after the guard")
+            with pytest.raises(RuntimeError):
+                cli_args.cmd_key_create(args)
+
+        mock_vault_cls.assert_called_once()
+
+    def test_vault_copy_alone_proceeds_past_the_guard(self):
+        args = argparse.Namespace(id="my-key", external_file=None, vault_copy=True)
+
+        with patch("secure_string_cipher.cli_args.PassphraseVault") as mock_vault_cls:
+            mock_vault_cls.side_effect = RuntimeError("stop after the guard")
+            with pytest.raises(RuntimeError):
+                cli_args.cmd_key_create(args)
+
+        mock_vault_cls.assert_called_once()

@@ -364,3 +364,131 @@ def test_inner_wrap_aad_tamper_rejection(vault_service: V2VaultService) -> None:
     # AAD mismatch must cause unwrap authentication failure
     with pytest.raises(ValueError, match="authentication failed"):
         vault_service.get_key("aad-tamper-target", TEST_MASTER)
+
+
+# ---------------------------------------------------------------------------
+# create_key(export_path=...) — regression coverage for the P0-1 fix: an
+# EXTERNAL_ONLY key created without a real export destination previously
+# discarded its generated secret, unrecoverably.
+# ---------------------------------------------------------------------------
+
+
+def test_create_key_export_path_writes_recoverable_keyfile(
+    vault_service: V2VaultService, tmp_path: Path
+) -> None:
+    dest = tmp_path / "exported.ssckey"
+    key_record, secret = vault_service.create_key(
+        "export-me",
+        KeyStorageMode.EXTERNAL_ONLY,
+        master_password=TEST_MASTER,
+        export_path=dest,
+    )
+
+    assert dest.exists()
+    loaded = load_keyfile(dest)
+    assert loaded.fingerprint == key_record.fingerprint
+    assert loaded.secret_bytes == secret
+    # The written path becomes the identity's path_hint automatically.
+    assert key_record.external is not None
+    assert key_record.external.path_hint == str(dest)
+
+
+def test_create_key_export_path_existing_destination_leaves_vault_untouched(
+    vault_service: V2VaultService, tmp_path: Path
+) -> None:
+    dest = tmp_path / "taken.ssckey"
+    dest.write_bytes(b"not a real keyfile")
+
+    with pytest.raises(FileExistsError):
+        vault_service.create_key(
+            "should-not-exist",
+            KeyStorageMode.EXTERNAL_ONLY,
+            master_password=TEST_MASTER,
+            export_path=dest,
+        )
+
+    # The failed write must not have registered a now-unrecoverable key.
+    assert vault_service.list_keys(TEST_MASTER) == []
+
+
+def test_create_key_export_path_optional_for_vault_copy(
+    vault_service: V2VaultService, tmp_path: Path
+) -> None:
+    dest = tmp_path / "backup.ssckey"
+    key_record, secret = vault_service.create_key(
+        "vault-copy-with-backup",
+        KeyStorageMode.VAULT_COPY,
+        master_password=TEST_MASTER,
+        export_path=dest,
+    )
+    assert key_record.vault_secret is not None
+    assert dest.exists()
+    assert load_keyfile(dest).secret_bytes == secret
+
+
+# ---------------------------------------------------------------------------
+# rename_key — regression coverage for the P0-6 fix: previously unimplemented,
+# the CLI's `ssc key rename` unconditionally failed.
+# ---------------------------------------------------------------------------
+
+
+def test_rename_key_by_id_updates_id_and_preserves_fingerprint(
+    vault_service: V2VaultService,
+) -> None:
+    original, secret = vault_service.create_key(
+        "old-name",
+        KeyStorageMode.VAULT_COPY,
+        master_password=TEST_MASTER,
+    )
+
+    renamed = vault_service.rename_key("old-name", "new-name", TEST_MASTER)
+
+    assert renamed.id == "new-name"
+    assert renamed.fingerprint == original.fingerprint
+    assert renamed.record_id == original.record_id
+
+    keys = vault_service.list_keys(TEST_MASTER)
+    assert [k.id for k in keys] == ["new-name"]
+
+    # The secret itself is untouched by rename.
+    _, unwrapped = vault_service.get_key("new-name", TEST_MASTER)
+    assert unwrapped == secret
+
+
+def test_rename_key_by_fingerprint_also_works(vault_service: V2VaultService) -> None:
+    original, _ = vault_service.create_key(
+        "fp-lookup", KeyStorageMode.VAULT_COPY, master_password=TEST_MASTER
+    )
+    renamed = vault_service.rename_key(original.fingerprint, "fp-renamed", TEST_MASTER)
+    assert renamed.id == "fp-renamed"
+
+
+def test_rename_key_rejects_collision_with_existing_id(
+    vault_service: V2VaultService,
+) -> None:
+    vault_service.create_key(
+        "first", KeyStorageMode.VAULT_COPY, master_password=TEST_MASTER
+    )
+    vault_service.create_key(
+        "second", KeyStorageMode.VAULT_COPY, master_password=TEST_MASTER
+    )
+
+    with pytest.raises(ValueError, match="already exists"):
+        vault_service.rename_key("second", "first", TEST_MASTER)
+
+    # Neither record should have been mutated by the rejected rename.
+    keys = {k.id for k in vault_service.list_keys(TEST_MASTER)}
+    assert keys == {"first", "second"}
+
+
+def test_rename_key_rejects_invalid_new_id(vault_service: V2VaultService) -> None:
+    vault_service.create_key(
+        "valid-id", KeyStorageMode.VAULT_COPY, master_password=TEST_MASTER
+    )
+    with pytest.raises(ValueError, match="new_id"):
+        vault_service.rename_key("valid-id", "Not Valid!", TEST_MASTER)
+
+
+def test_rename_key_not_found(vault_service: V2VaultService) -> None:
+    with pytest.raises(KeyError):
+        vault_service.rename_key("does-not-exist", "whatever", TEST_MASTER)

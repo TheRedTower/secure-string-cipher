@@ -344,8 +344,21 @@ class V2VaultService:
         *,
         path_hint: str | None = None,
         master_password: str | None = None,
+        export_path: Path | None = None,
     ) -> tuple[KeyIdentity, bytes]:
-        """Create a new managed key identity and commit it to the vault."""
+        """Create a new managed key identity and commit it to the vault.
+
+        ``path_hint`` is informational metadata only (a display string; no
+        file is written from it). Pass ``export_path`` to actually write a
+        ``.ssckey`` file for the generated secret — required in practice for
+        ``EXTERNAL_ONLY`` storage, since that mode does not persist the
+        secret anywhere else and an unexported external-only key is
+        unrecoverable the moment this method returns. The keyfile is written
+        (durably, refusing to overwrite an existing file) *before* the vault
+        document is committed, so a failed vault commit still leaves a
+        recoverable external key file; conversely a failed keyfile write
+        leaves the vault untouched.
+        """
         if not isinstance(key_id, str) or not _KEY_ID_RE.match(key_id):
             raise ValueError("key_id must match pattern ^[a-z][a-z0-9._-]{0,63}$")
         if storage == KeyStorageMode.VAULT_COPY and master_password is None:
@@ -368,13 +381,32 @@ class V2VaultService:
             record_id = b64url_encode(secrets.token_bytes(16))
             now = _utc_now_iso()
 
+            if export_path is not None:
+                # Written before any vault mutation: on failure (e.g. the
+                # destination already exists) nothing above has been
+                # committed, so create_key simply raises with no side effect.
+                save_keyfile(
+                    KeyFileData(
+                        version=1,
+                        key_id=key_id,
+                        key_type="symmetric-key",
+                        kdf="hkdf-sha256",
+                        fingerprint=fingerprint,
+                        created_at=now,
+                        secret_bytes=secret_bytes,
+                    ),
+                    export_path,
+                )
+
             public_meta = KeyPublicMetadata(
                 label=key_id,
                 algorithm="hkdf-sha256",
                 key_length=32,
                 format="ssckey-v1",
             )
-            external_ref = ExternalKeyReference(path_hint=path_hint)
+            external_ref = ExternalKeyReference(
+                path_hint=str(export_path) if export_path is not None else path_hint
+            )
 
             vault_secret_dict: dict[str, object] | None = None
             root_key = None
@@ -638,6 +670,78 @@ class V2VaultService:
                 public_metadata=old_record.public_metadata,
                 external=old_record.external,
                 vault_secret=vault_secret,
+            )
+
+            updated_keys = dict(v2_doc.keys)
+            updated_keys[target_fp] = new_record
+
+            new_meta = V2VaultMeta(
+                vault_id=v2_doc.vault_meta.vault_id,
+                revision=v2_doc.vault_meta.revision + 1,
+                wrap_generation=v2_doc.vault_meta.wrap_generation,
+                vault_kdf=v2_doc.vault_meta.vault_kdf,
+            )
+            new_doc = V2VaultDocument(
+                schema_version=2,
+                vault_meta=new_meta,
+                passphrases=dict(v2_doc.passphrases),
+                keys=updated_keys,
+            )
+
+            self._save_document_locked(2, new_doc, master_password, expected_raw=raw)
+            return new_record
+
+    def rename_key(
+        self, identifier: str, new_id: str, master_password: str
+    ) -> KeyIdentity:
+        """Change a managed key's human-readable id.
+
+        The fingerprint, which is derived from the key's own secret material,
+        never changes. Only the ``id`` label used for lookup and display is
+        updated.
+        """
+        if not isinstance(new_id, str) or not _KEY_ID_RE.match(new_id):
+            raise ValueError("new_id must match pattern ^[a-z][a-z0-9._-]{0,63}$")
+
+        with hold_vault_lock(self.lock_target):
+            v2_doc, _, raw = self._ensure_schema_2(master_password)
+
+            target_fp: str | None = None
+            if identifier in v2_doc.keys:
+                target_fp = identifier
+            else:
+                matches = [fp for fp, k in v2_doc.keys.items() if k.id == identifier]
+                if len(matches) == 1:
+                    target_fp = matches[0]
+                elif len(matches) > 1:
+                    raise ValueError(f"Ambiguous key identifier '{identifier}'")
+
+            if target_fp is None:
+                raise KeyError(f"Key '{identifier}' not found")
+
+            old_record = v2_doc.keys[target_fp]
+
+            for fp, existing in v2_doc.keys.items():
+                if fp != target_fp and existing.id == new_id:
+                    raise ValueError(
+                        f"A key with id '{new_id}' already exists in the vault"
+                    )
+
+            now = _utc_now_iso()
+            new_record = KeyIdentity(
+                schema_version=old_record.schema_version,
+                record_id=old_record.record_id,
+                id=new_id,
+                type=old_record.type,
+                fingerprint=old_record.fingerprint,
+                storage=old_record.storage,
+                status=old_record.status,
+                created_at=old_record.created_at,
+                updated_at=now,
+                last_used_at=old_record.last_used_at,
+                public_metadata=old_record.public_metadata,
+                external=old_record.external,
+                vault_secret=old_record.vault_secret,
             )
 
             updated_keys = dict(v2_doc.keys)

@@ -31,6 +31,14 @@ class VaultBusyError(ValueError):
 
 def get_vault_lock_path(lock_target: Path | str) -> Path:
     """Derive a stable, persistent lock file path from a vault path or keychain identity."""
+    if not isinstance(lock_target, Path | str):
+        # Anything else (e.g. an unconfigured test double) would otherwise
+        # fall through to str()/Path() below and silently derive a bogus
+        # lock path from that object's repr, creating real directories from
+        # it (observed in practice with an unconfigured MagicMock).
+        raise TypeError(
+            f"lock_target must be a Path or str, got {type(lock_target).__name__}"
+        )
     target_str = str(lock_target)
     if isinstance(lock_target, str) and (
         target_str.startswith("keychain:")

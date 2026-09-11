@@ -93,6 +93,33 @@ def test_lock_path_derivation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert kc_lock.name.endswith(".lock")
 
 
+@pytest.mark.parametrize(
+    "bad_target",
+    [123, 1.5, None, [], {}, object(), b"vault.enc"],
+)
+def test_lock_path_rejects_non_path_str_targets(
+    bad_target: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unconfigured mock or other wrong-typed target must raise, not
+    silently derive and create a bogus lock directory from its repr."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    with pytest.raises(TypeError, match="lock_target must be a Path or str"):
+        get_vault_lock_path(bad_target)
+    # No stray directory should have been created from the rejected value.
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_lock_path_rejects_unconfigured_mock(tmp_path: Path) -> None:
+    """Reproduces the exact real-world trigger: an object whose attribute
+    access (e.g. ``vault.lock_target``) returns an unconfigured MagicMock
+    rather than a real Path or str."""
+    from unittest.mock import MagicMock
+
+    mock_vault = MagicMock()
+    with pytest.raises(TypeError):
+        get_vault_lock_path(mock_vault.lock_target)
+
+
 def test_hold_vault_lock_basic(tmp_path: Path) -> None:
     vault_file = tmp_path / "vault.enc"
     with hold_vault_lock(vault_file) as lock_path:
