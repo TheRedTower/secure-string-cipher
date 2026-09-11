@@ -65,13 +65,21 @@ place or symlink the `.ssckey` file there yourself, or use the direct path.
 ssc encrypt -f data.txt --key-file ./id_rsa
 ```
 
-**New (V2 - Managed Keys)**: not yet available end-to-end. `ssc key create`
-cannot name a key or reliably persist the secret it generates (see above), so
-there is currently no supported path from "create a managed key" to
-"reference it with `--with key:ID`" through the CLI alone. If you need a V2
-managed key today, generate 32 random bytes and hand-construct a `.ssckey`
-file matching the format in `src/secure_string_cipher/v2/keyfile.py`, or wait
-for this to be fixed.
+**New (V2 - Managed Keys)**:
+
+```bash
+ssc key create laptop-backup --external-file ./laptop-backup.ssckey
+ssc encrypt -f data.txt --with key:laptop-backup
+```
+
+`ssc key create ID` requires exactly one storage target: `--external-file
+PATH` (writes the generated secret to a `.ssckey` file you keep yourself) or
+`--vault-copy` (stores it inside the encrypted vault instead — export it to
+a file later with `ssc key export ID DEST` before it can be used with
+`--with key:ID`). `key:ID` then resolves either that literal `.ssckey` path
+or a fingerprint/key-id found under `~/.ssc/keys/*.ssckey` — nothing in this
+CLI currently populates that directory automatically, so place or symlink
+the file there yourself if you want to reference it by id instead of path.
 
 ### 3. Decryption
 
@@ -103,10 +111,10 @@ ssc key show <id-or-fingerprint>   # works
 ssc key import <path-to.ssckey>    # works
 ssc key export <id> <dest>         # works, but only for a --vault-copy key
 ssc key rename <id> <new-id>       # works
-ssc key create <id> [--vault-copy] [--external-file PATH]
-                                    # works — persists the generated secret
-                                    #   either to the named external file or
-                                    #   into the vault
+ssc key create <id> (--external-file PATH | --vault-copy)
+                                    # works — exactly one storage target is
+                                    #   required; omitting both exits with
+                                    #   an input error
 ssc key archive <id>               # flips a vault status field only —
 ssc key revoke <id>                #   neither has any effect on whether the
 ssc key destroy <id>               #   matching .ssckey file can still
