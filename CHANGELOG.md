@@ -19,6 +19,19 @@
   comment now states explicitly why this is safe today (pinned `pynacl`
   version, `AttributeError`-tolerant fallback, direct test coverage of both
   code paths) and what the durable fix would be.
+- **Docker supply-chain hardening.** `Dockerfile`'s two `FROM python:3.14-alpine`
+  stages are now pinned to the exact multi-arch index digest
+  (`sha256:c6ead215...`) instead of a mutable tag; the builder stage's
+  `pip install build cryptography wcwidth pyperclip` is now pinned to the
+  exact versions `pyproject.toml`/`uv.lock` require, so the wheel this
+  stage builds is metadata-consistent with the hash-locked wheel `make
+  build` produces for the PyPI release. The `HEALTHCHECK` now runs
+  `ssc --version` (a real check of the installed console-script entry
+  point) instead of a `python -c "import sys; sys.exit(0)"` that always
+  passed regardless of whether the image was actually broken.
+- **CI: added `actionlint`** (workflow-file static analysis) as its own
+  job, and **`dependency-review-action`** (fails a PR that introduces a
+  high-severity-vulnerable dependency) gated on `pull_request` events.
 
 ### Removed
 
