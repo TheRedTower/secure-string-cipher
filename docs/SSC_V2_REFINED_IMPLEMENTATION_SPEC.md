@@ -1069,6 +1069,8 @@ Do not resurrect stale copies of pyproject.toml, uv.lock, workflows, or pre-prof
 
 Keep version 1.3.0 during internal feature work unless a deliberate release-preparation change updates it. Target V2.0.0 coherently when the feature is accepted. Do not invent a 1.4.0 prerequisite solely to deprecate RSA utility generation.
 
+**Superseded at P08 (2026-09-11):** the actual release-preparation decision was **v2.0.0** — but for a reason unrelated to this feature: `ssc vault backups`/`ssc vault restore` changed incompatibly (numeric indices → stable identifiers) relative to v1.3.0, already on `main` before this release was prepared, which forces a SemVer major bump on its own (see CHANGELOG.md's `[2.0.0]` entry). This feature's own public API surface is purely additive — no existing v1 export, CLI command, or file format changed or was removed — and would have justified only a minor bump by itself. "V2"/"v2" remains the container-format/feature name, not something that itself sets the package version; the two numbers matching here is coincidental. This paragraph's original reasoning ("target V2.0.0 coherently when the feature is accepted") is kept for history, but is not why v2.0.0 was the actual outcome — do not treat it as validated by this result.
+
 If a requirement cannot be met, report its ID, evidence, impact, and concrete alternatives in the plan. Do not weaken the requirement silently or mark a packet complete because unrelated CI is green.
 
 ## 15. Evidence register and review limits

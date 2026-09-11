@@ -11,8 +11,8 @@ security fixes.
 
 | Version | Security fixes | Python requirement |
 | ------- | -------------- | ------------------ |
-| 1.3.x   | Yes            | 3.12+              |
-| < 1.3   | No             | Varies             |
+| 2.0.x   | Yes            | 3.12+              |
+| < 2.0   | No             | Varies             |
 
 **Note**: Version 1.1.0+ uses Argon2id KDF and key commitment. Files encrypted with older versions are not compatible.
 
