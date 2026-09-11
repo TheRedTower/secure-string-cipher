@@ -581,6 +581,67 @@ class TestEncryptValidation:
             cmd_encrypt(args)
         assert exc_info.value.code == EXIT_INPUT_ERROR
 
+    def test_encrypt_rejects_positional_combined_with_file_flag(self, capsys):
+        """A positional path alongside --file must not silently pick one:
+        previously the positional was ignored whenever --file was also set,
+        so `ssc encrypt first.txt --file second.txt` encrypted second.txt
+        with no indication that first.txt (the prominently supplied
+        argument) was ignored."""
+        args = argparse.Namespace(
+            text=None,
+            file="second.txt",
+            positional_path="first.txt",
+            vault=None,
+            force=False,
+            quiet=False,
+            no_color=True,
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_encrypt(args)
+        assert exc_info.value.code == EXIT_INPUT_ERROR
+        assert "only one of" in capsys.readouterr().err
+
+    def test_encrypt_rejects_positional_combined_with_text_flag(self, capsys):
+        args = argparse.Namespace(
+            text="inline message",
+            file=None,
+            positional_path="first.txt",
+            vault=None,
+            force=False,
+            quiet=False,
+            no_color=True,
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_encrypt(args)
+        assert exc_info.value.code == EXIT_INPUT_ERROR
+        assert "only one of" in capsys.readouterr().err
+
+    def test_encrypt_positional_alone_is_used_as_file(self):
+        """The positional path still works as a plain --file alias when it's
+        the only input given."""
+        args = argparse.Namespace(
+            text=None,
+            file=None,
+            positional_path="only.txt",
+            vault=None,
+            key_file=None,
+            force=False,
+            quiet=False,
+            no_color=True,
+            with_sources=None,
+        )
+        with (
+            patch.object(cli_args, "_prompt_password", return_value="pw"),
+            patch.object(cli_args, "Path") as mock_path,
+        ):
+            mock_path.return_value.exists.return_value = False
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_encrypt(args)
+        # Resolved to args.file and then failed later (file not found), not
+        # rejected for an input-count conflict.
+        assert exc_info.value.code == EXIT_FILE_ERROR
+        assert args.file == "only.txt"
+
 
 class TestDecryptValidation:
     """Tests for decrypt command validation."""
@@ -1129,3 +1190,87 @@ class TestShredCommand:
 
         assert result == EXIT_SUCCESS
         mock_secure_overwrite.assert_not_called()
+
+
+# =============================================================================
+# Key Command Parser and Guard Tests
+#
+# Regression coverage for two fixes: `ssc key create` previously had no
+# positional ID (P0-2) and its default mode silently discarded the generated
+# secret (P0-1); `ssc key rename` previously always failed (P0-6).
+# =============================================================================
+
+
+class TestKeyCreateParser:
+    def test_key_create_requires_positional_id(self):
+        """`ssc key create` with no ID must be a parser error, not accepted."""
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(["key", "create"])
+        assert exc_info.value.code == 2
+
+    def test_key_create_accepts_id_and_flags(self):
+        parser = create_parser()
+        args = parser.parse_args(
+            ["key", "create", "my-key", "--external-file", "out.ssckey"]
+        )
+        assert args.id == "my-key"
+        assert args.external_file == "out.ssckey"
+        assert args.vault_copy is False
+
+    def test_key_create_vault_copy_flag(self):
+        parser = create_parser()
+        args = parser.parse_args(["key", "create", "my-key", "--vault-copy"])
+        assert args.vault_copy is True
+
+
+class TestKeyRenameParser:
+    def test_key_rename_requires_both_positionals(self):
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(["key", "rename", "old-id"])
+        assert exc_info.value.code == 2
+
+    def test_key_rename_parses_id_and_new_id(self):
+        parser = create_parser()
+        args = parser.parse_args(["key", "rename", "old-id", "new-id"])
+        assert args.id == "old-id"
+        assert args.new_id == "new-id"
+
+
+class TestKeyCreateGuard:
+    """`cmd_key_create` must refuse to run before touching the vault when the
+    caller asked for an external-only key with nowhere to save it — the
+    original bug generated and then discarded the secret unconditionally."""
+
+    def test_external_only_without_destination_is_rejected_before_vault_access(self):
+        args = argparse.Namespace(id="my-key", external_file=None, vault_copy=False)
+
+        with patch("secure_string_cipher.cli_args.PassphraseVault") as mock_vault_cls:
+            with pytest.raises(SystemExit) as exc_info:
+                cli_args.cmd_key_create(args)
+
+        assert exc_info.value.code == EXIT_INPUT_ERROR
+        mock_vault_cls.assert_not_called()
+
+    def test_external_file_given_proceeds_past_the_guard(self):
+        args = argparse.Namespace(
+            id="my-key", external_file="out.ssckey", vault_copy=False
+        )
+
+        with patch("secure_string_cipher.cli_args.PassphraseVault") as mock_vault_cls:
+            mock_vault_cls.side_effect = RuntimeError("stop after the guard")
+            with pytest.raises(RuntimeError):
+                cli_args.cmd_key_create(args)
+
+        mock_vault_cls.assert_called_once()
+
+    def test_vault_copy_alone_proceeds_past_the_guard(self):
+        args = argparse.Namespace(id="my-key", external_file=None, vault_copy=True)
+
+        with patch("secure_string_cipher.cli_args.PassphraseVault") as mock_vault_cls:
+            mock_vault_cls.side_effect = RuntimeError("stop after the guard")
+            with pytest.raises(RuntimeError):
+                cli_args.cmd_key_create(args)
+
+        mock_vault_cls.assert_called_once()

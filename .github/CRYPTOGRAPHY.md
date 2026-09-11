@@ -22,11 +22,13 @@ stable.
 
 ## Overview
 
-secure-string-cipher is a password-based encryption tool using:
+secure-string-cipher is a password-based and key-based encryption tool using:
 
 - **AES-256-GCM** for authenticated encryption
 - **Argon2id** for password-based key derivation
+- **HKDF-SHA256** for managed key derivation (V2)
 - **HMAC-SHA256** for key commitment and vault integrity
+- **AEAD Key Wrapping** for Multi-grant Access Control (V2)
 
 The design prioritizes:
 
@@ -212,9 +214,59 @@ salt ║ nonce ║ ciphertext ║ tag
   output string
 ```
 
-### File Encryption
+### V2 File Encryption (Single-Grant DEK Wrapping)
 
-File encryption uses a structured format with metadata:
+> **Not multi-grant.** Earlier drafts of this document described V2 as
+> supporting multiple independent access grants per object. The implemented
+> format (`AccessPolicy.SINGLE_GRANT`, enforced by `AccessBlock.__post_init__`
+> in `v2/envelope.py`) accepts **exactly one** grant. That grant may itself
+> require a password and a managed key *together* (`--require all`), but no
+> object can be decrypted by more than one independent credential.
+
+In V2, the file payload is encrypted with a randomly generated 32-byte Data Encryption Key (DEK). This DEK is then wrapped (encrypted) by the object's single Access Grant.
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ 1. Generate random 32-byte DEK                              │
+│ 2. Generate random nonce prefix (files) or nonce (text)     │
+│ 3. Build the protected header (payload descriptor + the     │
+│    single access grant, with placeholder wrap fields)       │
+└─────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 4. For the grant's credential (password, managed key, or    │
+│    both combined):                                          │
+│    a. Derive R (Argon2id for passwords, the raw 32-byte     │
+│       secret for managed keys, HKDF-combined for both)      │
+│    b. Derive KEK = HKDF(R, kek_derivation.salt, ...)        │
+│    c. Derive K_commit = HKDF(R, commitment.kdf.salt, ...)   │
+│    d. Wrap the DEK: AES-256-GCM(KEK, wrap_nonce, DEK,       │
+│       aad = H(canonical_json(header with wrapped_dek/tag/   │
+│       commitment.value omitted)))                           │
+│    e. Commit: HMAC-SHA256(K_commit, H(canonical_json(header │
+│       with only commitment.value omitted)))                 │
+└─────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 5. Encrypt the payload under a DEK-derived subkey (frame    │
+│    AAD binds a digest of the header's non-secret fields);   │
+│    write: MAGIC(4B "SSC2") ║ header_len(u32 LE) ║           │
+│    canonical-JSON header ║ binary payload frames            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+This architecture means:
+1. The DEK is never hashed or derived directly from a password, so it is cryptographically independent of the credential.
+2. A grant requiring both a password and a managed key cannot be satisfied by either alone.
+3. It does **not** mean independent credentials can decrypt the same object — see the note above.
+
+### Legacy File Encryption (V1, `.enc` / `SSCV2` magic)
+
+The legacy format uses a structured format with metadata. (Its five-byte magic
+is literally the ASCII string `SSCV2` — unrelated to, and not to be confused
+with, the four-byte `SSC2` magic that opens a V2 `.ssc` container below.)
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -297,10 +349,32 @@ def verify_key_commitment(key: bytes, expected: bytes) -> bool:
 
 ## File Format
 
-### Versions 5 and 4
+### Version 2 (`.ssc` files)
 
-> **Note:** The magic bytes `SSCV2` identify the file format structure (with metadata header).
-> The current writer emits metadata version 5. Version 4 remains readable.
+The V2 container uses a single-grant header (see the note above) plus binary
+chunk frames, not the legacy `SSCV2`/5-byte-magic structure below.
+
+| Field | Size | Description |
+|-------|------|-------------|
+| Magic | 4 bytes | `SSC2` (distinct from the legacy 5-byte `SSCV2` magic) |
+| Header Length | 4 bytes | Little-endian uint32, 1–65536 |
+| Header | Variable | Canonical JSON: `format`, `version`, `object_id`, `object_type`, `payload`, `access`, `metadata` |
+| Frames | Variable | `S2FR`-tagged binary chunk frames (files) or a single AEAD ciphertext (text, ASCII-armored separately) |
+
+The header's top-level keys are exactly `format`, `version`, `object_id`,
+`object_type`, `payload`, `access`, `metadata` — there is no `access_grants`,
+`payload_nonce`, or `require_all` field; the single grant lives at
+`access.grants[0]`, and per-payload nonces live under `payload.nonce`
+(text) or `payload.nonce_prefix` (files). The DEK wrap operation authenticates
+a digest of the header (with the grant's secret fields blanked) as AAD; each
+payload frame separately authenticates a digest of the header's non-secret
+projection. See `src/secure_string_cipher/v2/envelope.py`,
+`header_parser.py`, `keywrap.py`, and `payload.py` for the exact byte layout.
+
+### Versions 5 and 4 (`.enc` files)
+
+> **Note:** The legacy magic bytes `SSCV2` identify the V5/V4 file format structure (with metadata header).
+> The V1 writer emits metadata version 5. Version 4 remains readable.
 
 | Field | Size | Description |
 |-------|------|-------------|
@@ -402,7 +476,12 @@ read or written:
   no-overwrite publication, and use mode `0600` on POSIX.
 - File-backend active writes are atomically replaced. Native credential stores
   provide no multi-record transaction, so rollback there is best effort.
-- No cross-process vault lock exists; simultaneous processes can still race.
+- Vault mutations hold a cooperative, advisory cross-process file lock
+  (`fcntl.flock`/`msvcrt.locking`, bounded timeout, re-entrant per thread —
+  see `v2/vault_lock.py`) around the read-modify-write cycle. It does not
+  cover concurrent readers or non-lock-aware external tools touching the same
+  file, and has not been exercised against real multi-process contention on
+  every supported platform.
 
 ---
 
@@ -432,11 +511,12 @@ may create copies. Clearing cannot guarantee removal of every secret copy.
 
 ### Timing Jitter
 
-Security-critical operations add random microsecond delays to obscure timing patterns:
+Security-critical operations add a random microsecond delay to obscure timing patterns. The actual function takes no parameter and sleeps 0–9999 microseconds (`src/secure_string_cipher/timing_safe.py`):
 
 ```python
-def add_timing_jitter(max_microseconds: int = 1000) -> None:
-    time.sleep(secrets.randbelow(max_microseconds) / 1_000_000)
+def add_timing_jitter() -> None:
+    jitter = secrets.randbelow(10000) / 1_000_000
+    time.sleep(jitter)
 ```
 
 ---
@@ -560,8 +640,11 @@ local JSON rather than a tamper-evident log.
 
 Vault import/restore verifies before and after publication and attempts rollback
 after post-write failure. File writes use same-directory atomic replacement;
-keychain/native credential-store rollback is best effort. There is no
-cross-process vault lock, and CI does not exercise real OS credential services.
+keychain/native credential-store rollback is best effort. A cooperative,
+advisory cross-process lock serializes vault writers (see the Backup Strategy
+section above); it has not been exercised against real multi-process
+contention on every supported platform, and CI does not exercise real OS
+credential services.
 
 ---
 

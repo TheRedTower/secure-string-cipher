@@ -164,8 +164,10 @@ chained, append-only, or tamper-evident.
 - Legacy key-file mode hashes file bytes into a symmetric passphrase. It is not
   public-key or recipient encryption; anyone with identical bytes can decrypt.
 - Vault import and restore authenticate before mutation and verify after
-  publication. Two simultaneous vault processes can still race because no
-  cross-process lock exists.
+  publication. Mutations hold a cooperative, advisory cross-process file lock
+  with a bounded timeout; it has not been exercised against real
+  multi-process contention on every supported platform, and it does not cover
+  concurrent readers or non-lock-aware external tools touching the same file.
 - Overwrite-based deletion is best-effort and unreliable on SSD wear levelling,
   copy-on-write filesystems, snapshots, backups, and journals.
 

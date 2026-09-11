@@ -19,7 +19,7 @@ from secure_string_cipher.passphrase_manager import (
     VaultTransactionError,
     _compute_vault_hmac,
     read_bounded_vault_file,
-    validate_raw_vault,
+    validate_raw_vault_document,
 )
 
 FIXTURE_DIRECTORY = Path(__file__).parents[1] / "fixtures" / "vault"
@@ -71,7 +71,8 @@ class RecordingVault(PassphraseVault):
         self.calls.append(("read", None))
         if self.failure == "initial_read" and self.read_count == 1:
             raise OSError("read failed")
-        if self.failure == "readback" and self.read_count == 2:
+        if self.failure == "readback" and self.write_count == 1:
+            self.failure = None
             raise OSError("read-back failed")
         return self.raw
 
@@ -348,6 +349,7 @@ def test_postwrite_failure_rolls_back_and_reports_success(failure: str) -> None:
     assert [call[0] for call in vault.calls] == [
         "read",
         "backup",
+        "read",
         "write",
         *(["read"] if failure == "readback" else []),
         "write",
@@ -359,10 +361,10 @@ def test_postwrite_validation_failure_rolls_back() -> None:
     previous = _build_raw('{"previous":"value"}', ACTIVE_MASTER)
     candidate = _fixture_raw().decode()
     vault = RecordingVault(previous)
-    real_validator = validate_raw_vault
+    real_validator = validate_raw_vault_document
     validation_count = 0
 
-    def fail_second_validation(contents: str | bytes, master: str) -> dict[str, str]:
+    def fail_second_validation(contents: str | bytes, master: str):
         nonlocal validation_count
         validation_count += 1
         if validation_count == 2:
@@ -371,7 +373,7 @@ def test_postwrite_validation_failure_rolls_back() -> None:
 
     with (
         patch(
-            "secure_string_cipher.passphrase_manager.validate_raw_vault",
+            "secure_string_cipher.passphrase_manager.validate_raw_vault_document",
             side_effect=fail_second_validation,
         ),
         pytest.raises(VaultTransactionError) as caught,
@@ -384,6 +386,7 @@ def test_postwrite_validation_failure_rolls_back() -> None:
     assert [call[0] for call in vault.calls] == [
         "read",
         "backup",
+        "read",
         "write",
         "read",
         "write",
@@ -408,6 +411,7 @@ def test_rollback_failure_reports_high_severity_state() -> None:
     assert [call[0] for call in vault.calls] == [
         "read",
         "backup",
+        "read",
         "write",
         "write",
     ]
@@ -423,6 +427,7 @@ def test_new_destination_is_removed_when_postwrite_verification_fails() -> None:
     assert caught.value.rollback_succeeded is True
     assert vault.raw is None
     assert [call[0] for call in vault.calls] == [
+        "read",
         "read",
         "write",
         "read",
