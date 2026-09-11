@@ -15,7 +15,8 @@ assessment; source and tests are authoritative when this guide becomes stale.
 | Vault security | `src/secure_string_cipher/passphrase_manager.py` | `PassphraseVault` |
 | Secure memory | `src/secure_string_cipher/secure_memory.py` | `SecureString`, `SecureBytes` |
 | Timing safety | `src/secure_string_cipher/timing_safe.py` | `constant_time_compare()` |
-| Input validation | `src/secure_string_cipher/security.py` | `sanitize_filename()`, `validate_safe_path()` |
+| Input validation | `src/secure_string_cipher/security.py` | `sanitize_filename()` |
+| Path/symlink safety | `src/secure_string_cipher/core.py`, `src/secure_string_cipher/v2/output.py` | `_ensure_no_symlink()` (v1), `validate_path_safety()` (v2) |
 | Rate limiting | `src/secure_string_cipher/rate_limiter.py` | `RateLimiter` |
 | Audit logging | `src/secure_string_cipher/audit_log.py` | `AuditLogger` |
 | Configuration | `src/secure_string_cipher/config.py` | Constants |
@@ -112,12 +113,18 @@ assessment; source and tests are authoritative when this guide becomes stale.
 ### 3.1 Path Security (HIGH)
 
 - [ ] **Path traversal is prevented**
-  - File: `security.py`, function `validate_safe_path()`
+  - File: `core.py`, function `_ensure_no_symlink()` (v1); `v2/output.py`,
+    function `validate_path_safety()` (v2) — each version implements its
+    own path/symlink checks independently rather than sharing a generic
+    helper; `security.py` has none
   - Test: `../`, `..\\`, absolute paths outside allowed directory
 
 - [ ] **Symlink attacks are detected**
-  - File: `security.py`, function `detect_symlink()`
-  - Expected: Rejects or warns on symlinks
+  - File: `core.py`'s `_ensure_no_symlink()` (v1); `v2/output.py`'s
+    `validate_path_safety()` (v2)
+  - Expected: Rejects symlinked inputs/outputs and symlinked ancestor
+    directories, with a small allowlist for known-benign OS symlinks
+    (e.g. macOS's `/var` → `/private/var`)
 
 - [ ] **Filename sanitization removes dangerous characters**
   - File: `security.py`, function `sanitize_filename()`
@@ -314,11 +321,14 @@ uv run --locked pytest tests/ \
   - File: `audit_log.py`
   - Expected: Max size limit, backup count
 
-### 10.2 Runtime Checks (MEDIUM)
+### 10.2 Runtime Checks
 
-- [ ] **Elevated privilege check**
-  - File: `security.py`, function `check_elevated_privileges()`
-  - Expected: Warns/exits when running as root
+Removed: this application has never warned on or blocked running as
+root/sudo (the `check_elevated_privileges()`/`validate_execution_context()`
+helpers that would have done this were never wired into any CLI command —
+see the post-v2 hardening review's removal of both, along with the rest of
+`security.py`'s unused helper cluster). Do not audit for a check that does
+not exist.
 
 ---
 
