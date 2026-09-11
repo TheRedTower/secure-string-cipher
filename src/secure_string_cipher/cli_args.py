@@ -2081,14 +2081,15 @@ Examples:
 
     # key archive
     key_archive_parser = key_subparsers.add_parser(
-        "archive", help="Set status=archived (blocks new encryption)"
+        "archive", help="Set status=archived (bookkeeping only, never blocks use)"
     )
     key_archive_parser.add_argument("id", metavar="ID", help="Key ID")
     key_archive_parser.set_defaults(func=cmd_key_archive)
 
     # key revoke
     key_revoke_parser = key_subparsers.add_parser(
-        "revoke", help="Set status=revoked (blocks encryption and decryption)"
+        "revoke",
+        help="Set status=revoked (enforced at encrypt/decrypt only with --vault)",
     )
     key_revoke_parser.add_argument("id", metavar="ID", help="Key ID")
     key_revoke_parser.set_defaults(func=cmd_key_revoke)
