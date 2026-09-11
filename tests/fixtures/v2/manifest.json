@@ -309,5 +309,16 @@
       "vault_id": "VlZWVlZWVlZWVlZWVlZWVg",
       "argon2_salt": "QUFBQUFBQUFBQUFBQUFBQQ"
     }
+  },
+  "container": {
+    "password_two_frame": {
+      "password": "container-golden-vector-password",
+      "chunk_size": 65536,
+      "plaintext_length": 65636,
+      "plaintext_sha256": "ce87f55c7fb40266105a0619afa9728a7e2543f9971dd563945129d3d3d550b2",
+      "container_sha256": "cd77749b92f8be825eb703f9c626dd3a63ee3f5bceee5ee7aed9170f7d5d06e6",
+      "container_length": 66680,
+      "frame_count": 2
+    }
   }
 }

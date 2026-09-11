@@ -2,6 +2,8 @@ import base64
 import hashlib
 import hmac
 import json
+import tempfile
+from pathlib import Path
 
 import argon2
 from cryptography.hazmat.backends import default_backend
@@ -9,6 +11,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
+from secure_string_cipher.v2.encrypt import PasswordCredential, encrypt_v2_file
 from secure_string_cipher.v2.vault_schema import b64url_encode
 
 
@@ -539,6 +542,47 @@ def main():
         "v2_output": v2_vault_output,
         "vault_id": b64_encode(vault_id),
         "argon2_salt": b64_encode(a2_salt),
+    }
+
+    # 7. Container/frame golden vector. Unlike the vectors above (built from
+    # first-principles HKDF/Argon2/AES-GCM calls to independently pin the
+    # header format), this one is generated through the REAL encrypt_v2_file
+    # so the checked-in .ssc fixture reflects the actual shipped wire format,
+    # not a hand-reconstruction of it. Frame nonces/salts are randomly
+    # generated on every run (by design — the format has no fixed-output
+    # mode), so this is a decrypt-only golden vector: the checked-in
+    # container must always still decrypt, byte for byte, to the plaintext
+    # recorded here. A plaintext just over one chunk_size forces exactly two
+    # frames (one full non-final, one final), covering both frame shapes.
+    container_password = "container-golden-vector-password"  # pragma: allowlist secret
+    container_chunk_size = 65536
+    container_plaintext = bytes(
+        (i * 7 + 3) % 256 for i in range(container_chunk_size + 100)
+    )
+    container_cipher_path = Path("tests/fixtures/v2/golden_two_frame_container.ssc")
+    with tempfile.TemporaryDirectory() as scratch_dir:
+        container_plain_path = Path(scratch_dir) / "plain.bin"
+        container_plain_path.write_bytes(container_plaintext)
+        encrypt_v2_file(
+            input_path=container_plain_path,
+            output_path=container_cipher_path,
+            credential=PasswordCredential(container_password),
+            store_filename=False,
+            chunk_size=container_chunk_size,
+            overwrite=True,
+        )
+    container_bytes = container_cipher_path.read_bytes()
+
+    manifest["container"] = {
+        "password_two_frame": {
+            "password": container_password,
+            "chunk_size": container_chunk_size,
+            "plaintext_length": len(container_plaintext),
+            "plaintext_sha256": hashlib.sha256(container_plaintext).hexdigest(),
+            "container_sha256": hashlib.sha256(container_bytes).hexdigest(),
+            "container_length": len(container_bytes),
+            "frame_count": 2,
+        }
     }
 
     with open("tests/fixtures/v2/manifest.json", "w") as f:

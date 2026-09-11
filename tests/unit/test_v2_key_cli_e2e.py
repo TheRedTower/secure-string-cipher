@@ -202,7 +202,7 @@ def test_key_import_registers_a_standalone_file(
     assert rc == cli_args.EXIT_SUCCESS
     assert "Key imported" in capsys.readouterr().err
 
-    rc = cli_args.cmd_key_list(argparse.Namespace())
+    cli_args.cmd_key_list(argparse.Namespace())
     listing = capsys.readouterr().out
     assert "standalone" in listing
     assert keyfile.fingerprint in listing
@@ -282,7 +282,7 @@ def test_key_archive_sets_status_but_never_blocks_use(
     assert rc == cli_args.EXIT_SUCCESS
     assert "archived" in capsys.readouterr().err
 
-    rc = cli_args.cmd_key_show(_id_args("archived-key"))
+    cli_args.cmd_key_show(_id_args("archived-key"))
     assert "Status: archived" in capsys.readouterr().out
 
     # Archived is bookkeeping only: still usable even with --vault set.
@@ -335,7 +335,7 @@ def test_key_destroy_with_confirm_flag_removes_recoverable_secret(
     assert rc == cli_args.EXIT_SUCCESS
     assert "destroyed" in capsys.readouterr().err
 
-    rc = cli_args.cmd_key_show(_id_args("doomed"))
+    cli_args.cmd_key_show(_id_args("doomed"))
     assert "Status: destroyed" in capsys.readouterr().out
 
     # The vault-copy secret is gone: export must fail now.
@@ -344,6 +344,56 @@ def test_key_destroy_with_confirm_flag_removes_recoverable_secret(
             _export_args("doomed", str(tmp_path / "should-not-exist.ssckey"))
         )
     assert excinfo.value.code == cli_args.EXIT_VAULT_ERROR
+
+
+def test_key_destroy_blocks_decrypt_only_with_vault_flag(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The revoke test above chains into cmd_encrypt; this one chains into
+    cmd_decrypt specifically, so both directions of the --vault key-status
+    enforcement (added in B2.6) are actually exercised through the CLI
+    commands that set the status, not just one of the two."""
+    keys_dir = Path(os.environ["HOME"]) / ".ssc" / "keys"
+    keys_dir.mkdir(parents=True)
+    dest = keys_dir / "doomed-key.ssckey"
+
+    cli_args.cmd_key_create(_create_args("doomed-key", external_file=str(dest)))
+    capsys.readouterr()
+
+    rc = cli_args.cmd_encrypt(
+        _encrypt_args(text="secret", with_sources=["key:doomed-key"])
+    )
+    assert rc == cli_args.EXIT_SUCCESS
+    armored = capsys.readouterr().out
+
+    rc = cli_args.cmd_key_destroy(_destroy_args("doomed-key", confirm=True))
+    assert rc == cli_args.EXIT_SUCCESS
+    capsys.readouterr()
+
+    def _decrypt_args(**overrides: object) -> argparse.Namespace:
+        base: dict[str, object] = {
+            "text": armored,
+            "file": None,
+            "output": None,
+            "restore_filename": True,
+            "vault": None,
+            "key_file": None,
+            "force": False,
+        }
+        base.update(overrides)
+        return argparse.Namespace(**base)
+
+    # Without --vault: destroying the vault record doesn't touch the
+    # physical .ssckey file, so offline decryption is unaffected.
+    rc = cli_args.cmd_decrypt(_decrypt_args())
+    assert rc == cli_args.EXIT_SUCCESS
+    assert capsys.readouterr().out.strip() == "secret"
+
+    # With --vault: the destroy set by this exact CLI command is enforced.
+    with pytest.raises(SystemExit) as excinfo:
+        cli_args.cmd_decrypt(_decrypt_args(vault="anything"))
+    assert excinfo.value.code == cli_args.EXIT_AUTH_ERROR
+    assert "destroyed" in capsys.readouterr().err.lower()
 
 
 def test_key_destroy_without_confirm_prompts_and_can_be_cancelled(
@@ -373,5 +423,5 @@ def test_key_destroy_without_confirm_prompts_and_can_proceed(
     rc = cli_args.cmd_key_destroy(_destroy_args("prompted-doomed", confirm=False))
     assert rc == cli_args.EXIT_SUCCESS
 
-    rc = cli_args.cmd_key_show(_id_args("prompted-doomed"))
+    cli_args.cmd_key_show(_id_args("prompted-doomed"))
     assert "Status: destroyed" in capsys.readouterr().out
