@@ -8,8 +8,9 @@ Public API:
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from secure_string_cipher.secure_memory import SecureBytes
 from secure_string_cipher.utils import CryptoError
@@ -24,7 +25,11 @@ from secure_string_cipher.v2.header_parser import parse_header_stream
 from secure_string_cipher.v2.keywrap import unwrap_dek_from_grant
 from secure_string_cipher.v2.message import decrypt_message
 from secure_string_cipher.v2.metadata import decrypt_metadata, sanitize_filename
-from secure_string_cipher.v2.output import safe_atomic_output, validate_path_safety
+from secure_string_cipher.v2.output import (
+    process_with_two_pass_auth,
+    safe_atomic_output,
+    validate_path_safety,
+)
 from secure_string_cipher.v2.payload import FrameReader
 
 __all__ = [
@@ -71,6 +76,21 @@ def _unwrap_dek_for_credential(
     raise TypeError(f"Unsupported credential type: {type(credential).__name__}")
 
 
+def _decryption_fallback_path(input_path: Path, output_dir: Path | None) -> Path:
+    """Return a deterministic .dec path without consulting file metadata.
+
+    Mirrors core.py's _decryption_fallback_path (v1) and spec §9.4's stated
+    fallback for when a safe basename cannot or should not be restored from
+    metadata: swap a conventional .ssc suffix for .dec, else append .dec.
+    """
+    if input_path.suffix == ".ssc":
+        name = input_path.with_suffix(".dec").name
+    else:
+        name = input_path.name + ".dec"
+    base_dir = output_dir if output_dir is not None else input_path.parent
+    return base_dir / name
+
+
 def decrypt_v2_file(
     input_path: Path,
     credential: V2Credential,
@@ -78,6 +98,7 @@ def decrypt_v2_file(
     output_path: Path | None = None,
     output_dir: Path | None = None,
     overwrite: bool = False,
+    restore_filename: bool = True,
 ) -> Path:
     """Decrypt a V2 binary container into a file.
 
@@ -88,6 +109,11 @@ def decrypt_v2_file(
         output_dir: Directory to place the output file if output_path is None
             and the original filename was stored in metadata.
         overwrite: Whether to overwrite an existing output file.
+        restore_filename: If True (default) and output_path is None, restore
+            the original filename from decrypted metadata when available. If
+            False, always use the deterministic .dec fallback instead, even
+            when a stored filename is available — matching v1's
+            --no-restore-filename semantics.
 
     Returns:
         The path where the decrypted file was written.
@@ -130,6 +156,11 @@ def decrypt_v2_file(
             dest_path: Path
             if output_path is not None:
                 dest_path = Path(output_path)
+            elif not restore_filename:
+                # Explicitly declined: use the deterministic fallback even
+                # when a stored filename is available, matching v1's
+                # --no-restore-filename semantics exactly.
+                dest_path = _decryption_fallback_path(input_p, output_dir)
             else:
                 original_name = metadata_dict.get("original_filename")
                 if not original_name or not isinstance(original_name, str):
@@ -146,25 +177,29 @@ def decrypt_v2_file(
                 )
                 dest_path = base_dir / safe_name
 
-            # Stream decrypt to safe_atomic_output
-            try:
-                reader = FrameReader(header, dek, in_file)
-            except Exception as e:
-                raise CryptoError(f"Failed to initialize payload reader: {e}") from e
-
             expected_size = metadata_dict.get("original_size")
-            bytes_written = 0
+            payload_start = in_file.tell()
 
-            # Every authentication check MUST raise inside this scope: the
-            # atomic writer publishes via os.replace only on clean exit, so a
-            # failure here leaves the destination absent or byte-identical.
-            with safe_atomic_output(dest_path, overwrite=overwrite) as out:
+            def _run_pass(consume: Callable[[bytes], object]) -> int:
+                """Seek to the start of the frame stream and decrypt it once,
+                calling consume(chunk) for each authenticated chunk. Raises
+                before returning if any frame fails to authenticate or if the
+                decrypted total disagrees with metadata's original_size."""
+                in_file.seek(payload_start)
+                try:
+                    reader = FrameReader(header, dek, in_file)
+                except Exception as e:
+                    raise CryptoError(
+                        f"Failed to initialize payload reader: {e}"
+                    ) from e
+
+                total = 0
                 try:
                     # read_frames enforces AEAD tags, frame finality (FINAL
                     # flag consumed, exact EOF after it) and padding shape.
                     for chunk in reader.read_frames():
-                        out.write(chunk)
-                        bytes_written += len(chunk)
+                        consume(chunk)
+                        total += len(chunk)
                 except Exception as e:
                     raise CryptoError(
                         f"Failed to authenticate or decrypt payload: {e}"
@@ -175,11 +210,42 @@ def decrypt_v2_file(
                 # original_size; frame finality is the length signal.
                 # type(...) is int rejects JSON booleans (true/false).
                 if expected_size is not None and type(expected_size) is int:  # noqa: E721
-                    if bytes_written != expected_size:
+                    if total != expected_size:
                         raise CryptoError(
-                            f"Decrypted payload size {bytes_written} does not match "
+                            f"Decrypted payload size {total} does not match "
                             f"original size {expected_size} from metadata"
                         )
+                return total
+
+            if output_path is not None:
+                # Caller named this exact destination; single pass, matching
+                # the existing behavior for an explicit --output.
+                with safe_atomic_output(dest_path, overwrite=overwrite) as out:
+                    _run_pass(out.write)
+            else:
+                # Destination was derived from decrypted metadata (or the
+                # deterministic fallback). Fully authenticate the payload
+                # BEFORE any bytes touch the destination directory: the
+                # atomic writer's scratch temp file is created alongside
+                # the final destination (same directory), so a single-pass
+                # decrypt that fails partway through would still have left
+                # authenticated-but-incomplete plaintext sitting in that
+                # directory until cleanup ran. The auth pass discards its
+                # output entirely; only the write pass, run after the auth
+                # pass has already proven the whole payload valid, touches
+                # the destination directory at all.
+                def _auth_pass() -> None:
+                    _run_pass(lambda _chunk: None)
+
+                def _write_pass(writer: BinaryIO) -> None:
+                    _run_pass(writer.write)
+
+                process_with_two_pass_auth(
+                    auth_pass_fn=_auth_pass,
+                    write_pass_fn=_write_pass,
+                    destination=dest_path,
+                    overwrite=overwrite,
+                )
 
     return dest_path
 

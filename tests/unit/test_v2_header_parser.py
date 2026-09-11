@@ -102,6 +102,46 @@ def test_parse_combined_grant_header(golden_manifest) -> None:
     assert grant.commitment is not None
 
 
+def test_validate_rejects_managed_key_grant_missing_fingerprint(
+    golden_manifest,
+) -> None:
+    header_dict = json.loads(
+        json.dumps(golden_manifest["grants"]["managed_key"]["complete_header"])
+    )
+    del header_dict["access"]["grants"][0]["key_fingerprint"]
+    with pytest.raises(ValueError, match="key_fingerprint"):
+        validate_v2_header(header_dict)
+
+
+def test_validate_rejects_managed_key_grant_null_fingerprint(golden_manifest) -> None:
+    header_dict = json.loads(
+        json.dumps(golden_manifest["grants"]["managed_key"]["complete_header"])
+    )
+    header_dict["access"]["grants"][0]["key_fingerprint"] = None
+    with pytest.raises(ValueError, match="key_fingerprint"):
+        validate_v2_header(header_dict)
+
+
+def test_validate_rejects_managed_key_grant_malformed_fingerprint(
+    golden_manifest,
+) -> None:
+    header_dict = json.loads(
+        json.dumps(golden_manifest["grants"]["managed_key"]["complete_header"])
+    )
+    header_dict["access"]["grants"][0]["key_fingerprint"] = "not-a-real-fingerprint"
+    with pytest.raises(ValueError, match="key_fingerprint"):
+        validate_v2_header(header_dict)
+
+
+def test_validate_rejects_combined_grant_missing_fingerprint(golden_manifest) -> None:
+    header_dict = json.loads(
+        json.dumps(golden_manifest["grants"]["combined"]["complete_header"])
+    )
+    del header_dict["access"]["grants"][0]["key_fingerprint"]
+    with pytest.raises(ValueError, match="key_fingerprint"):
+        validate_v2_header(header_dict)
+
+
 def test_parse_stream_rejects_empty():
     stream = io.BytesIO(b"")
     with pytest.raises(EOFError):

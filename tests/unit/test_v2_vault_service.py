@@ -20,7 +20,10 @@ from secure_string_cipher.v2.vault_schema import (
     b64url_decode,
     b64url_encode,
 )
-from secure_string_cipher.v2.vault_service import V2VaultService
+from secure_string_cipher.v2.vault_service import (
+    KeyExportSurvivedRegistrationFailureError,
+    V2VaultService,
+)
 
 TEST_MASTER = "Master-Passphrase-Vault-2026!"  # pragma: allowlist secret
 
@@ -424,6 +427,39 @@ def test_create_key_export_path_optional_for_vault_copy(
     assert key_record.vault_secret is not None
     assert dest.exists()
     assert load_keyfile(dest).secret_bytes == secret
+
+
+def test_create_key_export_path_survives_vault_registration_failure(
+    vault_service: V2VaultService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the keyfile write succeeds but the subsequent vault commit fails,
+    the caller must be told the file is real and recoverable, not just that
+    creation failed — losing that distinction is how a generated secret
+    gets silently discarded."""
+    dest = tmp_path / "orphaned.ssckey"
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("synthetic vault backend failure")
+
+    monkeypatch.setattr(vault_service, "_save_document_locked", _boom)
+
+    with pytest.raises(KeyExportSurvivedRegistrationFailureError) as exc_info:
+        vault_service.create_key(
+            "orphaned-key",
+            KeyStorageMode.EXTERNAL_ONLY,
+            master_password=TEST_MASTER,
+            export_path=dest,
+        )
+
+    assert exc_info.value.export_path == dest
+    # The keyfile itself must genuinely be there and usable, not just claimed.
+    assert dest.exists()
+    loaded = load_keyfile(dest)
+    assert loaded.key_id == "orphaned-key"
+
+    # And the vault must NOT have registered a record it can't back up —
+    # no orphaned fingerprint left behind for a secret the vault doesn't own.
+    assert vault_service.list_keys(TEST_MASTER) == []
 
 
 # ---------------------------------------------------------------------------

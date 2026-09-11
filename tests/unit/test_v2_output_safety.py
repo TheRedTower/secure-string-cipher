@@ -28,8 +28,19 @@ def test_validate_path_safety(tmp_path):
     sym_dir = tmp_path / "sym_dir"
     sym_dir.symlink_to(tmp_path, target_is_directory=True)
     sym_dest = sym_dir / "file.txt"
-    with pytest.raises(CryptoError, match="Parent directory symlinks not allowed"):
+    with pytest.raises(CryptoError, match="Symlinks not allowed"):
         validate_path_safety(sym_dest)
+
+    # Symlink further up the tree (grandparent, not the immediate parent) —
+    # a symlinked ancestor anywhere in the path is still an escape from the
+    # intended directory, not just at the leaf or the immediate parent.
+    real_subdir = tmp_path / "real_subdir"
+    real_subdir.mkdir()
+    sym_grandparent = tmp_path / "sym_grandparent"
+    sym_grandparent.symlink_to(real_subdir, target_is_directory=True)
+    deep_dest = sym_grandparent / "nested" / "file.txt"
+    with pytest.raises(CryptoError, match="Symlinks not allowed"):
+        validate_path_safety(deep_dest)
 
     # Parent does not exist
     bad_parent = tmp_path / "nonexistent" / "file.txt"

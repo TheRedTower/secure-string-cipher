@@ -79,6 +79,42 @@ def test_file_roundtrip() -> None:
         assert decrypted_path.read_text() == "Hello World!"
 
 
+def test_file_roundtrip_no_restore_filename_uses_dec_fallback() -> None:
+    """restore_filename=False must use the deterministic .dec fallback even
+    though the original filename is available in (encrypted) metadata —
+    previously this parameter was accepted but silently ignored for V2
+    files, always restoring the stored name regardless of its value."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        input_path = tmp / "secret-report.txt"
+        input_path.write_text("Confidential contents")
+        output_path = tmp / "secret-report.ssc"
+
+        cred = PasswordCredential(SecureBytes(b"password123"))
+
+        encrypt_v2_file(
+            input_path=input_path,
+            credential=cred,
+            output_path=output_path,
+            store_filename=True,
+        )
+
+        decrypt_dir = tmp / "decrypted"
+        decrypt_dir.mkdir()
+
+        decrypted_path = decrypt_v2_file(
+            input_path=output_path,
+            credential=cred,
+            output_dir=decrypt_dir,
+            restore_filename=False,
+        )
+
+        assert decrypted_path.exists()
+        assert decrypted_path.name == "secret-report.dec"
+        assert decrypted_path.name != "secret-report.txt"
+        assert decrypted_path.read_text() == "Confidential contents"
+
+
 def test_text_roundtrip() -> None:
     cred = PasswordCredential(SecureBytes(b"password123"))
     plaintext = "Super secret text"
@@ -114,6 +150,41 @@ def test_file_roundtrip_key_credential(tmp_path: Path) -> None:
     )
 
     assert decrypted_path.read_text() == "Hello managed key!"
+
+
+def test_encrypt_rejects_mismatched_key_fingerprint(tmp_path: Path) -> None:
+    """A KeyCredential whose fingerprint doesn't match its own secret must be
+    rejected before writing anything — otherwise the header would advertise
+    a fingerprint (for automatic CLI key lookup) that isn't the key the
+    payload is actually encrypted under."""
+    other_secret = b"O" * 32
+    mismatched = KeyCredential(
+        key_fingerprint=_MANAGED_FINGERPRINT,  # fingerprint of _MANAGED_SECRET
+        managed_secret=other_secret,  # but a different secret
+    )
+    input_path = tmp_path / "plain.txt"
+    input_path.write_text("data")
+    output_path = tmp_path / "out.ssc"
+
+    with pytest.raises(ValueError, match="key_fingerprint"):
+        encrypt_v2_file(
+            input_path=input_path, credential=mismatched, output_path=output_path
+        )
+    assert not output_path.exists()
+
+    with pytest.raises(ValueError, match="key_fingerprint"):
+        encrypt_v2_text(plaintext="data", credential=mismatched)
+
+
+def test_encrypt_rejects_mismatched_fingerprint_in_combined_credential() -> None:
+    other_secret = b"O" * 32
+    mismatched = CombinedCredential(
+        passphrase="password123",
+        key_fingerprint=_MANAGED_FINGERPRINT,
+        managed_secret=other_secret,
+    )
+    with pytest.raises(ValueError, match="key_fingerprint"):
+        encrypt_v2_text(plaintext="data", credential=mismatched)
 
 
 def test_text_roundtrip_key_credential() -> None:
@@ -278,6 +349,85 @@ def test_decrypt_truncated_mid_frame_does_not_publish(tmp_path: Path) -> None:
         _assert_decrypt_fails_without_publish(
             tampered, tmp_path / f"out-{store_filename}.bin"
         )
+
+
+def test_decrypt_auto_destination_never_touches_target_dir_on_auth_failure(
+    tmp_path: Path,
+) -> None:
+    """When output_path is None (destination auto-derived from metadata or
+    the .dec fallback), a decrypt that fails authentication must never
+    create so much as a scratch temp file in the destination directory —
+    not just "clean it up after," but never create one at all. This is the
+    two-pass wiring: the full payload is authenticated in a discard-only
+    pass before process_with_two_pass_auth's write pass ever calls
+    safe_atomic_output (the thing that calls tempfile.mkstemp in the
+    destination directory)."""
+    enc, _ = _encrypt_container(tmp_path, 2 * CHUNK_SIZE + 100, store_filename=True)
+    header_section, frames = _split_container(enc.read_bytes())
+
+    tampered = tmp_path / "truncated.ssc"
+    tampered.write_bytes(header_section + frames[:FULL_FRAME_LEN])
+
+    out_dir = tmp_path / "auto_dest"
+    out_dir.mkdir()
+    assert list(out_dir.iterdir()) == []
+
+    real_mkstemp = tempfile.mkstemp
+    mkstemp_calls = []
+
+    def _spy_mkstemp(*args: object, **kwargs: object) -> tuple[int, str]:
+        mkstemp_calls.append((args, kwargs))
+        return real_mkstemp(*args, **kwargs)
+
+    import secure_string_cipher.atomic_io as atomic_io_module
+
+    original = atomic_io_module.tempfile.mkstemp
+    atomic_io_module.tempfile.mkstemp = _spy_mkstemp  # type: ignore[attr-defined]
+    try:
+        with pytest.raises(CryptoError):
+            decrypt_v2_file(
+                input_path=tampered, credential=_key_credential(), output_dir=out_dir
+            )
+    finally:
+        atomic_io_module.tempfile.mkstemp = original  # type: ignore[attr-defined]
+
+    assert mkstemp_calls == []
+    assert list(out_dir.iterdir()) == []
+
+
+def test_decrypt_auto_destination_write_pass_runs_once_on_success(
+    tmp_path: Path,
+) -> None:
+    """The successful two-pass round trip creates exactly one scratch temp
+    file (the write pass) — the auth pass must never touch the filesystem
+    in the destination directory."""
+    enc, content = _encrypt_container(
+        tmp_path, 2 * CHUNK_SIZE + 100, store_filename=True
+    )
+
+    out_dir = tmp_path / "auto_dest_ok"
+    out_dir.mkdir()
+
+    real_mkstemp = tempfile.mkstemp
+    mkstemp_calls = []
+
+    def _spy_mkstemp(*args: object, **kwargs: object) -> tuple[int, str]:
+        mkstemp_calls.append((args, kwargs))
+        return real_mkstemp(*args, **kwargs)
+
+    import secure_string_cipher.atomic_io as atomic_io_module
+
+    original = atomic_io_module.tempfile.mkstemp
+    atomic_io_module.tempfile.mkstemp = _spy_mkstemp  # type: ignore[attr-defined]
+    try:
+        dest = decrypt_v2_file(
+            input_path=enc, credential=_key_credential(), output_dir=out_dir
+        )
+    finally:
+        atomic_io_module.tempfile.mkstemp = original  # type: ignore[attr-defined]
+
+    assert len(mkstemp_calls) == 1
+    assert dest.read_bytes() == content
 
 
 def test_decrypt_trailing_garbage_after_final_does_not_publish(

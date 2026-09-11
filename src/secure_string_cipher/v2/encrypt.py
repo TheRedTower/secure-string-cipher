@@ -32,6 +32,7 @@ from secure_string_cipher.v2.envelope import (
     V2Header,
     canonical_json,
 )
+from secure_string_cipher.v2.key_identity import compute_fingerprint
 from secure_string_cipher.v2.keywrap import (
     wrap_dek_for_grant,
 )
@@ -215,6 +216,27 @@ def _credential_to_wrap_kwargs(credential: V2Credential) -> dict[str, Any]:
     raise TypeError(f"Unsupported credential type: {type(credential).__name__}")
 
 
+def _validate_credential_fingerprint(credential: V2Credential) -> None:
+    """Reject a KeyCredential/CombinedCredential whose declared fingerprint
+    does not match its own secret.
+
+    Without this, a caller of the public API (accidentally or otherwise)
+    could pair a validly-formatted fingerprint from one key with a different
+    key's secret. The header would then advertise a fingerprint that CLI
+    decryption's automatic key lookup searches for, while the payload is
+    actually encrypted under a different key entirely — a self-inflicted,
+    silently mislabeled, undecryptable-by-normal-means container.
+    """
+    if isinstance(credential, KeyCredential | CombinedCredential):
+        secret = credential.managed_secret
+        secret_bytes = bytes(secret.data) if isinstance(secret, SecureBytes) else secret
+        actual = compute_fingerprint(secret_bytes)
+        if actual != credential.key_fingerprint:
+            raise ValueError(
+                "key_fingerprint does not match the provided managed_secret"
+            )
+
+
 def _build_v2_header(
     credential: V2Credential,
     dek: bytes,
@@ -230,6 +252,7 @@ def _build_v2_header(
     3. Call wrap_dek_for_grant to derive keys, wrap DEK, compute commitment.
     4. Reconstruct the final frozen V2Header.
     """
+    _validate_credential_fingerprint(credential)
     salts = _generate_salts()
 
     # Build grant skeleton

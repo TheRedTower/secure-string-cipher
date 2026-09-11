@@ -168,6 +168,18 @@ def test_v2_cli_password_file_roundtrip(
     assert rc == cli_args.EXIT_SUCCESS
     assert plaintext.read_bytes() == b"file contents \x00\x01\x02"
 
+    # --no-restore-filename must be honored for V2, not silently ignored:
+    # the CLI flag threads through to decrypt_v2_file's restore_filename.
+    plaintext.unlink()
+    rc = cli_args.cmd_decrypt(
+        _decrypt_args(file=str(container), restore_filename=False)
+    )
+    assert rc == cli_args.EXIT_SUCCESS
+    assert not plaintext.exists()
+    fallback = tmp_path / "secret.txt.dec"
+    assert fallback.exists()
+    assert fallback.read_bytes() == b"file contents \x00\x01\x02"
+
 
 # =============================================================================
 # Managed-key credential, referenced by .ssckey path

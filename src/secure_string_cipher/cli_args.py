@@ -63,7 +63,10 @@ from .v2.encrypt import (
     encrypt_v2_text,
 )
 from .v2.keyfile import KeyFileData, load_keyfile
-from .v2.vault_service import V2VaultService
+from .v2.vault_service import (
+    KeyExportSurvivedRegistrationFailureError,
+    V2VaultService,
+)
 from .vault_transport import canonicalize_cli_vault_candidate
 
 # Global rate limiter for CLI authentication attempts
@@ -396,9 +399,21 @@ def cmd_start(args: argparse.Namespace) -> int:
 
 def cmd_encrypt(args: argparse.Namespace) -> int:
     """Encrypt text or file."""
-    # Positional alias for file
-    if getattr(args, "positional_path", None) and not args.file and not args.text:
-        args.file = args.positional_path
+    positional_path = getattr(args, "positional_path", None)
+
+    # The positional path is an alias for --file, not a fourth independent
+    # input: silently preferring one of --file/--text when a positional is
+    # also given would encrypt something other than what the prominently
+    # supplied positional argument named, with no indication to the user.
+    inputs_given = sum(bool(x) for x in (positional_path, args.file, args.text))
+    if inputs_given > 1:
+        _exit_error(
+            EXIT_INPUT_ERROR,
+            "Specify only one of: a positional file path, --file, or --text.",
+        )
+
+    if positional_path:
+        args.file = positional_path
 
     # Validate: must have -t or -f
     if not args.text and not args.file:
@@ -985,6 +1000,7 @@ def _cmd_decrypt_v2(
             cred,
             output_path=Path(explicit_output) if explicit_output else None,
             overwrite=getattr(args, "force", False),
+            restore_filename=getattr(args, "restore_filename", True),
         )
         _cli_limiter.record_attempt("decrypt_file", rate_identifier, success=True)
         _audit_encryption(AuditEvent.DECRYPT_FILE, True, file_path=str(filepath))
@@ -1410,6 +1426,20 @@ def cmd_key_create(args: argparse.Namespace) -> int:
         _audit_vault(AuditEvent.KEY_CREATE, True, vault)
         _print_info(f"✓ Key created: {identity.fingerprint} ({identity.id})")
         return EXIT_SUCCESS
+    except KeyExportSurvivedRegistrationFailureError as e:
+        # Extracted before the sink call: the exception object itself must
+        # never flow into an output/log sink (see check_sensitive_output.py),
+        # only this specific non-secret attribute.
+        written_to = e.export_path
+        _audit_vault(AuditEvent.KEY_CREATE, False, vault, error="registration_failed")
+        _exit_error(
+            EXIT_VAULT_ERROR,
+            "Key creation failed: the generated secret was written to "
+            f"{written_to}, but registering it in the vault failed. "
+            "That file is your real, recoverable key — keep it, or import "
+            "it later with 'ssc key import'. Do not run 'ssc key create' "
+            "again for this id until the vault issue is resolved.",
+        )
     except Exception:
         _audit_vault(AuditEvent.KEY_CREATE, False, vault, error="creation_failed")
         _exit_error(EXIT_VAULT_ERROR, "Key creation failed.")

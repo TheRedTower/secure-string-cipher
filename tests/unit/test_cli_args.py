@@ -581,6 +581,67 @@ class TestEncryptValidation:
             cmd_encrypt(args)
         assert exc_info.value.code == EXIT_INPUT_ERROR
 
+    def test_encrypt_rejects_positional_combined_with_file_flag(self, capsys):
+        """A positional path alongside --file must not silently pick one:
+        previously the positional was ignored whenever --file was also set,
+        so `ssc encrypt first.txt --file second.txt` encrypted second.txt
+        with no indication that first.txt (the prominently supplied
+        argument) was ignored."""
+        args = argparse.Namespace(
+            text=None,
+            file="second.txt",
+            positional_path="first.txt",
+            vault=None,
+            force=False,
+            quiet=False,
+            no_color=True,
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_encrypt(args)
+        assert exc_info.value.code == EXIT_INPUT_ERROR
+        assert "only one of" in capsys.readouterr().err
+
+    def test_encrypt_rejects_positional_combined_with_text_flag(self, capsys):
+        args = argparse.Namespace(
+            text="inline message",
+            file=None,
+            positional_path="first.txt",
+            vault=None,
+            force=False,
+            quiet=False,
+            no_color=True,
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_encrypt(args)
+        assert exc_info.value.code == EXIT_INPUT_ERROR
+        assert "only one of" in capsys.readouterr().err
+
+    def test_encrypt_positional_alone_is_used_as_file(self):
+        """The positional path still works as a plain --file alias when it's
+        the only input given."""
+        args = argparse.Namespace(
+            text=None,
+            file=None,
+            positional_path="only.txt",
+            vault=None,
+            key_file=None,
+            force=False,
+            quiet=False,
+            no_color=True,
+            with_sources=None,
+        )
+        with (
+            patch.object(cli_args, "_prompt_password", return_value="pw"),
+            patch.object(cli_args, "Path") as mock_path,
+        ):
+            mock_path.return_value.exists.return_value = False
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_encrypt(args)
+        # Resolved to args.file and then failed later (file not found), not
+        # rejected for an input-count conflict.
+        assert exc_info.value.code == EXIT_FILE_ERROR
+        assert args.file == "only.txt"
+
 
 class TestDecryptValidation:
     """Tests for decrypt command validation."""

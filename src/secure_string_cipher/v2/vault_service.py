@@ -48,8 +48,27 @@ from secure_string_cipher.v2.vault_schema import (
 _KEY_ID_RE = re.compile(r"^[a-z][a-z0-9._-]{0,63}$")
 
 __all__ = [
+    "KeyExportSurvivedRegistrationFailureError",
     "V2VaultService",
 ]
+
+
+class KeyExportSurvivedRegistrationFailureError(RuntimeError):
+    """A key's .ssckey file was written, but vault registration then failed.
+
+    The exported secret is real and recoverable at ``export_path`` even
+    though the operation as a whole did not complete — callers must not
+    report a plain failure without also surfacing that fact.
+    """
+
+    def __init__(self, export_path: Path, original: BaseException) -> None:
+        self.export_path = export_path
+        self.original = original
+        # Deliberately omits str(original): callers must not forward raw
+        # exception text to logs/output (see tools/check_sensitive_output.py).
+        super().__init__(
+            f"Key file was written to {export_path}, but vault registration failed."
+        )
 
 
 def _utc_now_iso() -> str:
@@ -398,68 +417,78 @@ class V2VaultService:
                     export_path,
                 )
 
-            public_meta = KeyPublicMetadata(
-                label=key_id,
-                algorithm="hkdf-sha256",
-                key_length=32,
-                format="ssckey-v1",
-            )
-            external_ref = ExternalKeyReference(
-                path_hint=str(export_path) if export_path is not None else path_hint
-            )
-
-            vault_secret_dict: dict[str, object] | None = None
-            root_key = None
-            if storage == KeyStorageMode.VAULT_COPY:
-                assert master_password is not None
-                root_key = self._derive_vault_root_key(
-                    master_password, v2_doc.vault_meta.vault_kdf
+            try:
+                public_meta = KeyPublicMetadata(
+                    label=key_id,
+                    algorithm="hkdf-sha256",
+                    key_length=32,
+                    format="ssckey-v1",
                 )
-                sec_container = self._wrap_secret(
-                    root_key,
-                    secret_bytes,
-                    v2_doc.vault_meta,
-                    record_id,
-                    KeyType.SYMMETRIC,
-                    fingerprint,
+                external_ref = ExternalKeyReference(
+                    path_hint=str(export_path) if export_path is not None else path_hint
                 )
-                vault_secret_dict = sec_container.to_dict()
 
-            key_record = KeyIdentity(
-                schema_version=1,
-                record_id=record_id,
-                id=key_id,
-                type=KeyType.SYMMETRIC,
-                fingerprint=fingerprint,
-                storage=storage,
-                status=KeyStatus.ACTIVE,
-                created_at=now,
-                updated_at=now,
-                last_used_at=None,
-                public_metadata=public_meta,
-                external=external_ref,
-                vault_secret=vault_secret_dict,
-            )
+                vault_secret_dict: dict[str, object] | None = None
+                root_key = None
+                if storage == KeyStorageMode.VAULT_COPY:
+                    assert master_password is not None
+                    root_key = self._derive_vault_root_key(
+                        master_password, v2_doc.vault_meta.vault_kdf
+                    )
+                    sec_container = self._wrap_secret(
+                        root_key,
+                        secret_bytes,
+                        v2_doc.vault_meta,
+                        record_id,
+                        KeyType.SYMMETRIC,
+                        fingerprint,
+                    )
+                    vault_secret_dict = sec_container.to_dict()
 
-            updated_keys = dict(v2_doc.keys)
-            updated_keys[fingerprint] = key_record
+                key_record = KeyIdentity(
+                    schema_version=1,
+                    record_id=record_id,
+                    id=key_id,
+                    type=KeyType.SYMMETRIC,
+                    fingerprint=fingerprint,
+                    storage=storage,
+                    status=KeyStatus.ACTIVE,
+                    created_at=now,
+                    updated_at=now,
+                    last_used_at=None,
+                    public_metadata=public_meta,
+                    external=external_ref,
+                    vault_secret=vault_secret_dict,
+                )
 
-            new_meta = V2VaultMeta(
-                vault_id=v2_doc.vault_meta.vault_id,
-                revision=v2_doc.vault_meta.revision + 1,
-                wrap_generation=v2_doc.vault_meta.wrap_generation,
-                vault_kdf=v2_doc.vault_meta.vault_kdf,
-            )
-            new_doc = V2VaultDocument(
-                schema_version=2,
-                vault_meta=new_meta,
-                passphrases=dict(v2_doc.passphrases),
-                keys=updated_keys,
-            )
+                updated_keys = dict(v2_doc.keys)
+                updated_keys[fingerprint] = key_record
 
-            self._save_document_locked(
-                2, new_doc, auth_password, expected_raw=raw, root_key=root_key
-            )
+                new_meta = V2VaultMeta(
+                    vault_id=v2_doc.vault_meta.vault_id,
+                    revision=v2_doc.vault_meta.revision + 1,
+                    wrap_generation=v2_doc.vault_meta.wrap_generation,
+                    vault_kdf=v2_doc.vault_meta.vault_kdf,
+                )
+                new_doc = V2VaultDocument(
+                    schema_version=2,
+                    vault_meta=new_meta,
+                    passphrases=dict(v2_doc.passphrases),
+                    keys=updated_keys,
+                )
+
+                self._save_document_locked(
+                    2, new_doc, auth_password, expected_raw=raw, root_key=root_key
+                )
+            except Exception as e:
+                if export_path is not None:
+                    # The keyfile above is already durably written; the
+                    # caller must be told it survives this failure and is
+                    # the real, recoverable secret, not "creation failed".
+                    raise KeyExportSurvivedRegistrationFailureError(
+                        export_path, e
+                    ) from e
+                raise
             return key_record, secret_bytes
 
     def import_key(

@@ -37,6 +37,21 @@ def _validate_hkdf_sha256(mapping: Any, context: str) -> None:
         raise ValueError(f"Unexpected keys in {context}: {sorted(extra)}")
 
 
+def _validate_key_fingerprint(value: Any, grant_id: str) -> str:
+    """Require a present, correctly-shaped key_fingerprint for a grant that
+    needs one (managed-key and combined grants). AccessGrant.__post_init__
+    validates the format of a *present* fingerprint but treats None as
+    valid (it's optional for password grants) — so a malformed or crafted
+    header could omit key_fingerprint from a managed-key grant entirely and
+    still construct a valid-looking AccessGrant. Catch that here, where the
+    grant type is known, rather than downstream."""
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"grant {grant_id} requires a non-empty key_fingerprint")
+    if not value.startswith("ssc-k1-") or len(value) != 59:
+        raise ValueError(f"grant {grant_id} has an invalid key_fingerprint format")
+    return value
+
+
 def _validate_argon2id(mapping: Any, context: str) -> None:
     if not isinstance(mapping, dict):
         raise TypeError(f"{context} must be a dictionary")
@@ -321,7 +336,9 @@ def validate_v2_header(
 
         elif grant_type == GrantType.MANAGED_KEY:
             expected_grant_keys.update({"key_fingerprint", "commitment"})
-            key_fingerprint = grant_doc.get("key_fingerprint")
+            key_fingerprint = _validate_key_fingerprint(
+                grant_doc.get("key_fingerprint"), grant_id
+            )
 
         elif grant_type == GrantType.COMBINED_PASSWORD_MANAGED_KEY:
             expected_grant_keys.update(
@@ -348,7 +365,9 @@ def validate_v2_header(
             if ext_comb:
                 raise ValueError(f"Unexpected keys in combined_kdf: {sorted(ext_comb)}")
 
-            key_fingerprint = grant_doc.get("key_fingerprint")
+            key_fingerprint = _validate_key_fingerprint(
+                grant_doc.get("key_fingerprint"), grant_id
+            )
 
         extra_grant = set(grant_doc.keys()) - expected_grant_keys
         if extra_grant:
