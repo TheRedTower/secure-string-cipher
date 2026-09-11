@@ -82,11 +82,15 @@ external audit — current status as of 2026-09-11):
   **there is no end-to-end test coverage** of `cmd_key_create`/`import`/
   `show`/`export`/`list`/`rename`/`archive`/`revoke`/`destroy` actually
   running against a vault (only `V2VaultService`'s underlying methods are
-  tested directly);
-- **key status (`archive`/`revoke`/`destroy`) is not enforced at
-  encrypt/decrypt time** — `cli_args.py::_resolve_v2_key_source` resolves
-  `.ssckey` files directly off disk and never consults vault status, so a
-  revoked or destroyed key still works as long as its key file exists.
+  tested directly).
+
+Closed as of 2026-09-11: key status (`archive`/`revoke`/`destroy`)
+enforcement at encrypt/decrypt time. By default `cli_args.py::
+_resolve_v2_key_source` still resolves `.ssckey` files directly off disk
+without consulting vault status — a revoked or destroyed key you still hold
+keeps working, which is inherent to holding the file, not a bug — but
+passing `--vault LABEL` alongside a key source now unlocks the vault and
+rejects a `revoked`/`destroyed` key that this vault tracks.
 
 Recommended staged PR sequence (1–8 landed and tested; 9 in progress):
 
