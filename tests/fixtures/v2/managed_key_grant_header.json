@@ -1,0 +1,47 @@
+{
+  "format": "SSC2",
+  "version": 2,
+  "object_id": "T09PT09PT09PT09PT09PTw",
+  "object_type": "text",
+  "payload": {
+    "type": "text",
+    "alg": "aes-256-gcm",
+    "kdf": {
+      "alg": "hkdf-sha256",
+      "salt": "UFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFA"
+    },
+    "metadata_policy": "hidden",
+    "nonce": "Tk5OTk5OTk5OTk5O",
+    "plaintext_length": 100
+  },
+  "metadata": {
+    "policy": "hidden"
+  },
+  "access": {
+    "version": 1,
+    "policy": "single-grant",
+    "grants": [
+      {
+        "grant_id": "grant-0",
+        "type": "managed-key",
+        "key_fingerprint": "ssc-k1-VFLJKNAZMJW4K4M3AX5BT2IM4AADH3462TYKWJ6NDIVIEXLNO6DQ",
+        "kek_derivation": {
+          "alg": "hkdf-sha256",
+          "salt": "S0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0s"
+        },
+        "wrap_alg": "aes-256-gcm",
+        "wrap_nonce": "V1dXV1dXV1dXV1dX",
+        "commitment": {
+          "alg": "hmac-sha256",
+          "kdf": {
+            "alg": "hkdf-sha256",
+            "salt": "Q0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0M"
+          },
+          "value": "CXdmhocFc5lshaWFAO6-ZpXvwFgr__MjhoSNSTx6BAs"
+        },
+        "wrapped_dek": "OXmEbOHURN4RFwEnZxzU-JTq8BHpFkoEEMm6FamtdGk",
+        "tag": "T615zSoMmUrCuCKJL0BRzw"
+      }
+    ]
+  }
+}

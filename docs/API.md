@@ -30,6 +30,10 @@ illustration only.
 | Audit logging | `AuditLogger`, `AuditEvent`, `AuditLevel`, `get_audit_logger`, `audit_event`, `audit_auth_failure`, `audit_rate_limit` |
 | Terminal and CLI | `colorize`, `secure_overwrite`, `ProgressBar`, `main` |
 
+The v2 managed-key implementation lives in the secure_string_cipher.v2
+subpackage. Its symbols are importable from that subpackage only and are not
+package-root exports, so they are intentionally absent from the table above.
+
 ## Core Encryption
 
 File APIs accept whole regular files as opaque bytes. `MAX_FILE_SIZE` is an
@@ -54,10 +58,13 @@ encrypt_text(text: str, passphrase: str) -> str
 
 **Parameters:**
 
-- `plaintext` (str): The text to encrypt
+- `text` (str): The text to encrypt (the parameter is positional; pass it by
+  position rather than as `plaintext=`)
 - `passphrase` (str): Password for key derivation (min 12 characters recommended)
 
-**Returns:** Base64-encoded ciphertext string containing salt, nonce, tag, and encrypted data.
+**Returns:** Base64-encoded string containing salt (16 bytes), nonce (12
+bytes), key commitment (32 bytes), ciphertext, and GCM tag (16 bytes), in that
+order.
 
 **Raises:** `CryptoError` if encryption fails.
 
@@ -68,7 +75,7 @@ from secure_string_cipher import encrypt_text
 
 message = "Secret message"
 ciphertext = encrypt_text(message, "MySecurePass123!")
-print(ciphertext)  # Base64 string like "gAAAAABh..."
+print(ciphertext)  # Base64-encoded string (not a fixed-prefix token)
 ```
 
 ---
@@ -83,7 +90,8 @@ decrypt_text(token: str, passphrase: str) -> str
 
 **Parameters:**
 
-- `ciphertext` (str): Base64-encoded ciphertext from `encrypt_text`
+- `token` (str): Base64-encoded output from `encrypt_text` (the parameter is
+  positional; pass it by position rather than as `ciphertext=`)
 - `passphrase` (str): Same password used for encryption
 
 **Returns:** Original plaintext string.
@@ -252,8 +260,66 @@ bounded metadata string, not a filesystem path. The current writer emits
 version 5 and authenticates the original metadata bytes as AES-GCM additional
 authenticated data; only after authentication may an automatic destination use
 a sanitized name. Legacy version 4 metadata is readable but unauthenticated, so
-its stored name is ignored for destination selection. Explicit output paths are
+its stored name is ignored for destination selection. Eexplicit output paths are
 authoritative for both versions.
+
+---
+
+### V2 Encryption (in progress, unreleased — see [ROADMAP.md](../ROADMAP.md))
+
+The `secure_string_cipher.v2` submodule adds a new `.ssc` container format
+with AEAD DEK wrapping, alongside (not replacing) the V4/V5 legacy format.
+Each `.ssc` object carries exactly **one** access grant — there is no
+multi-grant access control. That grant can require a password and a managed
+key together via `CombinedCredential`; it cannot be satisfied by either alone,
+and no object can be opened by more than one independent credential.
+
+```python
+from pathlib import Path
+
+from secure_string_cipher.v2 import (
+    encrypt_v2_file,
+    decrypt_v2_file,
+    PasswordCredential,
+    KeyCredential,
+    CombinedCredential,
+)
+from secure_string_cipher.v2.key_identity import compute_fingerprint
+
+# Single password
+cred = PasswordCredential("MySecurePass123!")
+
+# A managed-key credential needs the key's fingerprint alongside its
+# 32-byte secret — both are required positional/keyword arguments.
+managed_secret = b"\x11" * 32  # in practice: from a loaded .ssckey file
+fingerprint = compute_fingerprint(managed_secret)
+key_cred = KeyCredential(key_fingerprint=fingerprint, managed_secret=managed_secret)
+
+# Combined requirement: the single grant needs BOTH components together.
+cred_combined = CombinedCredential(
+    passphrase="MySecurePass123!",
+    key_fingerprint=fingerprint,
+    managed_secret=managed_secret,
+)
+
+# Encrypt
+encrypt_v2_file(
+    Path("document.pdf"),
+    Path("document.pdf.ssc"),
+    credential=cred_combined,
+)
+
+# Decrypt — takes one credential (not a list) and returns a Path, not a tuple
+output_path = decrypt_v2_file(
+    Path("document.pdf.ssc"),
+    credential=cred_combined,
+    output_path=Path("document.pdf"),
+)
+```
+
+**Key V2 Concepts**:
+- **Credentials**: `PasswordCredential(passphrase)`, `KeyCredential(key_fingerprint, managed_secret)` (a 32-byte managed-key secret plus its fingerprint — not a "direct" arbitrary-length key), or `CombinedCredential(passphrase, key_fingerprint, managed_secret)`.
+- **`V2VaultService`** (`secure_string_cipher.v2.vault_service`): the actual key-lifecycle implementation — there is no separate `KeyManager` class. Managed keys are random 256-bit secrets (not deterministic). The `ssc key` CLI subcommands wrap this service, but `ssc key create`/`rename` do not currently work end to end (see ROADMAP.md); use `load_keyfile`/`save_keyfile` (`secure_string_cipher.v2.keyfile`) directly if you need a working key today.
 
 ---
 

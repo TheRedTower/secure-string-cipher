@@ -319,6 +319,10 @@ class TestPassphraseVaultMigration:
         vault.store_passphrase("label", "value", master)
         raw_contents = vault.read_raw_vault()
         mock_keychain = MagicMock()
+        mock_keychain.load_vault.return_value = None
+        mock_keychain.store_vault.side_effect = lambda raw: setattr(
+            mock_keychain.load_vault, "return_value", raw
+        )
 
         with patch(
             "secure_string_cipher.keychain_backend.KeychainVaultBackend",
