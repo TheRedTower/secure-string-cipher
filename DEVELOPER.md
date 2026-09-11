@@ -170,12 +170,14 @@ Tests use `StringIO` which triggers visible mode, so they work without modificat
 
 ```python
 from io import StringIO
-from secure_string_cipher.cli import run_menu
+from secure_string_cipher.cli import main
 
-# Passwords flow through StringIO - no getpass called
-in_stream = StringIO("1\nmy message\nMySecurePass123!\nMySecurePass123!\n0\n")
+# Passwords flow through StringIO - no getpass called. The trailing "n"
+# answers the post-operation "Continue? (y/n)" prompt to exit cleanly.
+in_stream = StringIO("1\nmy message\nMySecurePass123!\nMySecurePass123!\nn\n")
 out_stream = StringIO()
-run_menu(in_stream, out_stream)
+# exit_on_completion=False returns 0/1 instead of calling sys.exit()
+main(in_stream, out_stream, exit_on_completion=False)
 ```
 
 ### Testing the Non-Interactive CLI (`ssc`)

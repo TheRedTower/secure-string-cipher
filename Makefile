@@ -1,4 +1,4 @@
-.PHONY: help format lint lint-tests security-guard secret-scan dependency-audit build test test-fast test-watch test-unit test-integration test-security test-quick test-slow test-failed test-cov clean install ci docker-build docker-build-fast docker-build-ultra docker-run docker-test docker-clean docker-size
+.PHONY: help format lint lint-tests security-guard secret-scan dependency-audit build test test-fast test-unit test-integration test-security test-quick test-slow test-failed test-cov clean install ci docker-build docker-build-fast docker-build-ultra docker-run docker-test docker-clean docker-size
 
 DIST_DIR ?= dist
 
@@ -68,10 +68,6 @@ test:  ## Run tests with pytest
 test-fast:  ## Run tests in parallel (3-4x faster)
 	@echo "🚀 Running tests in parallel..."
 	uv run --locked pytest -n auto --dist loadfile
-
-test-watch:  ## Run tests in watch mode (auto-rerun on changes)
-	@echo "👀 Watching for changes..."
-	uv run --locked pytest-watch
 
 test-unit:  ## Run only unit tests
 	@echo "🧪 Running unit tests..."
