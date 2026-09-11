@@ -1,9 +1,10 @@
 # Migration Guide: V1 to V2
 
-> **Status:** V2 is in-progress and unreleased (see [ROADMAP.md](../ROADMAP.md)).
-> This guide was substantially corrected on 2026-09-10: several commands it
-> previously showed do not work against the current CLI. Corrections are
-> noted inline. Do not follow an older copy of this file.
+> **Status:** V2 is merged to `main` (PR #40, commit `59147fc`,
+> 2026-09-11) but not yet the source of a tagged release (see
+> [ROADMAP.md](../ROADMAP.md) for the remaining release gate). The `ssc key
+> create`/`rename` issues noted in a 2026-09-10 audit are fixed as of this
+> merge; the sections below have been updated accordingly.
 
 ## Overview
 
@@ -26,12 +27,11 @@ cannot be opened by more than one distinct credential.
 
 1. **`.ssc` Format**: New file extension for the V2 container, auto-detected
    by decrypt via its magic bytes (independent of the file extension).
-2. **Managed Keys**: `.ssckey` files hold a random 256-bit secret. **Current
-   limitation**: `ssc key create` cannot yet be given a name, and its default
-   mode does not persist the generated secret anywhere recoverable — creating
-   a key today without `--vault-copy` throws the secret away. Treat `ssc key
-   create` as not yet usable; `ssc key import`/`show`/`export`/`list` work on
-   a `.ssckey` file you already have.
+2. **Managed Keys**: `.ssckey` files hold a random 256-bit secret. `ssc key
+   create`, `import`, `show`, `export`, `list`, and `rename` all work end to
+   end. **Current limitation**: key status changes (`archive`/`revoke`/
+   `destroy`) are vault bookkeeping only — they do not currently prevent a
+   `.ssckey` file from still being used to encrypt or decrypt.
 3. **Combined authentication**: You can encrypt a single file so that its one
    grant requires *both* a password and a key. There is no "either one"
    (any-of) mode — `--require any` with more than one `--with` source is
@@ -102,23 +102,20 @@ ssc key list                       # works
 ssc key show <id-or-fingerprint>   # works
 ssc key import <path-to.ssckey>    # works
 ssc key export <id> <dest>         # works, but only for a --vault-copy key
+ssc key rename <id> <new-id>       # works
+ssc key create <id> [--vault-copy] [--external-file PATH]
+                                    # works — persists the generated secret
+                                    #   either to the named external file or
+                                    #   into the vault
 ssc key archive <id>               # flips a vault status field only —
 ssc key revoke <id>                #   neither has any effect on whether the
-                                    #   matching .ssckey file can still
+ssc key destroy <id>               #   matching .ssckey file can still
                                     #   encrypt or decrypt (not enforced yet)
-ssc key rename <id> <new-id>       # registered but always fails — the
-                                    #   backing method does not exist
-ssc key create [--vault-copy] [--external-file PATH]
-                                    # cannot be given a name (always "default",
-                                    #   so a second create always fails); the
-                                    #   default (external-only) mode discards
-                                    #   the generated secret rather than
-                                    #   writing it anywhere
 ```
 
-Until `ssc key create`/`rename` are fixed, treat key export/import/list/show
-as the only reliable parts of this command group, operating on a `.ssckey`
-file you already have from another source.
+Note there is currently no CLI end-to-end test coverage for this command
+group (only the underlying vault-service methods and CLI argument parsing
+are tested directly) — see [ROADMAP.md](../ROADMAP.md).
 
 ## FAQ
 

@@ -44,11 +44,11 @@ records are clearly separated in the documentation archive.
   multi-credential access
 - **Legacy key-file mode** – hashes any file's bytes into a symmetric passphrase
   (SHA-256 → Argon2id); this is not public-key or recipient encryption
-- **Managed Keys (V2, incomplete)** – `.ssckey` import/export/show/list are
-  functional; `ssc key create` cannot yet be given a name, and its default mode
-  discards the generated secret rather than writing a key file — see
-  [ROADMAP.md](ROADMAP.md). `archive`/`revoke`/`destroy` change the vault
-  record's status only; encryption and decryption do not currently check it
+- **Managed Keys (V2, merged but not yet released)** – `.ssckey`
+  create/import/export/show/list/rename are functional — see
+  [ROADMAP.md](ROADMAP.md) for the remaining release gate.
+  `archive`/`revoke`/`destroy` change the vault record's status only;
+  encryption and decryption do not currently check it
 - **OS Keychain integration** – store vault in macOS Keychain, Windows Credential Vault, or Linux Secret Service
 - **Hidden password input** – passwords hidden in interactive terminals, visible for scripts/tests
 - **Inline passphrase generation** – type `/gen` at an interactive

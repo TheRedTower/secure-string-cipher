@@ -1,9 +1,12 @@
 # Threat Model: Secure String Cipher V2
 
-> **Status:** V2 is in-progress and unreleased (see [ROADMAP.md](../ROADMAP.md)).
-> This document was substantially corrected on 2026-09-10 after an independent
-> audit found several claims below did not match the shipped implementation;
-> those corrections are noted inline rather than silently applied.
+> **Status:** V2 is merged to `main` (PR #40, commit `59147fc`,
+> 2026-09-11) but not yet the source of a tagged release (see
+> [ROADMAP.md](../ROADMAP.md) for the remaining release gate). This document
+> was substantially corrected on 2026-09-10 after an independent audit found
+> several claims did not match the implementation at the time; most of that
+> audit's findings are now fixed (see ROADMAP.md), and the core security
+> content below still holds.
 
 ## 1. Overview
 Secure String Cipher V2 adds a new `.ssc` container **alongside** the existing

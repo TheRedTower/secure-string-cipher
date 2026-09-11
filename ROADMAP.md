@@ -25,18 +25,19 @@ independent third-party security audit. Cross-process vault locking and
 
 ---
 
-## SSC v2.0.0 — Managed Key Identity Utility (IN PROGRESS, NOT RELEASED)
+## SSC v2.0.0 — Managed Key Identity Utility (MERGED TO MAIN, NOT YET RELEASED)
 
-SSC v2.0.0 is developing a managed-key architecture alongside the v1 core,
-designed from [`docs/V2_MANAGED_KEYS_ARCHITECTURE.md`](docs/V2_MANAGED_KEYS_ARCHITECTURE.md).
-The core cryptography (KDF, DEK wrapping, header authentication, chunked AEAD
-framing) is implemented and covered by unit tests, but the feature is **not
-complete, not merged to `main`, and not the source of a release**. A 2026-09-10
-independent audit found the `ssc key` command group non-functional (`ssc key
-create` discards the generated secret and cannot take a name; `rename` is an
-unconditional stub) and the on-disk frame/armor format does not match either
-design document. Do not advertise v2 as done until that audit's P0/P1 findings
-are closed; see the audit for the full list.
+SSC v2.0.0 is a managed-key architecture alongside the v1 core, designed from
+[`docs/V2_MANAGED_KEYS_ARCHITECTURE.md`](docs/V2_MANAGED_KEYS_ARCHITECTURE.md)
+and refined in
+[`docs/SSC_V2_REFINED_IMPLEMENTATION_SPEC.md`](docs/SSC_V2_REFINED_IMPLEMENTATION_SPEC.md).
+The full feature — container format, `.ssckey` identities, vault-backed key
+lifecycle, and CLI integration (`ssc encrypt --with ...`, `ssc key ...`) —
+merged to `main` in PR #40 (commit `59147fc`) on 2026-09-11, followed by 7
+more fixes from an automated PR review. `ssc key create` and `ssc key rename`
+now work end to end (a 2026-09-10 audit had found both broken; that audit is
+no longer current). What's still open before a release is a small, concrete
+list, not a general "incomplete" caveat — see the release gate below.
 
 High-level v2 goals:
 
@@ -67,18 +68,27 @@ High-level v2 goals:
 - Auto-detect v1/v2 during decrypt.
 - Keep v2 explicit on encrypt until the format and tests are mature.
 
-Required v2.0.0 release gate (not yet met — tracked against the 2026-09-10 audit):
+Required v2.0.0 release gate (tracked live against this roadmap, not an
+external audit — current status as of 2026-09-11):
 
-- golden compatibility fixtures for the KDF/wrap/commitment layers exist;
-  container- and frame-level golden vectors do not yet cover the shipped wire
-  format, only an earlier draft of it;
+- golden compatibility fixtures for the KDF/wrap/commitment layers and the
+  three grant-header shapes exist; **container- and frame-level golden
+  vectors still do not exist** — round-trip and tamper tests cover
+  correctness extensively, but nothing pins the exact on-disk `.ssc`
+  byte format the way the header fixtures pin the header;
 - tamper tests exist for the header and frame layers;
 - vault migration tests exist;
-- CLI mapping tests exist for `encrypt`/`decrypt --with`, but there is no
-  end-to-end test coverage of any `ssc key` subcommand, and `ssc key create`
-  cannot currently produce a usable key (see audit P0-1/P0-2).
+- CLI argument-parsing tests exist for every `ssc key` subcommand, but
+  **there is no end-to-end test coverage** of `cmd_key_create`/`import`/
+  `show`/`export`/`list`/`rename`/`archive`/`revoke`/`destroy` actually
+  running against a vault (only `V2VaultService`'s underlying methods are
+  tested directly);
+- **key status (`archive`/`revoke`/`destroy`) is not enforced at
+  encrypt/decrypt time** — `cli_args.py::_resolve_v2_key_source` resolves
+  `.ssckey` files directly off disk and never consults vault status, so a
+  revoked or destroyed key still works as long as its key file exists.
 
-Recommended staged PR sequence (1–7 landed and tested; 8–9 incomplete):
+Recommended staged PR sequence (1–8 landed and tested; 9 in progress):
 
 1. Documentation and design.
 2. v2 module skeleton and dataclasses.
@@ -87,12 +97,12 @@ Recommended staged PR sequence (1–7 landed and tested; 8–9 incomplete):
 5. HKDF helpers and AEAD DEK wrapping.
 6. v2 envelope and header authentication.
 7. v2 payload encryption and chunk frames.
-8. CLI integration with `--with` syntax — encrypt-side done; `decrypt` has no
-   `--with`/`--require` flags, and the `ssc key` lifecycle commands are not
-   functional end to end.
-9. Docs, migration guide, and release hardening — not started; current docs
-   (README, CHANGELOG, MIGRATION, CRYPTOGRAPHY, THREAT_MODEL) describe a
-   multi-grant, fully wired v2 that does not match the shipped code.
+8. CLI integration with `--with` syntax and the `ssc key` lifecycle
+   commands — merged and functional; `decrypt` intentionally has no
+   `--with`/`--require` flags (credential type is read from the header).
+9. Docs, migration guide, and release hardening — docs corrected as of
+   2026-09-11; the release gate above (golden vectors, `ssc key` CLI e2e
+   tests, key-status enforcement) is what remains before a release.
 
 ---
 
