@@ -1,8 +1,8 @@
 # Secure String Cipher V2 — Refined Implementation Specification
 
-Specification: SSC-V2-REFINED-1.0  
-Review date: 9 September 2026  
-Target feature release: 2.0.0; retain Beta status until separately justified  
+Specification: SSC-V2-REFINED-1.0
+Review date: 9 September 2026
+Target feature release: 2.0.0; retain Beta status until separately justified
 Status: implementation-planning baseline, with repository evidence and explicit technical decisions
 
 ## 1. Purpose, authority, and scope
@@ -131,16 +131,31 @@ The current six-file skeleton is a starting point. Its placeholder examples and 
 
 ## 5. Resource policy
 
+> **2026-09-10 correction:** this section originally specified a 262,144-byte
+> default chunk size and a 40-byte per-frame overhead. The shipped
+> implementation (`v2/encrypt.py`, `v2/payload.py`) uses a 65,536-byte default
+> chunk and a 35-byte per-frame overhead (see the corrected §9.2). Numbers
+> below are corrected to match the encoder.
+>
+> **2026-09-11 update:** at the time of the correction above, the decrypt
+> path did not enforce a cumulative frame-count or byte cap —
+> `FrameReader.read_frames` looped until a FINAL frame with no counter. This
+> is now fixed: `FrameReader` computes `max_frames = max(1,
+> ceil(MAX_PLAINTEXT_FILE_SIZE / chunk_size))` per the header's own
+> `chunk_size` and rejects a stream once either the frame index or the
+> cumulative plaintext byte count would exceed it, checked before each
+> frame's ciphertext body is read.
+
 MiB means 1,048,576 bytes; KiB means 1,024 bytes. Limits apply to both writers and readers. These are initial application limits, not mathematical AES-GCM maxima.
 
 | Quantity | Initial V2 requirement |
 | --- | --- |
 | Plaintext file | 0 through 104,857,600 bytes inclusive |
-| Chunk size | One of 65,536; 131,072; 262,144; 524,288; 1,048,576; 2,097,152; 4,194,304 |
-| Default chunk size | 262,144 bytes |
-| Maximum file frames | 1,600; additionally bounded by the selected chunk size and total payload limit |
+| Chunk size | One of 65,536; 131,072; 262,144; 524,288; 1,048,576; 2,097,152; 4,194,304 (only 65,536 is reachable from the CLI today — `chunk_size` is not exposed as a flag) |
+| Default chunk size | 65,536 bytes |
+| Maximum file frames | max(1, ceil(104,857,600 / chunk_size)) — 1,600 for the default 65,536-byte chunk; enforced on decrypt per-object from its own header |
 | Canonical protected header | 1 through 65,536 bytes |
-| File container raw cap | 8 + 65,536 + 104,857,600 + 1,600 × 40 = 104,987,144 bytes |
+| File container raw cap | 8 + 65,536 + 104,857,600 + 1,600 × 35 = 104,979,144 bytes (default chunk size; enforced on decrypt) |
 | Metadata plaintext | At most 4,096 bytes |
 | V2 message plaintext | At most 1,048,576 UTF-8 bytes |
 | V2 message armour | At most 2,097,152 bytes |
@@ -166,15 +181,28 @@ A 4 MiB chunk cap bounds plaintext chunk length; GCM ciphertext has the same len
 Define these operations once:
 
 ~~~text
-U32(n) = unsigned 4-byte big-endian representation
-U64(n) = unsigned 8-byte big-endian representation
+U32(n) = unsigned 4-byte little-endian representation
+U64(n) = unsigned 8-byte little-endian representation
 B64(x) = RFC 4648 URL-safe Base64, no "=" padding, no whitespace
 H(x)   = SHA-256(x), raw 32-byte output
 C(x)   = SSC canonical JSON bytes defined below
 ||     = byte concatenation, never text concatenation
 ~~~
 
+> **2026-09-10 correction:** U32/U64 were originally specified big-endian.
+> The shipped implementation packs every wire integer little-endian
+> (`struct.pack("<I", ...)`, `"<Q"`, and the frame's `"<H"` padding-length
+> field — see the corrected §9.2). Corrected here to match.
+
 B64 decoding MUST check the alphabet, expected encoded/decoded lengths, unused padding bits, and encode(decode(value)) == value. It must not accept standard Base64's "+" or "/" spelling. V1 retains its existing padded standard Base64.
+
+> **2026-09-10 correction:** this B64 definition (URL-safe, unpadded) governs
+> every header field (salts, nonces, wrapped DEK, tags, commitment values —
+> all via `v2/vault_schema.b64url_encode`). The V2 **message armor**
+> transport (§9.5) is a documented exception: the shipped implementation
+> encodes the armored header and body with standard padded
+> `base64.b64encode`, not this B64. Both encodings exist in the codebase;
+> know which one applies to which field.
 
 All protocol object keys are specified ASCII strings. Reject unknown fields, missing fields, duplicate keys at every level, wrong types, non-UTF-8 input, BOMs, lone surrogates, non-finite numbers, and floats. Integers must have type int exactly, not bool, and lie in their specified ranges; otherwise use 0 through 2^53-1 as the JSON integer bound. Null is accepted only where explicitly specified.
 
@@ -378,8 +406,30 @@ Q = complete header after DEK wrapping, with only this field omitted:
 commitment.value =
   B64(HMAC-SHA256(K_commit, b"SSC2/commit/v1\0" || H(C(Q))))
 
-payload_header_digest = H(C(complete_header))
+m_context_digest = H(C(M_context))
 ~~~
+
+> **2026-09-10 correction:** this section originally defined
+> `payload_header_digest = H(C(complete_header))` — a digest of the *entire*
+> header, including `access` — as the value authenticated by every payload
+> frame and by the text message (§9.2, §9.5). The shipped implementation
+> authenticates payload frames and messages against `m_context_digest`
+> instead: the digest of `M_context`, which (like the metadata AAD) excludes
+> `access` entirely. `payload_header_digest`/`compute_payload_header_digest`
+> still exists in `v2/keywrap.py` but is dead code — nothing calls it.
+>
+> This is a real narrowing from the design in §8.3 below: "changing an access
+> grant changes the payload AAD" does **not** hold for the shipped format,
+> because the grant is outside `M_context`. In practice this does not let an
+> attacker decrypt anything — the grant (and hence the DEK) is still bound to
+> the complete header via `wrap_aad`/`commitment` (both project the full
+> header), so a substituted grant cannot unwrap the original DEK — but the
+> payload layer alone no longer detects a grant substitution the way this
+> section originally promised. Note also that the implemented **message** AAD
+> (§9.5) includes `decoded(object_id)` in addition to `m_context_digest`,
+> while the implemented **frame** AAD (§9.2) does not include `object_id` at
+> all; this is an unreviewed inconsistency between the two payload types, not
+> a deliberate design choice.
 
 The notation \0 denotes one zero byte. String field names and enum values are JSON strings; the digest values in AAD are raw bytes.
 
@@ -433,36 +483,52 @@ No BOM, line ending, trailing padding, appended object, or alternative magic is 
 
 ### 9.2 Frame format
 
+> **2026-09-10 correction:** this section originally specified a 24-byte
+> big-endian prefix with a `frame_version` byte, `reserved` bytes, and a
+> `ciphertext_length` field. The shipped implementation
+> (`v2/payload.py`) is different in every one of those respects. Corrected
+> below to match; see the §8.2 correction note for the frame AAD digest
+> change (`payload_header_digest` → `m_context_digest`) that goes with this.
+
 ~~~text
 frame_magic             4 bytes: ASCII "S2FR"
-frame_version           1 byte: 0x01
-flags                   1 byte: 0x00 or 0x01 (FINAL)
-reserved                2 bytes: 0x0000
 chunk_index             U64(index)
 plaintext_length        U32(n)
-ciphertext_length       U32(n)
-ciphertext              n bytes
+padding_length          U16(n)
+flags                   1 byte: 0x00 or 0x01 (FINAL)
+ciphertext              (plaintext_length + padding_length) bytes
 tag                     16 bytes
 ~~~
 
-The fixed prefix is 24 bytes. Per-frame overhead is 40 bytes.
+The fixed prefix is 19 bytes (`4 + 8 + 4 + 2 + 1`). Per-frame overhead is 35
+bytes (19-byte prefix + 16-byte tag). Non-final frames pad their plaintext up
+to `chunk_size` with random bytes (`padding_length = chunk_size -
+plaintext_length`); the final frame may carry `padding_length = 0`. The
+ciphertext length equals `plaintext_length + padding_length`, not a
+separately transmitted `ciphertext_length` field.
 
 ~~~text
 nonce = decoded(payload.nonce_prefix) || U64(chunk_index)
 
 frame_aad =
-  b"SSC2/frame/v1\0" ||
-  payload_header_digest ||
-  decoded(object_id) ||
-  exact_24_byte_frame_prefix
+  b"SSC2/frame/v2\0" ||
+  m_context_digest ||
+  U64(chunk_index) ||
+  U32(plaintext_length) ||
+  U16(padding_length) ||
+  flags
 ~~~
+
+Note the domain string is `.../frame/v2\0`, not `.../frame/v1\0` as originally
+specified, and `object_id` is not part of this AAD (see the §8.2 correction
+note on the frame/message AAD inconsistency).
 
 Use AESGCM.encrypt/decrypt for each bounded frame. Its return value contains ciphertext plus a 16-byte tag; the wire stores them separately. These API semantics and nonce requirements are documented by [cryptography 50.0.0](https://cryptography.io/en/50.0.0/hazmat/primitives/aead/). The underlying GCM mode is specified in [NIST SP 800-38D](https://csrc.nist.gov/pubs/sp/800/38/d/final).
 
 Required framing behavior:
 
 - Index begins at zero and increases by one. Reject duplicates, gaps, reorderings, overflow, and excessive frame count.
-- ciphertext_length MUST equal plaintext_length before reading the body.
+- plaintext_length + padding_length MUST NOT exceed chunk_size before reading the body.
 - Non-final frames have length exactly chunk_size.
 - A final frame for nonempty input has length 1..chunk_size.
 - Empty input consists of one authenticated final frame at index zero with zero ciphertext bytes and a valid tag.
@@ -519,21 +585,32 @@ The canonical writer emits these exact lines, LF-separated, with one final LF:
 -----BEGIN SSC MESSAGE-----
 Version: 2
 Type: text
-Header: <one line containing B64(C(header))>
+Header: <one line containing standard-Base64(C(header)), padded>
 
-<one line containing B64(ciphertext || tag)>
+<one line containing standard-Base64(ciphertext || tag), padded>
 -----END SSC MESSAGE-----
 ~~~
+
+> **2026-09-10 correction:** the two Base64 fields above use standard padded
+> Base64 (`base64.b64encode`), not the URL-safe unpadded B64 defined in §6 —
+> see the §6 correction note. This is a shipped-code exception to the general
+> B64 rule, not a typo.
 
 The header is the text schema from section 8. Body decoded length MUST equal payload.plaintext_length + 16.
 
 ~~~text
 message_aad =
   b"SSC2/message/v1\0" ||
-  payload_header_digest ||
+  m_context_digest ||
   decoded(object_id) ||
   U64(payload.plaintext_length)
 ~~~
+
+(Only `payload_header_digest` → `m_context_digest` changed here from the
+original text; the message AAD's domain string, inclusion of `object_id`,
+and U64 length field are otherwise as originally specified — see the §8.2
+correction note on why frames and messages ended up inconsistent on
+`object_id`.)
 
 Encrypt with K_payload and decoded(payload.nonce). Empty text still has a 16-byte authentication tag. Return UTF-8 text only after the tag verifies and strict UTF-8 decoding succeeds.
 

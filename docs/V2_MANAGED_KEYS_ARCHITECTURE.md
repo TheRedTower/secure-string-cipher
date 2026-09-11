@@ -1,5 +1,16 @@
 # SSC v2 Managed Keys Architecture
 
+> **Superseded.** This was the initial design draft. It was followed by
+> [`SSC_V2_REFINED_IMPLEMENTATION_SPEC.md`](SSC_V2_REFINED_IMPLEMENTATION_SPEC.md),
+> which is the current source of truth for the format (e.g. the 52-character
+> fingerprint body used here as `[0:32]` at line 349 is stale; the refined
+> spec and the shipped code both use the full value). Several CLI syntax
+> examples below (`--external`, `key export --out`) also do not match the
+> registered argparse flags — see [ROADMAP.md](ROADMAP.md) and
+> [MIGRATION.md](MIGRATION.md) for the current, verified CLI surface. Kept for
+> historical context on the design rationale, not as an implementation
+> reference.
+
 Status: Approved design draft
 Target release: v2.0.0
 Future direction: v3.0.0 vault-policy-first architecture

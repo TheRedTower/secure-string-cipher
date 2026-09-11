@@ -18,16 +18,25 @@ Ubuntu/macOS/Windows CI job. The protected PR #67 matrix passed on all three
 platforms; future changes must pass the same current protected checks on their
 own exact commits.
 
-The next hardening priorities are descriptor-level path opening, a reviewed
-cross-process vault locking design, real secret `.ssckey` files, broader
+The next hardening priorities are descriptor-level path opening, broader
 keychain integration tests against actual OS credential stores, and an
-independent third-party security audit.
+independent third-party security audit. Cross-process vault locking and
+`.ssckey` key files already exist (see below); they are not future work.
 
 ---
 
-## SSC v2.0.0 — Managed Key Identity Utility
+## SSC v2.0.0 — Managed Key Identity Utility (IN PROGRESS, NOT RELEASED)
 
-SSC v2.0.0 will introduce a managed-key architecture without rewriting the existing v1 core. The design is approved in detail in [`docs/V2_MANAGED_KEYS_ARCHITECTURE.md`](docs/V2_MANAGED_KEYS_ARCHITECTURE.md).
+SSC v2.0.0 is developing a managed-key architecture alongside the v1 core,
+designed from [`docs/V2_MANAGED_KEYS_ARCHITECTURE.md`](docs/V2_MANAGED_KEYS_ARCHITECTURE.md).
+The core cryptography (KDF, DEK wrapping, header authentication, chunked AEAD
+framing) is implemented and covered by unit tests, but the feature is **not
+complete, not merged to `main`, and not the source of a release**. A 2026-09-10
+independent audit found the `ssc key` command group non-functional (`ssc key
+create` discards the generated secret and cannot take a name; `rename` is an
+unconditional stub) and the on-disk frame/armor format does not match either
+design document. Do not advertise v2 as done until that audit's P0/P1 findings
+are closed; see the audit for the full list.
 
 High-level v2 goals:
 
@@ -58,14 +67,18 @@ High-level v2 goals:
 - Auto-detect v1/v2 during decrypt.
 - Keep v2 explicit on encrypt until the format and tests are mature.
 
-Required v2.0.0 release gate:
+Required v2.0.0 release gate (not yet met — tracked against the 2026-09-10 audit):
 
-- golden compatibility fixtures;
-- tamper tests;
-- vault migration tests;
-- CLI mapping tests.
+- golden compatibility fixtures for the KDF/wrap/commitment layers exist;
+  container- and frame-level golden vectors do not yet cover the shipped wire
+  format, only an earlier draft of it;
+- tamper tests exist for the header and frame layers;
+- vault migration tests exist;
+- CLI mapping tests exist for `encrypt`/`decrypt --with`, but there is no
+  end-to-end test coverage of any `ssc key` subcommand, and `ssc key create`
+  cannot currently produce a usable key (see audit P0-1/P0-2).
 
-Recommended staged PR sequence:
+Recommended staged PR sequence (1–7 landed and tested; 8–9 incomplete):
 
 1. Documentation and design.
 2. v2 module skeleton and dataclasses.
@@ -74,8 +87,12 @@ Recommended staged PR sequence:
 5. HKDF helpers and AEAD DEK wrapping.
 6. v2 envelope and header authentication.
 7. v2 payload encryption and chunk frames.
-8. CLI integration with `--with` syntax.
-9. Docs, migration guide, and release hardening.
+8. CLI integration with `--with` syntax — encrypt-side done; `decrypt` has no
+   `--with`/`--require` flags, and the `ssc key` lifecycle commands are not
+   functional end to end.
+9. Docs, migration guide, and release hardening — not started; current docs
+   (README, CHANGELOG, MIGRATION, CRYPTOGRAPHY, THREAT_MODEL) describe a
+   multi-grant, fully wired v2 that does not match the shipped code.
 
 ---
 

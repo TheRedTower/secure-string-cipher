@@ -4,8 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
-A **Beta** AES-256-GCM encryption CLI with a passphrase vault and modern
-cryptographic defaults. Beta means the current v4/v5 format is usable and
+A **Beta** AES-256-GCM encryption CLI with a passphrase vault, managed keys, and modern
+cryptographic defaults. Beta means the current v5/v2 format is usable and
 compatibility-sensitive, but the project is not yet stable or independently
 audited.
 
@@ -18,13 +18,14 @@ audited.
 - Active and candidate vault representations, plus legacy key files, separately
   use the same 100 MiB value as a raw-input cap. Vault text is counted by UTF-8
   bytes, and a value that could not be read back within the cap is not written.
-- `original_filename` is bounded metadata, not a path. The current version 5
-  reader authenticates it before sanitizing it for automatic output selection;
+- `original_filename` is bounded metadata, not a path. The current version 5 and version 2
+  readers authenticate it before sanitizing it for automatic output selection;
   an explicit output remains authoritative. Version 4 names are never used to
   select an output.
-- Large framed SSC2 objects, race-resistant descriptor-relative path opening,
-  cross-process vault locking, real secret `.ssckey` files, and a third-party
-  security audit remain future work.
+- Large framed SSC2 objects and a third-party security audit remain future
+  work. Cross-process vault locking is implemented (advisory file locks with a
+  bounded timeout); it has not been tested against real concurrent processes
+  on every supported platform.
 
 CI enforces a minimum 85% test coverage threshold on Python 3.14. The workflow
 also defines focused file and portable vault validation/transaction gates on
@@ -37,8 +38,17 @@ records are clearly separated in the documentation archive.
 - **AES-256-GCM encryption** for text and files with authenticated encryption
 - **Argon2id key derivation** – memory-hard, GPU/ASIC resistant
 - **Key commitment scheme** – binds each ciphertext to its derived key
+- **Combined authentication** (V2) – encrypt so that a single grant requires both
+  a password and a managed key together (`--with password --with key:ID --require
+  all`); each object still carries exactly one access grant, not independent
+  multi-credential access
 - **Legacy key-file mode** – hashes any file's bytes into a symmetric passphrase
   (SHA-256 → Argon2id); this is not public-key or recipient encryption
+- **Managed Keys (V2, incomplete)** – `.ssckey` import/export/show/list are
+  functional; `ssc key create` cannot yet be given a name, and its default mode
+  discards the generated secret rather than writing a key file — see
+  [ROADMAP.md](ROADMAP.md). `archive`/`revoke`/`destroy` change the vault
+  record's status only; encryption and decryption do not currently check it
 - **OS Keychain integration** – store vault in macOS Keychain, Windows Credential Vault, or Linux Secret Service
 - **Hidden password input** – passwords hidden in interactive terminals, visible for scripts/tests
 - **Inline passphrase generation** – type `/gen` at an interactive
@@ -51,7 +61,8 @@ records are clearly separated in the documentation archive.
   it cannot prevent offline password guessing
 - **Best-effort shred** – overwrite then unlink; unreliable on SSDs, COW,
   snapshots, and journaled filesystems
-- Chunked file streaming (256 KiB) for low memory usage
+- Chunked file streaming for low memory usage (256 KiB for legacy files; V2
+  `.ssc` files currently use 64 KiB chunks, fixed and not CLI-configurable)
 - Automatic file-backend vault backups (last 5 kept)
 
 ## Documentation
@@ -134,6 +145,13 @@ ssc decrypt -f document.pdf.enc --vault my-server
 # Decrypt using a key file
 ssc decrypt -f document.pdf.enc --key-file /path/to/key.pem
 
+# Encrypt a file requiring both a password and a managed key (single combined grant)
+ssc encrypt -f document.pdf --with password --with key:my-key --require all
+
+# Decrypt a V2 file (no --with/--require on decrypt: the credential type is
+# read from the file's header and the CLI prompts for what it needs)
+ssc decrypt -f document.pdf.ssc
+
 # Store a password in vault
 ssc store my-server
 
@@ -151,7 +169,7 @@ ssc vault restore BACKUP_ID   # authenticate and transactionally restore
 
 **Exit codes:** 0=success, 1=input error, 2=auth error, 3=vault error, 4=file error
 
-**Security:** Passwords are never passed via command line arguments (prevents shell history exposure). All passwords are prompted interactively or retrieved from the vault.
+**Security:** Passwords are never passed via command line arguments (prevents shell history exposure). All passwords are prompted interactively or retrieved from the vault (or from managed keys).
 
 `ssc vault export` writes canonical six-line UTF-8 bytes with no BOM or terminal
 newline. The CLI importer also recovers files created by older redirected
@@ -251,7 +269,11 @@ collision-resistant backup, writes through the configured file/keychain
 backend, reads back and revalidates, and rolls back on post-write failure.
 Filesystem writes use atomic replacement; native credential-store rollback is
 best effort because those stores do not expose a multi-record transaction.
-There is no cross-process vault lock, so simultaneous processes can still race.
+Vault mutations hold a cooperative, advisory cross-process file lock (bounded
+timeout, re-entrant per thread) to serialize concurrent writers; it has not
+been exercised against real multi-process contention on every supported
+platform, and it does nothing for readers or for non-lock-aware external tools
+touching the same file.
 
 ### OS Keychain Integration
 
