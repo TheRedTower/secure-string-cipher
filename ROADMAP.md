@@ -77,20 +77,24 @@ external audit — current status as of 2026-09-11):
   correctness extensively, but nothing pins the exact on-disk `.ssc`
   byte format the way the header fixtures pin the header;
 - tamper tests exist for the header and frame layers;
-- vault migration tests exist;
-- CLI argument-parsing tests exist for every `ssc key` subcommand, but
-  **there is no end-to-end test coverage** of `cmd_key_create`/`import`/
-  `show`/`export`/`list`/`rename`/`archive`/`revoke`/`destroy` actually
-  running against a vault (only `V2VaultService`'s underlying methods are
-  tested directly).
+- vault migration tests exist.
 
-Closed as of 2026-09-11: key status (`archive`/`revoke`/`destroy`)
-enforcement at encrypt/decrypt time. By default `cli_args.py::
-_resolve_v2_key_source` still resolves `.ssckey` files directly off disk
-without consulting vault status — a revoked or destroyed key you still hold
-keeps working, which is inherent to holding the file, not a bug — but
-passing `--vault LABEL` alongside a key source now unlocks the vault and
-rejects a `revoked`/`destroyed` key that this vault tracks.
+Closed as of 2026-09-11:
+
+- **Key status (`archive`/`revoke`/`destroy`) enforcement at encrypt/decrypt
+  time.** By default `cli_args.py::_resolve_v2_key_source` still resolves
+  `.ssckey` files directly off disk without consulting vault status — a
+  revoked or destroyed key you still hold keeps working, which is inherent
+  to holding the file, not a bug — but passing `--vault LABEL` alongside a
+  key source now unlocks the vault and rejects a `revoked`/`destroyed` key
+  that this vault tracks.
+- **CLI end-to-end test coverage for the full `ssc key` subcommand group.**
+  `create`/`import`/`show`/`export`/`list`/`rename`/`archive`/`revoke`/
+  `destroy` are each now exercised as real `cmd_key_*` calls against a
+  hermetic, file-backed vault (`tests/unit/test_v2_key_cli_e2e.py`),
+  including the revoke/destroy interaction with `--vault` enforcement
+  above — not just argument parsing or the underlying `V2VaultService`
+  methods in isolation.
 
 Recommended staged PR sequence (1–8 landed and tested; 9 in progress):
 
