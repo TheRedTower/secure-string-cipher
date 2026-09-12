@@ -141,13 +141,19 @@ class TestVaultHelpers:
 
         assert _get_vault() is mock_vault
 
-    @patch("secure_string_cipher.cli_args._prompt_password_with_validation")
+    @patch("secure_string_cipher.cli_args._prompt_master_password_to_set")
     @patch("builtins.input", return_value="y")
     @patch("secure_string_cipher.cli_args.PassphraseVault")
     def test_get_vault_initializes_missing_vault(
         self, mock_vault_cls, mock_input, mock_prompt
     ):
-        """Should initialize a missing vault when the user accepts."""
+        """Should initialize a missing vault when the user accepts.
+
+        Patches the master-password prompt specifically: initialization used
+        to go through the *data* password prompt, so supplying both a data
+        and a master password built the vault with the wrong one and left the
+        next unlock failing.
+        """
         mock_vault = MagicMock()
         mock_vault.vault_exists.return_value = False
         mock_vault_cls.return_value = mock_vault

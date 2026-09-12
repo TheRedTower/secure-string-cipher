@@ -13,6 +13,7 @@ import argparse
 import getpass
 import hashlib
 import os
+import stat
 import sys
 import traceback
 from pathlib import Path
@@ -120,6 +121,10 @@ _debug_mode = False
 # from many places that have no access to the parsed arguments.
 _password_source: str | None = None
 _master_password_source: str | None = None
+# A master password being *set* is a different value from the one being used to
+# unlock, so it gets its own source. Reusing _master_password_source for both
+# would make `vault change-password` rotate to the password it already has.
+_new_master_password_source: str | None = None
 
 # A password file is read with the same bound v2 applies to a password before
 # derivation, so an oversized file is refused rather than fed to Argon2id.
@@ -284,20 +289,42 @@ def _read_password_file(path_str: str, *, role: str) -> str:
     One trailing line ending is removed — a file written with `echo` has one
     and the operator does not intend it as part of the password — using the
     same helper as the stdin path so both agree.
+
+    The checks are made against the open descriptor rather than the path, so
+    that replacing the final component between the check and the read cannot
+    substitute a different file: `O_NOFOLLOW` refuses a symlink put there,
+    and `fstat` re-checks type and permissions on what was actually opened.
+    This mirrors `v2/keyfile.py`'s loader, which guards the same race for the
+    other bearer secret this program reads.
     """
     path = Path(path_str).expanduser()
     try:
         reject_symlink_components(path)
-        if not path.is_file():
-            _exit_error(EXIT_FILE_ERROR, f"{role} file is not a regular file: {path}")
-        if os.name == "posix" and (path.stat().st_mode & 0o077):
-            _exit_error(
-                EXIT_FILE_ERROR,
-                f"{role} file is readable by group or other: {path}. "
-                "Restrict it with chmod 600.",
-            )
-        with open(path, "rb") as handle:
-            raw = handle.read(_MAX_PASSWORD_FILE_BYTES + 1)
+
+        flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(path, flags)
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                _exit_error(
+                    EXIT_FILE_ERROR, f"{role} file is not a regular file: {path}"
+                )
+            if os.name == "posix" and (st.st_mode & 0o077):
+                _exit_error(
+                    EXIT_FILE_ERROR,
+                    f"{role} file is readable by group or other: {path}. "
+                    "Restrict it with chmod 600.",
+                )
+            raw = b""
+            while len(raw) <= _MAX_PASSWORD_FILE_BYTES:
+                chunk = os.read(fd, _MAX_PASSWORD_FILE_BYTES + 1 - len(raw))
+                if not chunk:
+                    break
+                raw += chunk
+        finally:
+            os.close(fd)
     except OSError as error:
         detail = error.strerror or "could not be read"
         _exit_error(EXIT_FILE_ERROR, f"{role} file {detail}: {path}")
@@ -321,7 +348,7 @@ def _resolve_credential_sources(args: argparse.Namespace) -> None:
     more deliberate act, and it keeps a stale exported variable from quietly
     overriding what the command line asked for.
     """
-    global _password_source, _master_password_source
+    global _password_source, _master_password_source, _new_master_password_source
 
     if getattr(args, "password_file", None):
         _password_source = _read_password_file(args.password_file, role="Password")
@@ -334,6 +361,13 @@ def _resolve_credential_sources(args: argparse.Namespace) -> None:
         )
     elif os.environ.get("SSC_MASTER_PASSWORD"):
         _master_password_source = os.environ["SSC_MASTER_PASSWORD"]
+
+    if getattr(args, "new_master_password_file", None):
+        _new_master_password_source = _read_password_file(
+            args.new_master_password_file, role="New master password"
+        )
+    elif os.environ.get("SSC_NEW_MASTER_PASSWORD"):
+        _new_master_password_source = os.environ["SSC_NEW_MASTER_PASSWORD"]
 
 
 def _prompt_password(prompt: str = "Password: ", confirm: bool = False) -> str:
@@ -402,6 +436,40 @@ def _prompt_master_password() -> str:
     return getpass.getpass("Master password: ")
 
 
+def _prompt_master_password_to_set(
+    prompt: str, *, supplied: str | None, source_flag: str
+) -> str:
+    """Obtain a master password that is being *set*, not used to unlock.
+
+    Setting and unlocking are separate roles even though both are "the master
+    password": initialising a vault sets one, and `vault change-password` uses
+    the old one while setting a new one. Giving each role its own source is
+    what stops a single supplied value being read as both, which would rotate
+    a vault to the password it already had and report success.
+
+    A supplied value is strength-checked and fails hard rather than falling
+    back to a prompt, since a non-interactive caller cannot answer one.
+    """
+    if supplied is not None:
+        is_strong, _ = check_password_strength(supplied)
+        if not is_strong:
+            _print_error(f"Supplied master password ({source_flag}) is too weak:")
+            _print_password_policy()
+            _exit_error(EXIT_INPUT_ERROR, "Supplied master password is too weak.")
+        return supplied
+
+    while True:
+        password = getpass.getpass(prompt)
+        is_strong, _ = check_password_strength(password)
+        if is_strong:
+            if password != getpass.getpass("Confirm master password: "):
+                _print_error("Passwords do not match. Try again.")
+                continue
+            return password
+        _print_error("Master password does not meet security requirements:")
+        _print_password_policy()
+
+
 def _get_vault() -> PassphraseVault:
     """Get or initialize the vault."""
     vault = PassphraseVault()
@@ -415,7 +483,14 @@ def _get_vault() -> PassphraseVault:
 
         # Initialize vault
         print()
-        master = _prompt_password_with_validation("Set master password: ")
+        # The master source, not the data-password source: an operator who
+        # passes both files means the master one here, and initialising with
+        # the data password would leave the very next unlock failing.
+        master = _prompt_master_password_to_set(
+            "Set master password: ",
+            supplied=_master_password_source,
+            source_flag="--master-password-file / SSC_MASTER_PASSWORD",
+        )
         # Store a dummy entry to initialize, then delete it
         vault.store_passphrase("__init__", "init", master)
         vault.delete_passphrase("__init__", master)
@@ -1475,8 +1550,31 @@ def cmd_vault_change_password(args: argparse.Namespace) -> int:
     vault = PassphraseVault()
     _print_info("Enter current master password:")
     old_master = _prompt_master_password()
+
+    if _master_password_source is not None and _new_master_password_source is None:
+        # Falling back to an interactive prompt here would hang an unattended
+        # run, and reusing the supplied value would re-encrypt the vault with
+        # the password it already has while reporting a successful rotation.
+        _exit_error(
+            EXIT_INPUT_ERROR,
+            "The current master password was supplied, so the new one must be "
+            "too: pass --new-master-password-file PATH (or set "
+            "SSC_NEW_MASTER_PASSWORD). Reusing the current password would "
+            "report a rotation that did not happen.",
+        )
+
     _print_info("Enter new master password:")
-    new_master = _prompt_master_password()
+    new_master = _prompt_master_password_to_set(
+        "New master password: ",
+        supplied=_new_master_password_source,
+        source_flag="--new-master-password-file / SSC_NEW_MASTER_PASSWORD",
+    )
+    if new_master == old_master:
+        _exit_error(
+            EXIT_INPUT_ERROR,
+            "The new master password is the same as the current one; nothing "
+            "was changed.",
+        )
     service = V2VaultService(vault)
     try:
         service.change_master_password(old_master, new_master)
@@ -1810,6 +1908,14 @@ Run 'ssc <command> --help' for command-specific help.
         help=(
             "Read the vault master password from PATH instead of prompting "
             "(or set SSC_MASTER_PASSWORD; the flag wins)"
+        ),
+    )
+    parser.add_argument(
+        "--new-master-password-file",
+        metavar="PATH",
+        help=(
+            "Read the replacement master password for `vault change-password` "
+            "from PATH (or set SSC_NEW_MASTER_PASSWORD; the flag wins)"
         ),
     )
     parser.add_argument(
