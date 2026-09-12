@@ -128,6 +128,31 @@ def reset_environment() -> Generator[None]:
     os.environ.update(original_env)
 
 
+@pytest.fixture(autouse=True)
+def reset_cli_output_flags() -> Generator[None]:
+    """Restore cli_args' module-level output flags after each test.
+
+    `_quiet_mode` and `_no_color` are process-wide globals that gate
+    `_print_info`/`_print_warning`. 39 tests in tests/unit/test_cli_args.py
+    set them to True without restoring, so every later test in the same
+    xdist worker saw silenced output — a latent order dependency that showed
+    up as `CaptureResult(out='', err='')` in the `ssc key` end-to-end tests
+    on whichever Python version happened to distribute them together.
+
+    Restoring here keeps that coupling from mattering, rather than relying on
+    the worker layout staying lucky.
+    """
+    from secure_string_cipher import cli_args
+
+    names = ("_quiet_mode", "_no_color", "_debug_mode")
+    saved = {name: getattr(cli_args, name) for name in names if hasattr(cli_args, name)}
+
+    yield
+
+    for name, value in saved.items():
+        setattr(cli_args, name, value)
+
+
 @pytest.fixture
 def fake_home() -> Path:
     """The session's hermetic home directory (what Path.home() resolves to)."""
