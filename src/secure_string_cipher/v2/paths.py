@@ -12,15 +12,17 @@ SYSTEM_SYMLINK_ALLOWLIST = frozenset({Path("/var")})
 
 
 def is_allowed_system_symlink(component: Path) -> bool:
-    """Report whether a symlinked path component is a known-benign OS symlink."""
-    try:
-        resolved = component.resolve(strict=False)
-    except OSError:
-        return False
-    return any(
-        allowed == component or resolved == allowed
-        for allowed in SYSTEM_SYMLINK_ALLOWLIST
-    )
+    """Report whether a symlinked path component is a known-benign OS symlink.
+
+    Only the literal allowlisted path is exempt. Matching on the symlink's
+    *target* instead would exempt any attacker-created symlink that happens
+    to point at an allowlisted path: on a system where /var is an ordinary
+    directory (i.e. Linux), `evil -> /var` would let `evil/tmp/key.ssckey`
+    redirect a keyfile or lock write into /var/tmp. The exemption exists only
+    because a platform ships /var as a symlink itself, which this comparison
+    covers.
+    """
+    return component in SYSTEM_SYMLINK_ALLOWLIST
 
 
 def reject_symlink_components(path: Path) -> None:

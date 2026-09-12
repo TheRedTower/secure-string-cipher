@@ -10,6 +10,7 @@ Every path the package picks for itself resolves through `Path.home()`, so
 redirection stops working, rather than letting the pollution resume silently.
 """
 
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -44,6 +45,26 @@ def test_home_is_redirected_away_from_the_real_home(
     assert Path.home() != real_home, (
         "HOME still resolves to the real user home; conftest redirection failed"
     )
+
+
+def test_real_home_is_not_itself_a_temporary_directory(
+    real_home: Path, fake_home: Path
+) -> None:
+    """The guard below is only meaningful if `real_home` is the true home.
+
+    Under xdist the controller redirects HOME before spawning workers, so a
+    worker that computed Path.home() at conftest import time would record the
+    controller's fake home here — and then "the real home is untouched" would
+    be asserting something about a temporary directory. conftest captures the
+    value through SSC_TEST_REAL_HOME so every worker sees the same true home.
+    """
+    system_temp = Path(tempfile.gettempdir()).resolve()
+    resolved = real_home.resolve()
+    assert resolved != system_temp and system_temp not in resolved.parents, (
+        f"real_home={real_home} is inside the system temp directory, so it is "
+        "a redirected home rather than the invoking user's own"
+    )
+    assert real_home != fake_home
 
 
 def test_every_config_path_resolves_under_the_fake_home(fake_home: Path) -> None:

@@ -29,7 +29,15 @@ import pytest
 # pytest-xdist each worker imports this file in its own process, so each worker
 # also gets its own private home and they cannot contend for the same log.
 # ---------------------------------------------------------------------------
-REAL_HOME = Path.home()
+# The invoking user's real home is captured through the environment, not by
+# calling Path.home() here. With -n auto the xdist controller imports this
+# file and rewrites HOME *before* spawning workers, so a worker evaluating
+# Path.home() at this point would see the controller's fake home and the
+# guard tests below would then be monitoring a temporary directory rather
+# than the home they exist to protect. setdefault means the controller
+# records the true value once and every worker inherits it.
+REAL_HOME = Path(os.environ.setdefault("SSC_TEST_REAL_HOME", str(Path.home())))
+
 _FAKE_HOME = Path(tempfile.mkdtemp(prefix="ssc-test-home-"))
 os.environ["HOME"] = str(_FAKE_HOME)
 os.environ["USERPROFILE"] = str(_FAKE_HOME)  # Path.home() uses this on Windows
