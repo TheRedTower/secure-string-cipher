@@ -17,6 +17,22 @@
 
 ### Changed
 
+- **CLI failures now map to the documented exit codes, and say what went
+  wrong.** `main()` previously caught every exception with a bare
+  `except Exception` and reported `Error: Command failed.` with
+  `EXIT_INPUT_ERROR` (1), discarding the cause. A missing file, a locked
+  vault, a rate-limit trip, a revoked key and a bug in this program were
+  indistinguishable to both operators and scripts. Failures are now
+  classified: crypto/credential errors exit 2, vault state errors exit 3,
+  filesystem errors exit 4, and an unexpected fault exits **70**
+  (`EX_SOFTWARE`) rather than masquerading as an input error. `RateLimitError`
+  was previously never caught at all and now reports its wait time.
+  **Scripts that treated exit 1 as "any failure" should be reviewed.**
+- **Added `--debug` (or `SSC_DEBUG=1`)** to print a traceback for an
+  unexpected failure. Without it, an unexpected error reports only its
+  exception type, never the exception's message, since that text can carry
+  interpolated content.
+
 - **Secure-memory fallback wiping simplified to a single zero-fill pass.**
   When libsodium's `sodium_memzero` isn't available, `secure_wipe`'s
   fallback previously did 3 passes of random data followed by a zero-fill.
