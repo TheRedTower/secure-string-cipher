@@ -227,3 +227,114 @@ class TestParser:
         )
         assert args.password_file == "/p"
         assert args.master_password_file == "/m"
+
+
+class TestTheTwoMasterPasswordRolesAreDistinct:
+    """Setting a master password and using one are different roles.
+
+    A single supplied value read as both would let `vault change-password`
+    re-encrypt the vault with the password it already has and report a
+    successful rotation — an operator rotating a compromised password would
+    believe it had been replaced.
+    """
+
+    def test_change_password_refuses_to_reuse_the_supplied_current_password(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import argparse
+
+        monkeypatch.setenv("SSC_MASTER_PASSWORD", STRONG)
+        cli_args._resolve_credential_sources(_args())
+
+        with pytest.raises(SystemExit) as excinfo:
+            cli_args.cmd_vault_change_password(argparse.Namespace())
+        assert excinfo.value.code == cli_args.EXIT_INPUT_ERROR
+
+    def test_the_new_password_has_its_own_source(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("SSC_MASTER_PASSWORD", STRONG)
+        monkeypatch.setenv("SSC_NEW_MASTER_PASSWORD", OTHER)
+        cli_args._resolve_credential_sources(_args())
+
+        assert cli_args._prompt_master_password() == STRONG
+        assert (
+            cli_args._prompt_master_password_to_set(
+                "unused: ",
+                supplied=cli_args._new_master_password_source,
+                source_flag="",
+            )
+            == OTHER
+        )
+
+    def test_a_weak_password_being_set_fails_rather_than_prompting(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("SSC_NEW_MASTER_PASSWORD", WEAK)
+        cli_args._resolve_credential_sources(_args())
+        with pytest.raises(SystemExit) as excinfo:
+            cli_args._prompt_master_password_to_set(
+                "unused: ",
+                supplied=cli_args._new_master_password_source,
+                source_flag="SSC_NEW_MASTER_PASSWORD",
+            )
+        assert excinfo.value.code == cli_args.EXIT_INPUT_ERROR
+
+    def test_vault_initialisation_uses_the_master_source_not_the_data_one(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With both files supplied, initialising from the data password
+        would leave the very next unlock failing against the master one."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("SSC_PASSWORD", OTHER)
+        monkeypatch.setenv("SSC_MASTER_PASSWORD", STRONG)
+        cli_args._resolve_credential_sources(_args())
+        monkeypatch.setattr("builtins.input", lambda: "y")
+
+        vault = cli_args._get_vault()
+        assert vault.vault_exists()
+        # Proof of which password the vault was built with: the master one
+        # opens it, and a store/retrieve round-trip completes.
+        vault.store_passphrase("label", "value", STRONG)
+        assert vault.retrieve_passphrase("label", STRONG) == "value"
+
+
+class TestTheFileIsCheckedOnTheDescriptor:
+    """The permission and type checks must apply to what was opened.
+
+    Checking the path and then opening it leaves a window in which another
+    local process can replace the final component, so the checks would
+    describe the old inode while the read consumes a substituted one. The
+    race is not deterministically reproducible from a test, so these assert
+    the mechanism that closes it instead of staging a fake reproduction.
+    """
+
+    @pytest.mark.skipif(not hasattr(os, "O_NOFOLLOW"), reason="POSIX-only flag")
+    def test_the_file_is_opened_with_o_nofollow(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        recorded: list[int] = []
+        real_open = os.open
+
+        def spy(path: object, flags: int, *args: object, **kwargs: object) -> int:
+            recorded.append(flags)
+            return real_open(path, flags, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(os, "open", spy)
+        cli_args._resolve_credential_sources(
+            _args(password_file=str(_password_file(tmp_path, STRONG)))
+        )
+        assert recorded, "the password file was not opened through os.open"
+        assert all(flags & os.O_NOFOLLOW for flags in recorded)
+
+    @pytest.mark.skipif(os.name != "posix", reason="requires mkfifo")
+    def test_a_fifo_is_refused_by_the_descriptor_type_check(
+        self, tmp_path: Path
+    ) -> None:
+        """A named pipe is not a file to read a password from, and reading
+        one would block or return an attacker-fed value."""
+        fifo = tmp_path / "pipe"
+        os.mkfifo(fifo, 0o600)
+        with pytest.raises(SystemExit) as excinfo:
+            cli_args._resolve_credential_sources(_args(password_file=str(fifo)))
+        assert excinfo.value.code == cli_args.EXIT_FILE_ERROR

@@ -135,7 +135,17 @@ SSC_PASSWORD="..." ssc encrypt -f document.pdf --with password
 # The vault master password, for vault and key commands
 ssc --master-password-file /run/secrets/master key list
 SSC_MASTER_PASSWORD="..." ssc key list
+
+# Rotating the master password needs both values, since one of them is
+# being replaced
+ssc --master-password-file /run/secrets/old \
+    --new-master-password-file /run/secrets/new vault change-password
 ```
+
+Setting a master password and using one are separate roles, so they have
+separate sources. `vault change-password` refuses to run if only the
+current one was supplied: reusing it would re-encrypt the vault with the
+password it already has and report a successful rotation.
 
 The flag wins over the variable, so a stale exported value cannot quietly
 override what the command line asked for. A password file must be a regular

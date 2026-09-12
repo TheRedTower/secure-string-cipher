@@ -159,6 +159,7 @@ def reset_cli_output_flags() -> Generator[None]:
         "_debug_mode",
         "_password_source",
         "_master_password_source",
+        "_new_master_password_source",
     )
     saved = {name: getattr(cli_args, name) for name in names if hasattr(cli_args, name)}
 

@@ -15,7 +15,14 @@
   group/other-readable; one trailing newline is stripped; an empty,
   oversized or non-UTF-8 file is refused. A supplied password is still
   strength-checked where a new password is being set, and fails rather than
-  looping since it cannot be re-prompted.
+  looping since it cannot be re-prompted. A third source,
+  `--new-master-password-file` / `SSC_NEW_MASTER_PASSWORD`, supplies the
+  replacement value for `ssc vault change-password`: setting a master
+  password and using one are separate roles, and a single value read as both
+  would re-encrypt the vault with the password it already had while
+  reporting a successful rotation. That command now refuses to run when only
+  the current password was supplied, and refuses a new password equal to the
+  old one.
 
 - **`secure_string_cipher.v2.app` — a reusable application layer for v2
   credentials and managed-key policy.** Key resolution, key-status policy,
