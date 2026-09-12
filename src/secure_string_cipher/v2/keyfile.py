@@ -184,7 +184,11 @@ def load_keyfile(path: Path) -> KeyFileData:
     if path.is_symlink():
         raise OSError(f"{path} is a symlink, which is not permitted for keyfiles")
 
-    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+    # O_BINARY is required for parse_keyfile_content's line-ending validation
+    # to mean anything on Windows: without it the CRT translates CRLF to LF
+    # before the parser can reject a mixed-ending file, and truncates at a
+    # control-Z.
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
 

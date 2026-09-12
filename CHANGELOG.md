@@ -22,7 +22,11 @@
   would re-encrypt the vault with the password it already had while
   reporting a successful rotation. That command now refuses to run when only
   the current password was supplied, and refuses a new password equal to the
-  old one.
+  old one. A credential file is opened with `O_NOFOLLOW` and validated with
+  `fstat`, so the type and permission checks apply to the descriptor that is
+  read rather than to the path as it looked a moment earlier, and with
+  `O_BINARY` so that Windows cannot collapse a CRLF or truncate at a
+  control-Z inside a password before it is read.
 
 - **`secure_string_cipher.v2.app` — a reusable application layer for v2
   credentials and managed-key policy.** Key resolution, key-status policy,
@@ -38,6 +42,13 @@
   be decided — the module is importable but not yet re-exported.
 
 ### Fixed
+
+- **`.ssckey` files are now read in binary mode.** `load_keyfile` opened the
+  descriptor without `O_BINARY`, so on Windows the C runtime collapsed CRLF
+  to LF and truncated at a control-Z before the parser saw the bytes —
+  defeating `parse_keyfile_content`'s own deliberate rejection of mixed line
+  endings and bare carriage returns, and silently shortening a keyfile that
+  happened to contain a control-Z.
 
 - **Stale "V2 not yet released" banners.** `docs/API.md`'s "V2 Encryption"
   heading still said "(in progress, unreleased — see ROADMAP.md)", and

@@ -296,12 +296,25 @@ def _read_password_file(path_str: str, *, role: str) -> str:
     and `fstat` re-checks type and permissions on what was actually opened.
     This mirrors `v2/keyfile.py`'s loader, which guards the same race for the
     other bearer secret this program reads.
+
+    What that does *not* cover is an ancestor directory swapped for a symlink
+    between `reject_symlink_components` and the open — `O_NOFOLLOW` applies to
+    the final component only. Closing that would mean resolving every
+    component through `openat`, and it is not worth the complexity here: an
+    attacker who can replace an ancestor directory does not need the race,
+    since they can leave the substitution in place and be read by every later
+    run. The capability, not the window, is what defeats this check.
     """
     path = Path(path_str).expanduser()
     try:
         reject_symlink_components(path)
 
-        flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+        # O_BINARY matters on Windows, where the CRT would otherwise translate
+        # CRLF and stop at a control-Z before os.read returned the bytes. This
+        # function decides for itself which trailing line ending to remove, so
+        # a silent rewrite of the file's actual bytes would corrupt a password
+        # containing either.
+        flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
         fd = os.open(path, flags)
@@ -336,9 +349,10 @@ def _read_password_file(path_str: str, *, role: str) -> str:
     if not value:
         _exit_error(EXIT_INPUT_ERROR, f"{role} file is empty: {path}")
     try:
-        return value.decode("utf-8")
+        decoded = value.decode("utf-8")
     except UnicodeDecodeError:
         _exit_error(EXIT_INPUT_ERROR, f"{role} file is not valid UTF-8: {path}")
+    return decoded
 
 
 def _resolve_credential_sources(args: argparse.Namespace) -> None:

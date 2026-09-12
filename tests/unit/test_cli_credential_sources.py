@@ -17,6 +17,7 @@ from secure_string_cipher import cli_args
 STRONG = "Str0ngScriptPass!2026"  # pragma: allowlist secret
 WEAK = "short"  # pragma: allowlist secret
 OTHER = "Different!Pass2026"  # pragma: allowlist secret
+CRLF_AND_CONTROL_Z = "ab\r\ncd\x1aef"  # pragma: allowlist secret
 
 
 def _password_file(directory: Path, value: str, *, mode: int = 0o600) -> Path:
@@ -338,3 +339,41 @@ class TestTheFileIsCheckedOnTheDescriptor:
         with pytest.raises(SystemExit) as excinfo:
             cli_args._resolve_credential_sources(_args(password_file=str(fifo)))
         assert excinfo.value.code == cli_args.EXIT_FILE_ERROR
+
+    @pytest.mark.skipif(not hasattr(os, "O_BINARY"), reason="Windows-only flag")
+    def test_the_file_is_opened_in_binary_mode(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        recorded: list[int] = []
+        real_open = os.open
+
+        def spy(path: object, flags: int, *args: object, **kwargs: object) -> int:
+            recorded.append(flags)
+            return real_open(path, flags, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(os, "open", spy)
+        cli_args._resolve_credential_sources(
+            _args(password_file=str(_password_file(tmp_path, STRONG)))
+        )
+        assert recorded
+        assert all(flags & os.O_BINARY for flags in recorded)
+
+    def test_a_password_containing_cr_or_control_z_survives_verbatim(
+        self, tmp_path: Path
+    ) -> None:
+        """Text-mode translation would rewrite the file's actual bytes.
+
+        On Windows a descriptor opened without `O_BINARY` has CRLF collapsed
+        to LF and is truncated at a control-Z, so a password containing
+        either would be silently changed before this code ever saw it — and
+        the file would then decrypt nothing it had encrypted. Meaningful on
+        Windows; on POSIX it simply documents that only *one trailing* line
+        ending is removed.
+        """
+        password = CRLF_AND_CONTROL_Z
+        path = tmp_path / "pw.txt"
+        path.write_bytes(password.encode() + b"\n")
+        path.chmod(0o600)
+
+        cli_args._resolve_credential_sources(_args(password_file=str(path)))
+        assert cli_args._prompt_password() == password
