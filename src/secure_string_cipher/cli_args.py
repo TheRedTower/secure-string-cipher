@@ -81,6 +81,7 @@ from .v2.encrypt import (
 )
 from .v2.keyfile import KeyFileData
 from .v2.keywrap import KeyWrapError
+from .v2.paths import reject_symlink_components
 from .v2.vault_lock import VaultBusyError
 from .v2.vault_service import (
     KeyExportSurvivedRegistrationFailureError,
@@ -112,6 +113,16 @@ _V2_DECRYPT_FAILURE_MESSAGE = "Decryption failed. Wrong password/key or corrupte
 _quiet_mode = False
 _no_color = False
 _debug_mode = False
+
+# Non-interactive credential sources, resolved once in main(). Held as module
+# state for the same reason as the flags above: the prompt helpers are called
+# from many places that have no access to the parsed arguments.
+_password_source: str | None = None
+_master_password_source: str | None = None
+
+# A password file is read with the same bound v2 applies to a password before
+# derivation, so an oversized file is refused rather than fed to Argon2id.
+_MAX_PASSWORD_FILE_BYTES = 65536
 
 
 class _StdinSizeError(CryptoError):
@@ -261,16 +272,83 @@ def _audit_rate_limit(operation: str, wait: float, identifier: str = "") -> None
 # =============================================================================
 
 
+def _read_password_file(path_str: str, *, role: str) -> str:
+    """Read a credential from a file, refusing an unsafe or implausible one.
+
+    Held to the same standard as a `.ssckey`: a regular file, not reached
+    through a symlink, and on POSIX not readable by group or other. A password
+    file is a bearer secret, so a world-readable one is refused rather than
+    used with a warning.
+
+    One trailing line ending is removed — a file written with `echo` has one
+    and the operator does not intend it as part of the password — using the
+    same helper as the stdin path so both agree.
+    """
+    path = Path(path_str).expanduser()
+    try:
+        reject_symlink_components(path)
+        if not path.is_file():
+            _exit_error(EXIT_FILE_ERROR, f"{role} file is not a regular file: {path}")
+        if os.name == "posix" and (path.stat().st_mode & 0o077):
+            _exit_error(
+                EXIT_FILE_ERROR,
+                f"{role} file is readable by group or other: {path}. "
+                "Restrict it with chmod 600.",
+            )
+        with open(path, "rb") as handle:
+            raw = handle.read(_MAX_PASSWORD_FILE_BYTES + 1)
+    except OSError as error:
+        detail = error.strerror or "could not be read"
+        _exit_error(EXIT_FILE_ERROR, f"{role} file {detail}: {path}")
+
+    if len(raw) > _MAX_PASSWORD_FILE_BYTES:
+        _exit_error(EXIT_INPUT_ERROR, f"{role} file exceeds the permitted length.")
+
+    value = _remove_one_terminal_line_ending(raw)
+    if not value:
+        _exit_error(EXIT_INPUT_ERROR, f"{role} file is empty: {path}")
+    try:
+        return value.decode("utf-8")
+    except UnicodeDecodeError:
+        _exit_error(EXIT_INPUT_ERROR, f"{role} file is not valid UTF-8: {path}")
+
+
+def _resolve_credential_sources(args: argparse.Namespace) -> None:
+    """Record any non-interactive credential sources the operator supplied.
+
+    An explicit flag wins over an environment variable: naming a file is the
+    more deliberate act, and it keeps a stale exported variable from quietly
+    overriding what the command line asked for.
+    """
+    global _password_source, _master_password_source
+
+    if getattr(args, "password_file", None):
+        _password_source = _read_password_file(args.password_file, role="Password")
+    elif os.environ.get("SSC_PASSWORD"):
+        _password_source = os.environ["SSC_PASSWORD"]
+
+    if getattr(args, "master_password_file", None):
+        _master_password_source = _read_password_file(
+            args.master_password_file, role="Master password"
+        )
+    elif os.environ.get("SSC_MASTER_PASSWORD"):
+        _master_password_source = os.environ["SSC_MASTER_PASSWORD"]
+
+
 def _prompt_password(prompt: str = "Password: ", confirm: bool = False) -> str:
-    """Prompt for password with hidden input.
+    """Obtain the data password, without prompting if a source was supplied.
 
     Args:
         prompt: The prompt to display
-        confirm: If True, ask for confirmation
+        confirm: If True, ask for confirmation. Skipped for a supplied source,
+            which has nothing to confirm against.
 
     Returns:
-        The entered password
+        The password
     """
+    if _password_source is not None:
+        return _password_source
+
     password = getpass.getpass(prompt)
 
     if confirm:
@@ -290,6 +368,16 @@ def _prompt_password_with_validation(prompt: str = "Password: ") -> str:
     Returns:
         A valid password meeting strength requirements
     """
+    if _password_source is not None:
+        # A supplied source cannot be re-prompted, so a weak value is a hard
+        # failure rather than the interactive retry loop below.
+        is_strong, _ = check_password_strength(_password_source)
+        if not is_strong:
+            _print_error("Supplied password does not meet security requirements:")
+            _print_password_policy()
+            _exit_error(EXIT_INPUT_ERROR, "Supplied password is too weak.")
+        return _password_source
+
     while True:
         password = getpass.getpass(prompt)
         is_strong, _ = check_password_strength(password)
@@ -307,7 +395,9 @@ def _prompt_password_with_validation(prompt: str = "Password: ") -> str:
 
 
 def _prompt_master_password() -> str:
-    """Prompt for vault master password."""
+    """Obtain the vault master password, without prompting if one was supplied."""
+    if _master_password_source is not None:
+        return _master_password_source
     return getpass.getpass("Master password: ")
 
 
@@ -1702,6 +1792,23 @@ Run 'ssc <command> --help' for command-specific help.
         help="Disable colored output",
     )
     parser.add_argument(
+        "--password-file",
+        metavar="PATH",
+        help=(
+            "Read the data password from PATH instead of prompting "
+            "(or set SSC_PASSWORD; the flag wins). Must not be readable by "
+            "group or other."
+        ),
+    )
+    parser.add_argument(
+        "--master-password-file",
+        metavar="PATH",
+        help=(
+            "Read the vault master password from PATH instead of prompting "
+            "(or set SSC_MASTER_PASSWORD; the flag wins)"
+        ),
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help=(
@@ -2212,6 +2319,7 @@ def main() -> NoReturn:
     _quiet_mode = args.quiet
     _no_color = args.no_color
     _debug_mode = args.debug or _env_flag_enabled("SSC_DEBUG")
+    _resolve_credential_sources(args)
 
     # No command specified
     if not args.command:
