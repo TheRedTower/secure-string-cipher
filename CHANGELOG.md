@@ -50,6 +50,14 @@
 
 ### Added
 
+- **`docs/V2_SECRET_LIFETIME_INVENTORY.md`**: a post-v2 hardening review
+  artifact documenting where every secret in v2 and the shared vault
+  subsystem comes from, how long it lives, and whether it's wiped. Its
+  main finding: the vault master password receives no secure-memory
+  treatment at all (unlike v1's one-shot `core.py` passphrase handling),
+  which is the largest concrete gap found and is deliberately left as a
+  documented candidate for a future, separately-scoped PR rather than
+  fixed here.
 - **`docs/SSC2_PROTOCOL_SPECIFICATION.md`**: a standalone,
   implementation-language-neutral specification for the `.ssc` v2
   container wire format, `.ssckey` files, and their cryptographic

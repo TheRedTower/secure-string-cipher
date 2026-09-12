@@ -17,6 +17,8 @@ Welcome to the secure-string-cipher documentation.
 - [Security Policy](../.github/SECURITY.md) — Supported versions, vulnerability reporting, and security policy
 - [Cryptographic Design](../.github/CRYPTOGRAPHY.md) — Detailed cryptographic design document for security auditors
 - [Audit Checklist](../.github/AUDIT_CHECKLIST.md) — Current review checklist for security auditors
+- [Threat Model](THREAT_MODEL.md) — What SSC does and does not protect against
+- [V2 Secret Lifetime Inventory](V2_SECRET_LIFETIME_INVENTORY.md) — Where every v2/vault secret comes from, how long it lives, and whether it's wiped
 - [SSC2 Protocol Specification](SSC2_PROTOCOL_SPECIFICATION.md) — Language-independent wire format for the `.ssc` v2 container, `.ssckey` files, and their cryptographic construction
 - [V2 Post-Implementation Hardening Review](V2_POST_IMPLEMENTATION_HARDENING_REVIEW.md) — Finding matrix and PR log from the post-v2 hardening pass
 
