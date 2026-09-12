@@ -59,8 +59,9 @@
   interactive input and never exits; it raises typed errors under a common
   `V2AppError` base. Obtaining a password stays with the caller, since where
   a password comes from is an interface concern. `cli_args.py` is now an
-  adapter over it with identical behaviour. Its stability tier is still to
-  be decided — the module is importable but not yet re-exported.
+  adapter over it with identical behaviour. It is public, semver-covered API
+  (see the `secure_string_cipher.v2` entry above), reachable as
+  `secure_string_cipher.v2.app`.
 
 ### Fixed
 
