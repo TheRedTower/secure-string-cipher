@@ -57,6 +57,19 @@ from .rate_limiter import PersistentRateLimiter, RateLimitError
 from .security import SecurityError
 from .timing_safe import check_password_strength
 from .utils import colorize, secure_overwrite
+from .v2.app import (
+    KeyFileNotFound,
+    KeyFileUnreadable,
+    KeyResolver,
+    KeyStatusPolicy,
+    KeyStatusRejected,
+    MalformedContainer,
+    NoUsableGrant,
+    VaultUnlockFailed,
+    build_credential,
+    header_from_armour,
+    required_credential,
+)
 from .v2.decrypt import decrypt_v2_file, decrypt_v2_text
 from .v2.encrypt import (
     CombinedCredential,
@@ -66,8 +79,7 @@ from .v2.encrypt import (
     encrypt_v2_file,
     encrypt_v2_text,
 )
-from .v2.key_identity import KeyStatus
-from .v2.keyfile import KeyFileData, load_keyfile
+from .v2.keyfile import KeyFileData
 from .v2.keywrap import KeyWrapError
 from .v2.vault_lock import VaultBusyError
 from .v2.vault_service import (
@@ -862,37 +874,25 @@ def _get_v1_password(args: argparse.Namespace) -> str:
 
 
 def _resolve_v2_key_source(key_ref: str) -> KeyFileData:
-    """Resolve a V2 key reference to validated keyfile data.
+    """CLI adapter over ``v2.app.KeyResolver``.
 
-    ``key_ref`` is either a path to a ``.ssckey`` file or a fingerprint/key-id
-    registered under ``~/.ssc/keys/``. Shared by encryption (``key:X`` sources)
-    and decryption (``--key-file`` or header grant fingerprints) so both sides
-    use one resolution model. ``load_keyfile`` always receives a ``Path``.
+    The resolution logic itself lives in the application layer so the
+    interactive menu and library callers can use it; this wrapper only turns
+    its typed errors into CLI exits.
     """
-    candidate = Path(key_ref).expanduser()
-    if candidate.suffix == ".ssckey" or candidate.is_file():
-        try:
-            return load_keyfile(candidate)
-        except Exception:
-            _exit_error(EXIT_FILE_ERROR, "Could not load key file.")
-
-    keys_dir = Path.home() / ".ssc" / "keys"
-    if keys_dir.is_dir():
-        for child in sorted(keys_dir.iterdir()):
-            if child.suffix != ".ssckey":
-                continue
-            try:
-                key_data = load_keyfile(child)
-            except Exception:
-                continue
-            if key_ref in (key_data.fingerprint, key_data.key_id):
-                return key_data
-
-    _exit_error(
-        EXIT_FILE_ERROR,
-        "Key not found: provide a .ssckey path or a fingerprint/key-id "
-        "present in ~/.ssc/keys/.",
-    )
+    try:
+        return KeyResolver().resolve(key_ref)
+    except KeyFileUnreadable:
+        _exit_error(EXIT_FILE_ERROR, "Could not load key file.")
+    except KeyFileNotFound as error:
+        # Hoisted out of the message expression so no exception name appears
+        # in the sink call itself (tools/check_sensitive_output.py).
+        keys_dir = error.keys_dir
+        _exit_error(
+            EXIT_FILE_ERROR,
+            "Key not found: provide a .ssckey path or a fingerprint/key-id "
+            f"present in {keys_dir}.",
+        )
 
 
 def _get_v2_password(args: argparse.Namespace) -> str:
@@ -919,105 +919,65 @@ def _enforce_v2_key_status(fingerprint: str) -> None:
     if not vault.vault_exists():
         return
     master = _prompt_master_password()
-    service = V2VaultService(vault)
     try:
-        records = service.list_keys(master)
-    except Exception:
+        KeyStatusPolicy(V2VaultService(vault)).check(
+            fingerprint, master_password=master
+        )
+    except KeyStatusRejected as error:
+        rejected_id, rejected_status = error.key_id, error.status.value
+        _exit_error(
+            EXIT_AUTH_ERROR,
+            f"Key '{rejected_id}' is {rejected_status} in this vault; "
+            "refusing to use it.",
+        )
+    except VaultUnlockFailed:
         _exit_error(EXIT_AUTH_ERROR, "Could not unlock vault to check key status.")
-    for record in records:
-        if record.fingerprint != fingerprint:
-            continue
-        if record.status == KeyStatus.REVOKED:
-            _exit_error(
-                EXIT_AUTH_ERROR,
-                f"Key '{record.id}' is revoked in this vault; refusing to use it.",
-            )
-        if record.status == KeyStatus.DESTROYED:
-            _exit_error(
-                EXIT_AUTH_ERROR,
-                f"Key '{record.id}' has been destroyed in this vault; refusing "
-                "to use it.",
-            )
-        return
 
 
 def _resolve_v2_credential_from_header(
     header: V2Header, args: argparse.Namespace
 ) -> V2Credential:
-    from .v2.envelope import GrantType
+    """CLI adapter: obtain whatever the header's grant requires.
 
-    has_password = any(g.type == GrantType.PASSWORD for g in header.access.grants)
-    has_key = any(g.type == GrantType.MANAGED_KEY for g in header.access.grants)
-    has_combined = any(
-        g.type == GrantType.COMBINED_PASSWORD_MANAGED_KEY for g in header.access.grants
-    )
+    Deciding *what* is required, and assembling the credential, live in
+    ``v2.app``. What remains here is the interface's own business: where a
+    password comes from, how ``--key-file`` overrides the grant's named key,
+    and how failures map to exit codes.
+    """
+    try:
+        requirement = required_credential(header)
+    except NoUsableGrant:
+        _exit_error(EXIT_AUTH_ERROR, "No usable access grant found in V2 header.")
 
     key_file_ref = getattr(args, "key_file", None)
-
-    if has_combined:
-        password = _get_v2_password(args)
-        grant = next(
-            g
-            for g in header.access.grants
-            if g.type == GrantType.COMBINED_PASSWORD_MANAGED_KEY
+    if key_file_ref and not requirement.needs_managed_key:
+        _exit_error(
+            EXIT_INPUT_ERROR,
+            "--key-file is only usable with V2 key-protected containers.",
         )
-        if not grant.key_fingerprint:
-            _exit_error(EXIT_AUTH_ERROR, "No usable access grant found in V2 header.")
-        key_data = _resolve_v2_key_source(key_file_ref or grant.key_fingerprint)
+
+    password = _get_v2_password(args) if requirement.needs_password else None
+
+    key_data = None
+    if requirement.needs_managed_key:
+        assert requirement.key_fingerprint is not None
+        key_data = _resolve_v2_key_source(key_file_ref or requirement.key_fingerprint)
         if getattr(args, "vault", None):
-            _enforce_v2_key_status(grant.key_fingerprint)
-        return CombinedCredential(
-            passphrase=password,
-            key_fingerprint=grant.key_fingerprint,
-            managed_secret=key_data.secret_bytes,
-        )
+            _enforce_v2_key_status(requirement.key_fingerprint)
 
-    if has_password:
-        if key_file_ref:
-            _exit_error(
-                EXIT_INPUT_ERROR,
-                "--key-file is only usable with V2 key-protected containers.",
-            )
-        password = _get_v2_password(args)
-        return PasswordCredential(passphrase=password)
-
-    if has_key:
-        grant = next(g for g in header.access.grants if g.type == GrantType.MANAGED_KEY)
-        if not grant.key_fingerprint:
-            _exit_error(EXIT_AUTH_ERROR, "No usable access grant found in V2 header.")
-        key_data = _resolve_v2_key_source(key_file_ref or grant.key_fingerprint)
-        if getattr(args, "vault", None):
-            _enforce_v2_key_status(grant.key_fingerprint)
-        return KeyCredential(
-            key_fingerprint=grant.key_fingerprint, managed_secret=key_data.secret_bytes
-        )
-
-    _exit_error(EXIT_AUTH_ERROR, "No usable access grant found in V2 header.")
+    return build_credential(requirement, password=password, key_data=key_data)
 
 
 def _cmd_decrypt_v2(
     args: argparse.Namespace, is_message: bool, rate_identifier: str = ""
 ) -> int:
-    import base64
-    import json
 
-    from .v2.header_parser import parse_header_stream, validate_v2_header
-    from .v2.message import unarmor_message
-    from .v2.vault_schema import _reject_duplicate_object_hook
+    from .v2.header_parser import parse_header_stream
 
     if is_message:
-        # Armored messages carry the header as raw canonical JSON (Base64),
-        # not the binary SSC2 framing parse_header_stream expects. Mirror
-        # decrypt_v2_text: unarmor, decode, then validate the JSON header.
         try:
-            parsed = unarmor_message(args.text)
-            raw_bytes = base64.b64decode(parsed.header_b64, validate=True)
-            header_dict = json.loads(
-                raw_bytes.decode("utf-8"),
-                object_pairs_hook=_reject_duplicate_object_hook,
-            )
-            header = validate_v2_header(header_dict, raw_bytes)
-        except Exception:
+            header = header_from_armour(args.text)
+        except MalformedContainer:
             _cli_limiter.record_attempt("decrypt_text", "", success=False)
             _audit_encryption(AuditEvent.DECRYPT_TEXT, False, error="decryption_failed")
             _exit_error(EXIT_AUTH_ERROR, _V2_DECRYPT_FAILURE_MESSAGE)

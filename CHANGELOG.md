@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`secure_string_cipher.v2.app` — a reusable application layer for v2
+  credentials and managed-key policy.** Key resolution, key-status policy,
+  header→requirement mapping, armoured-header parsing and credential
+  assembly previously lived in `cli_args.py` as private helpers that called
+  `sys.exit()` and `getpass()` directly, so no other interface could use
+  them: a second surface calling the key-status check would have terminated
+  the process rather than reporting an error. The new module performs no
+  interactive input and never exits; it raises typed errors under a common
+  `V2AppError` base. Obtaining a password stays with the caller, since where
+  a password comes from is an interface concern. `cli_args.py` is now an
+  adapter over it with identical behaviour. Its stability tier is still to
+  be decided — the module is importable but not yet re-exported.
+
 ### Fixed
 
 - **Stale "V2 not yet released" banners.** `docs/API.md`'s "V2 Encryption"
