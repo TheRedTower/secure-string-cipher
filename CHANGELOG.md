@@ -59,6 +59,13 @@
   implementation spec in the process: `grant_id` is not a
   parser-enforced literal `"grant-0"` — the parser accepts any string,
   since the single grant is consumed positionally, not by matching an id.
+- **`docs/V2_POST_IMPLEMENTATION_HARDENING_REVIEW.md`**: the finding
+  matrix and PR log from the post-v2 hardening review (PRs #83-#87),
+  independently verifying a supplied hardening checklist against the
+  actual `v2.0.0` codebase rather than accepting it at face value —
+  most "Part V/VI hostile-input hardening" items in the source checklist
+  turned out to already be implemented; the concrete gaps that were real
+  are each closed by one of PRs #83-#87.
 
 ## [2.0.0] - 2026-09-11
 
