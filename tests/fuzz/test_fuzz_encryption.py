@@ -165,12 +165,12 @@ class TestDecryptionFuzz:
 
     @settings(max_examples=100, deadline=None)
     @given(
-        ciphertext_mutation=st.integers(min_value=0, max_value=100),
+        data=st.data(),
         mutation_char=st.characters(),
         passphrase=st.just("ValidPass123!@#"),
     )
     def test_mutated_ciphertext_is_always_rejected(
-        self, ciphertext_mutation: int, mutation_char: str, passphrase: str
+        self, data: st.DataObject, mutation_char: str, passphrase: str
     ):
         """Fuzz: any single-character mutation must fail authentication.
 
@@ -178,10 +178,16 @@ class TestDecryptionFuzz:
         decrypt of mutated ciphertext would be an AEAD authentication
         bypass. A prior version only suppressed the exception without
         asserting it, so that bypass would have made this test *pass*.
+
+        The position is drawn against the token's real length rather than a
+        fixed range. A fixed `st.integers(0, 100) % len(token)` silently
+        excluded positions 101-135 of the 136-character token — which is
+        where the encoded GCM tag lives (it starts near character 113), so
+        the one region whose mutation an AEAD must catch was never tried.
         """
         original = encrypt_text("Test message for mutation", passphrase)
 
-        pos = ciphertext_mutation % len(original)
+        pos = data.draw(st.integers(min_value=0, max_value=len(original) - 1))
         mutated = original[:pos] + mutation_char + original[pos + 1 :]
         # Substituting a character for itself is not a mutation; that token
         # must still decrypt, so it is not a counterexample.
