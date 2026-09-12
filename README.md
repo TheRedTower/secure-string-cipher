@@ -506,6 +506,27 @@ if has_secure_memory():
     print("Using libsodium for secure memory zeroing")
 ```
 
+### V2 Managed-Key Containers
+
+The `.ssc` container format lives in the `v2` submodule, which is public,
+semver-covered API alongside the exports above:
+
+```python
+from pathlib import Path
+
+from secure_string_cipher import v2
+
+credential = v2.PasswordCredential("MySecurePass123!")
+v2.encrypt_v2_file(Path("report.pdf"), Path("report.pdf.ssc"), credential=credential)
+```
+
+A managed-key credential needs the key's 32-byte secret and its fingerprint;
+`v2.load_keyfile` reads both from a `.ssckey` file. `v2.app` is the layer above
+these primitives — it resolves a key reference, reports which credential an
+object requires, and applies lifecycle policy, without prompting or exiting, so
+an interface can use it directly. See [docs/API.md](docs/API.md#v2-encryption)
+for the full surface and where the public/internal boundary sits.
+
 ## Security
 
 | Component | Implementation | Details |

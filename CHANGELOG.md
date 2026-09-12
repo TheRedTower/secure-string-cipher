@@ -28,6 +28,27 @@
   `O_BINARY` so that Windows cannot collapse a CRLF or truncate at a
   control-Z inside a password before it is read.
 
+- **`secure_string_cipher.v2` is now declared public, semver-covered API.**
+  It had no stated stability tier at all: the package root's `__all__` was 50
+  v1 entries, `hasattr(secure_string_cipher, "v2")` was `False`, and
+  `docs/API.md` nonetheless documented v2 usage and told readers to import
+  `compute_fingerprint` from `secure_string_cipher.v2.key_identity` — a
+  private third-level module. So there was nothing coherent to freeze. The
+  subpackage is now imported at the root (`from secure_string_cipher import
+  v2`) and listed in its `__all__`; `v2.__all__` grew from 10 to 18 to cover
+  what the documented examples actually need, including `compute_fingerprint`,
+  `load_keyfile`/`save_keyfile`, `KeyStatus`/`KeyStorageMode` and the `app`
+  submodule. It is deliberately *not* flattened into the root namespace: two
+  container formats sharing one namespace would make `encrypt_file`
+  ambiguous. Anything reached through a deeper path (`v2.envelope`,
+  `v2.vault_service`) remains internal and may change in a minor release.
+  `v2.app` also gained `header_from_container` / `header_from_stream`, the
+  binary counterparts to `header_from_armour`: `required_credential` needs a
+  header, so without a public way to read one from a `.ssc` file the layer
+  could not do its main job without importing `v2.header_parser` — which the
+  same change declares internal. `cli_args.py` now goes through them too, so
+  the CLI stops being a counter-example to its own boundary.
+
 - **`secure_string_cipher.v2.app` — a reusable application layer for v2
   credentials and managed-key policy.** Key resolution, key-status policy,
   header→requirement mapping, armoured-header parsing and credential
@@ -60,6 +81,27 @@
   in `docs/API.md`, that `.enc` (v1 default) vs `.ssc` (v2 default) are
   human-facing output-filename conventions only — `ssc decrypt` reads a
   file's magic bytes, never its extension, to decide which format it is.
+
+### Deprecated
+
+- **`colorize`, `ProgressBar` and `main` in the package root.** These are
+  internals of the command-line interface, not library API, and they will be
+  removed in 3.0.0; importing one now emits a `DeprecationWarning` and still
+  returns the object. `main` is the one to read twice: the export is
+  `secure_string_cipher.cli:main`, the *interactive menu's* entry point, while
+  the installed `ssc` command is `secure_string_cipher.cli_args:main` — a
+  different function under the same name. They stay in `__all__` until the
+  major bump, since removing them now would break `from secure_string_cipher
+  import *` in a minor release. A side effect of serving them lazily:
+  importing the package no longer loads the interactive CLI module, which it
+  did solely to satisfy `main`.
+
+  Deliberately **not** deprecated, though an audit of the surface might
+  suggest otherwise: `add_timing_jitter`, `PersistentRateLimiter`,
+  `get_global_limiter`, `AuditLogger` and `get_audit_logger`. Each is usable
+  on its own terms by a program embedding this library — a caller running its
+  own passphrase attempts has the same reason to rate-limit them as the CLI
+  does. Being used by the CLI does not make something a CLI internal.
 
 ### Changed
 

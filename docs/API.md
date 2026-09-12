@@ -28,11 +28,36 @@ illustration only.
 | Security and memory | `check_password_strength`, `constant_time_compare`, `add_timing_jitter`, `SecureString`, `SecureBytes`, `secure_wipe`, `has_secure_memory` |
 | Rate limiting | `RateLimiter`, `PersistentRateLimiter`, `rate_limited`, `get_global_limiter` |
 | Audit logging | `AuditLogger`, `AuditEvent`, `AuditLevel`, `get_audit_logger`, `audit_event`, `audit_auth_failure`, `audit_rate_limit` |
-| Terminal and CLI | `colorize`, `secure_overwrite`, `ProgressBar`, `main` |
+| Secure deletion | `secure_overwrite` |
+| V2 container format | `v2` (a submodule — see [V2 Encryption](#v2-encryption)) |
+| **Deprecated**, removal in 3.0.0 | `colorize`, `ProgressBar`, `main` |
 
-The v2 managed-key implementation lives in the secure_string_cipher.v2
-subpackage. Its symbols are importable from that subpackage only and are not
-package-root exports, so they are intentionally absent from the table above.
+### Stability
+
+Everything in the table above is public API covered by this package's version:
+it will not change incompatibly outside a major version bump. The same holds
+for `secure_string_cipher.v2` and `secure_string_cipher.v2.app` — see
+[V2 Encryption](#v2-encryption) for where that boundary sits inside the
+subpackage. Anything not named in one of those three `__all__` lists is
+internal, whatever its import path looks like.
+
+### Deprecated exports
+
+`colorize`, `ProgressBar` and `main` are internals of the command-line
+interface rather than library API, and they still import with a
+`DeprecationWarning`; they will be removed in 3.0.0. `main` is the one worth
+reading twice: it is `secure_string_cipher.cli:main`, the *interactive menu's*
+entry point, while the installed `ssc` command is
+`secure_string_cipher.cli_args:main` — a different function under the same
+name. If you invoke the CLI programmatically, name the module you mean.
+
+Deliberately **not** deprecated, though a reader might expect them to be:
+`add_timing_jitter`, `PersistentRateLimiter`, `get_global_limiter`,
+`AuditLogger` and `get_audit_logger`. They are reachable from the CLI, but
+each is usable on its own terms by a program that embeds this library — a
+caller doing its own passphrase attempts has the same reason to rate-limit
+them, and one handling secrets has the same reason to record an audit trail.
+Being used by the CLI does not make something a CLI internal.
 
 ## Core Encryption
 
@@ -269,6 +294,50 @@ authoritative for both versions.
 
 The `secure_string_cipher.v2` submodule adds a new `.ssc` container format
 with AEAD DEK wrapping, alongside (not replacing) the V4/V5 legacy format.
+
+**It is public, semver-covered API**, at two levels: the names in
+`secure_string_cipher.v2.__all__` (the primitives below) and those in
+`secure_string_cipher.v2.app.__all__` (the layer above them — key resolution,
+credential requirements, lifecycle policy, no prompting and no exiting). A
+deeper path such as `v2.envelope` or `v2.vault_service` is internal and may
+change in a minor release; needing something from one of those is a sign this
+surface is missing something, so it is worth raising rather than importing.
+
+`v2` is not flattened into the package root: the root namespace is v1's API,
+and two `encrypt_file`-shaped functions in one namespace would be ambiguous to
+a reader. Import the submodule — `from secure_string_cipher import v2`.
+
+`v2.app` is what an interface should build on. It reads a container's header,
+says which credential that container's grant requires, resolves a key
+reference to a keyfile, and applies managed-key lifecycle policy — raising
+typed errors under a `V2AppError` base, never prompting and never exiting:
+
+```python
+from pathlib import Path
+
+from secure_string_cipher.v2 import app, decrypt_v2_file
+
+passphrase = "MySecurePass123!"  # pragma: allowlist secret - documentation example
+
+header = app.header_from_container(Path("report.pdf.ssc"))
+requirement = app.required_credential(header)
+
+if requirement.needs_managed_key:
+    assert requirement.key_fingerprint is not None
+    key_data = app.KeyResolver().resolve(requirement.key_fingerprint)
+else:
+    key_data = None
+
+credential = app.build_credential(
+    requirement,
+    password=passphrase if requirement.needs_password else None,  # pragma: allowlist secret
+    key_data=key_data,
+)
+decrypt_v2_file(Path("report.pdf.ssc"), credential=credential)
+```
+
+`header_from_armour` is the same entry point for an armoured text message;
+the header is framed differently in each, which is why there are two.
 Each `.ssc` object carries exactly **one** access grant — there is no
 multi-grant access control. That grant can require a password and a managed
 key together via `CombinedCredential`; it cannot be satisfied by either alone,
@@ -280,11 +349,11 @@ from pathlib import Path
 from secure_string_cipher.v2 import (
     encrypt_v2_file,
     decrypt_v2_file,
+    compute_fingerprint,
     PasswordCredential,
     KeyCredential,
     CombinedCredential,
 )
-from secure_string_cipher.v2.key_identity import compute_fingerprint
 
 # Single password
 cred = PasswordCredential("MySecurePass123!")

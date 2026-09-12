@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from secure_string_cipher.v2 import app
 from secure_string_cipher.v2.app import (
     CredentialRequirement,
     GrantRequirement,
@@ -319,3 +320,54 @@ class TestLayerIsHeadless:
 
         assert isinstance(credential, KeyCredential)
         assert credential.key_fingerprint == data.fingerprint
+
+
+class TestHeaderInspection:
+    """Both container shapes must be readable from the public layer.
+
+    `required_credential` needs a `V2Header`, so if the only public way to
+    obtain one covered armoured text, an interface handling `.ssc` *files* —
+    the primary format — would have to import `v2.header_parser`, which the
+    package declares internal. The layer would then be unable to do its main
+    job without violating its own API boundary.
+    """
+
+    def _password_container(self, tmp_path: Path) -> Path:
+        from secure_string_cipher.v2 import PasswordCredential, encrypt_v2_file
+
+        source = tmp_path / "doc.txt"
+        source.write_bytes(b"contents" * 100)
+        destination = tmp_path / "doc.txt.ssc"
+        encrypt_v2_file(source, destination, credential=PasswordCredential(PASSWORD))
+        return destination
+
+    def test_a_binary_container_yields_the_requirement_its_grant_names(
+        self, tmp_path: Path
+    ) -> None:
+        header = app.header_from_container(self._password_container(tmp_path))
+        requirement = app.required_credential(header)
+        assert requirement.requirement is app.CredentialRequirement.PASSWORD
+
+    def test_the_stream_is_left_positioned_after_the_header(
+        self, tmp_path: Path
+    ) -> None:
+        """So a caller about to decrypt need not re-open the file."""
+        path = self._password_container(tmp_path)
+        with open(path, "rb") as stream:
+            app.header_from_stream(stream)
+            assert stream.tell() > 0
+            assert stream.tell() < path.stat().st_size
+
+    def test_a_non_container_is_reported_as_malformed(self, tmp_path: Path) -> None:
+        path = tmp_path / "not-a-container.ssc"
+        path.write_bytes(b"just some bytes that are not SSC2 framed")
+        with pytest.raises(app.MalformedContainer):
+            app.header_from_container(path)
+
+    def test_an_unreadable_file_raises_oserror_not_malformed(
+        self, tmp_path: Path
+    ) -> None:
+        """ "Cannot read this file" and "this is not a container" need
+        different handling, so they must not collapse into one error."""
+        with pytest.raises(OSError):
+            app.header_from_container(tmp_path / "absent.ssc")

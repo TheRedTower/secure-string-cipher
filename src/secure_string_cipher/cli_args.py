@@ -70,6 +70,7 @@ from .v2.app import (
     VaultUnlockFailed,
     build_credential,
     header_from_armour,
+    header_from_container,
     required_credential,
 )
 from .v2.decrypt import decrypt_v2_file, decrypt_v2_text
@@ -1064,7 +1065,7 @@ def _resolve_v2_key_source(key_ref: str) -> KeyFileData:
     its typed errors into CLI exits.
     """
     try:
-        return KeyResolver().resolve(key_ref)
+        key_data = KeyResolver().resolve(key_ref)
     except KeyFileUnreadable:
         _exit_error(EXIT_FILE_ERROR, "Could not load key file.")
     except KeyDirectoryUnreadable as error:
@@ -1079,6 +1080,7 @@ def _resolve_v2_key_source(key_ref: str) -> KeyFileData:
             "Key not found: provide a .ssckey path or a fingerprint/key-id "
             f"present in {keys_dir}.",
         )
+    return key_data
 
 
 def _get_v2_password(args: argparse.Namespace) -> str:
@@ -1181,8 +1183,6 @@ def _cmd_decrypt_v2(
     args: argparse.Namespace, is_message: bool, rate_identifier: str = ""
 ) -> int:
 
-    from .v2.header_parser import parse_header_stream
-
     if is_message:
         try:
             header = header_from_armour(args.text)
@@ -1207,9 +1207,8 @@ def _cmd_decrypt_v2(
     # File decrypt V2 (real binary SSC2 container: magic + length prefix).
     filepath = Path(args.file)
     try:
-        with open(filepath, "rb") as f:
-            header, _ = parse_header_stream(f)
-    except (OSError, PermissionError):
+        header = header_from_container(filepath)
+    except OSError:
         _exit_error(EXIT_FILE_ERROR, "File error.")
     except Exception:
         _cli_limiter.record_attempt("decrypt_file", rate_identifier, success=False)

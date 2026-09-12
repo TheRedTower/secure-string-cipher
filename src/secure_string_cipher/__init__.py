@@ -3,7 +3,9 @@ secure_string_cipher - Core encryption functionality
 """
 
 from importlib.metadata import PackageNotFoundError, version
+from typing import TYPE_CHECKING
 
+from . import v2
 from .audit_log import (
     AuditEvent,
     AuditLevel,
@@ -13,7 +15,6 @@ from .audit_log import (
     audit_rate_limit,
     get_audit_logger,
 )
-from .cli import main
 from .config import (
     VaultSettings,
     load_vault_settings,
@@ -58,7 +59,7 @@ from .timing_safe import (
     check_password_strength,
     constant_time_compare,
 )
-from .utils import ProgressBar, colorize, secure_overwrite
+from .utils import secure_overwrite
 
 try:
     __version__ = version("secure-string-cipher")
@@ -123,9 +124,68 @@ __all__ = [
     "audit_event",
     "audit_auth_failure",
     "audit_rate_limit",
-    # CLI utilities
-    "colorize",
     "secure_overwrite",
+    # The v2 container format, as a submodule rather than flattened here
+    "v2",
+    # Deprecated: terminal presentation and the interactive menu's entry
+    # point. Still importable, with a warning; see _DEPRECATED_EXPORTS.
+    "colorize",
     "ProgressBar",
     "main",
 ]
+
+# Terminal presentation and an application entry point are not part of what a
+# string-encryption library offers, and `main` is the worse problem: it is
+# `cli.main` (the interactive menu), while the installed `ssc` command is
+# `cli_args:main` — two different functions reachable under one name. Keeping
+# them importable, with a warning, until the next major version; removing them
+# now would be a breaking change in a minor release.
+#
+# They are served lazily so that importing this package no longer pulls in the
+# interactive CLI module, which it did solely to satisfy `main`.
+_DEPRECATED_EXPORTS = {
+    "colorize": ("secure_string_cipher.utils", "colorize"),
+    "ProgressBar": ("secure_string_cipher.utils", "ProgressBar"),
+    "main": ("secure_string_cipher.cli", "main"),
+}
+
+if TYPE_CHECKING:
+    # This package ships py.typed, so a type checker's view of these names is
+    # part of what "still works until 3.0.0" means. Without these imports the
+    # lazy loader gives them the static type `object`, and a typed consumer
+    # calling `main()` or annotating with `ProgressBar` fails to check *now* —
+    # which would make the deprecation a break rather than a warning. The
+    # imports cost nothing at runtime, so the interactive CLI stays unloaded.
+    from .cli import main
+    from .utils import ProgressBar, colorize
+
+
+def __getattr__(name: str) -> object:
+    """Serve a deprecated export, warning at the point of use.
+
+    Reached only for names this module does not define, so the warning fires
+    for exactly the deprecated set — including via ``import *``, which
+    consults ``__all__`` and so comes back through here.
+    """
+    target = _DEPRECATED_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    import importlib
+    import warnings
+
+    module_name, attribute = target
+    warnings.warn(
+        f"secure_string_cipher.{name} is deprecated and will be removed in "
+        f"3.0.0. It is an internal of the command-line interface, not part of "
+        f"the library's API"
+        + (
+            "; the installed `ssc` command is secure_string_cipher.cli_args:"
+            "main, which is a different function from this one"
+            if name == "main"
+            else f". Import it from {module_name} if you still need it"
+        ),
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return getattr(importlib.import_module(module_name), attribute)
