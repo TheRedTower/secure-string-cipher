@@ -90,17 +90,19 @@ Required v2.0.0 release gate — all items below are now closed as of
   verified directly, not just via successful decryption. Necessarily
   decrypt-only (frame nonces/salts are random every encryption by design).
 - **Key status (`archive`/`revoke`/`destroy`) enforcement at encrypt/decrypt
-  time.** By default `cli_args.py::_resolve_v2_key_source` still resolves
-  `.ssckey` files directly off disk without consulting vault status — a
-  revoked or destroyed key you still hold keeps working, which is inherent
-  to holding the file, not a bug — but passing `--vault LABEL` alongside a
-  key source now unlocks the vault and rejects a `revoked`/`destroyed` key
-  that this vault tracks.
+  time.** Enforced by default: whenever a vault exists on this machine,
+  `ssc encrypt --with key:ID` and `ssc decrypt` read that key's vault
+  record and refuse a `revoked`/`destroyed` one. A key the vault does not
+  track cannot be checked and passes through; `archive` never blocks use.
+  `--no-enforce-key-status` skips the check for an unreachable vault or a
+  deliberately offline run — the holder of a `.ssckey` can always use the
+  key it contains, which is inherent to a bearer secret, so the check
+  raises the cost of using a revoked key rather than making it impossible.
 - **CLI end-to-end test coverage for the full `ssc key` subcommand group.**
   `create`/`import`/`show`/`export`/`list`/`rename`/`archive`/`revoke`/
   `destroy` are each now exercised as real `cmd_key_*` calls against a
   hermetic, file-backed vault (`tests/unit/test_v2_key_cli_e2e.py`),
-  including the revoke/destroy interaction with `--vault` enforcement
+  including the revoke/destroy interaction with status enforcement
   above — not just argument parsing or the underlying `V2VaultService`
   methods in isolation.
 

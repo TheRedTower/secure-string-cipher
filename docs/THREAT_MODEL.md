@@ -33,7 +33,7 @@ object can be opened by more than one independent credential.
 | **Passive Eavesdropper** | Read access to `.ssc` files on disk. | AES-256-GCM encryption of payload. The access grant does not reveal the DEK. |
 | **Active Tamperer** | Write access to `.ssc` files; ability to alter ciphertext, metadata, or the grant. | GCM authentication tag; HMAC-SHA256 grant commitment; strict header field validation and canonical-JSON re-verification. |
 | **Brute-force Attacker** | Offline computational capability to guess passwords. | Argon2id KDF (memory-hard; `time_cost=3`, `memory_kib=65536`, `parallelism=4` — OWASP-baseline, not unusually high); local CLI rate limiting on the interactive path only (see §5.4 — it does not slow an attacker operating directly against a copied file). |
-| **Key Compromiser** | Access to a stolen password or `.ssckey` file. | A grant built with `--require all` needs both components together, so a stolen password alone (or a stolen key alone) is insufficient for that object. **Not addressed**: `.ssckey` files store the raw 256-bit secret in plaintext (base64), so possession of the file is possession of the key — see §5.4. Revoking or destroying a key in the vault does not stop a copy of that key's file from decrypting unless `--vault LABEL` is also passed — see §5.5. |
+| **Key Compromiser** | Access to a stolen password or `.ssckey` file. | A grant built with `--require all` needs both components together, so a stolen password alone (or a stolen key alone) is insufficient for that object. **Not addressed**: `.ssckey` files store the raw 256-bit secret in plaintext (base64), so possession of the file is possession of the key — see §5.4. Revoking or destroying a key in the vault is enforced on the honest code paths but cannot stop a copy of that key's file from decrypting — see §5.5. |
 
 ## 4. Key Security Mechanisms in V2
 
@@ -98,16 +98,24 @@ only protection; anyone who obtains the bytes has the key, with no secondary
 factor required. `--require all` is the only mitigation, and only for objects
 deliberately encrypted that way (§4.2).
 
-### 5.5. Key lifecycle enforcement is opt-in, not automatic
+### 5.5. Key lifecycle enforcement is advisory, not cryptographic
 `ssc key archive` / `revoke` / `destroy` change a status field on the vault's
-metadata record for that key. By default, key resolution for
-`ssc encrypt --with key:ID` and `ssc decrypt` reads the `.ssckey` file
-directly and never queries the vault — a revoked or destroyed key you still
-physically hold keeps working, which is inherent to holding the file, not a
-bug. Passing `--vault LABEL` alongside a key source now unlocks the vault and
-rejects a `REVOKED`/`DESTROYED` key that this vault actually tracks (a bare
-`.ssckey` never registered in this vault can't be checked and is unaffected).
-`archive` never blocks use; it is bookkeeping only.
+metadata record for that key. `ssc encrypt --with key:ID` and `ssc decrypt`
+enforce that field by default: whenever a vault exists on this machine, the
+key's record is read and a `REVOKED`/`DESTROYED` key is refused. A bare
+`.ssckey` that was never registered in this vault cannot be checked and is
+unaffected; `archive` never blocks use, being bookkeeping only.
+
+The limit of this control is that it is advisory. The check runs inside the
+process the operator invokes, so `--no-enforce-key-status` — or a build with
+the check removed, or any independent implementation of the format — will
+decrypt with the raw secret regardless. That follows from §5.4: the `.ssckey`
+file *is* the key, and revocation cannot reach a copy of it. What the check
+does buy is that a revoked key stops working across the honest paths, so
+continued use requires a deliberate act that leaves a trace, rather than
+being the silent default. Revocation that must hold against a motivated
+holder of the file requires re-encrypting the affected objects under a new
+key.
 
 ### 5.6. Local rate limiting is bypassable, not a confidentiality risk
 The CLI's exponential-backoff rate limiter identifies a decrypt attempt by a

@@ -27,11 +27,12 @@ cannot be opened by more than one distinct credential.
    by decrypt via its magic bytes (independent of the file extension).
 2. **Managed Keys**: `.ssckey` files hold a random 256-bit secret. `ssc key
    create`, `import`, `show`, `export`, `list`, and `rename` all work end to
-   end. Key status changes (`archive`/`revoke`/`destroy`) are always vault
-   bookkeeping; by default they don't prevent a `.ssckey` file you still
-   hold from being used, but `ssc encrypt`/`ssc decrypt --vault LABEL`
-   alongside a key source now enforces `revoke`/`destroy` for a key that
-   vault tracks — see the Key Management section below.
+   end. Key status changes (`archive`/`revoke`/`destroy`) are vault
+   bookkeeping, and `ssc encrypt`/`ssc decrypt` now enforce
+   `revoke`/`destroy` by default for any key a vault on this machine
+   tracks. `--no-enforce-key-status` skips the check; a `.ssckey` file you
+   hold can always be used offline — see the Key Management section
+   below.
 3. **Combined authentication**: You can encrypt a single file so that its one
    grant requires *both* a password and a key. There is no "either one"
    (any-of) mode — `--require any` with more than one `--with` source is
@@ -114,27 +115,32 @@ ssc key create <id> (--external-file PATH | --vault-copy)
                                     # works — exactly one storage target is
                                     #   required; omitting both exits with
                                     #   an input error
-ssc key archive <id>               # flips a vault status field
-ssc key revoke <id>                # flips a vault status field; enforced at
-ssc key destroy <id>               #   encrypt/decrypt only if you also pass
-                                    #   --vault LABEL (see below) — without
-                                    #   it, a .ssckey file you still hold
-                                    #   keeps working, by design
+ssc key archive <id>               # flips a vault status field; never
+                                    #   blocks use
+ssc key revoke <id>                # flips a vault status field, and is
+ssc key destroy <id>               #   enforced at encrypt/decrypt by
+                                    #   default whenever a vault exists
+                                    #   here (see below)
 ```
 
 Revoking or destroying a key you tracked in this vault:
 
 ```bash
 ssc key revoke laptop-backup
-ssc encrypt file.txt --with key:laptop-backup --vault anything   # now rejected
-ssc encrypt file.txt --with key:laptop-backup                    # still works
-                                                                   #   (offline, no vault check)
+ssc encrypt file.txt --with key:laptop-backup   # rejected
+
+# --no-enforce-key-status is a global flag, so it precedes the subcommand
+ssc --no-enforce-key-status encrypt file.txt --with key:laptop-backup
 ```
 
-Note there is currently no CLI end-to-end test coverage for the create/
-import/show/export/list/rename/archive path of this command group (the
-key-status-enforcement path above does have coverage) — see
-[ROADMAP.md](../ROADMAP.md).
+The check reads the vault, so it needs the master password; supply it with
+`--master-password-file` or `SSC_MASTER_PASSWORD` in automation. With no
+vault on this machine there is nothing to check and nothing to prompt for,
+so scripted use of a bare `.ssckey` is unaffected.
+
+`--no-enforce-key-status` does not un-revoke anything. Whoever holds the
+`.ssckey` file holds the key, so an offline copy always works; the check
+stops a revoked key being used where the vault *is* reachable.
 
 ## FAQ
 

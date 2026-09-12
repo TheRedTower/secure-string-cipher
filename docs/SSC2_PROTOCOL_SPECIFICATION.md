@@ -556,9 +556,11 @@ keyfiles with owner-only permissions where the platform supports it.
 - **Key-lifecycle enforcement policy.** What a client does when a key is
   marked `archived`/`revoked`/`destroyed` (whether it blocks use, requires
   an extra flag, etc.) is local application policy, not a wire-format
-  concern — and is currently opt-in in the reference implementation
-  (enforced only when a vault is explicitly consulted via `--vault`),
-  not a property every implementation of this format must replicate.
+  concern. The reference implementation enforces `revoked`/`destroyed` by
+  default when a local vault is present, and offers
+  `--no-enforce-key-status` to skip the check; neither the default nor the
+  escape hatch is a property every implementation of this format must
+  replicate.
 - **CLI syntax and error message text.**
 
 ## 11. Known non-goals of this format version
