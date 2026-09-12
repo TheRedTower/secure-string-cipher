@@ -10,7 +10,7 @@ Run with: pytest tests/fuzz/ -v --hypothesis-seed=random
 from contextlib import suppress
 
 import pytest
-from hypothesis import HealthCheck, Phase, given, settings
+from hypothesis import HealthCheck, Phase, assume, given, settings
 from hypothesis import strategies as st
 
 from secure_string_cipher.config import ARGON2_HASH_LENGTH, SALT_SIZE
@@ -152,31 +152,49 @@ class TestDecryptionFuzz:
             )
         ),
     )
-    def test_decrypt_garbage_never_crashes(self, garbage: str, passphrase: str):
-        """Fuzz: Decrypting garbage should raise CryptoError, never crash."""
-        with suppress(CryptoError, ValueError):
+    def test_decrypt_garbage_is_always_rejected(self, garbage: str, passphrase: str):
+        """Fuzz: garbage must be *rejected*, never decrypted.
+
+        Asserting the rejection rather than merely suppressing it is the
+        point: a prior version of this test wrapped the call in
+        ``suppress(CryptoError, ValueError)`` with no assertion, so it would
+        have passed even if arbitrary garbage had decrypted successfully.
+        """
+        with pytest.raises((CryptoError, ValueError)):
             decrypt_text(garbage, passphrase)
 
     @settings(max_examples=100, deadline=None)
     @given(
-        ciphertext_mutation=st.integers(min_value=0, max_value=100),
+        data=st.data(),
         mutation_char=st.characters(),
         passphrase=st.just("ValidPass123!@#"),
     )
-    def test_mutated_ciphertext_fails_gracefully(
-        self, ciphertext_mutation: int, mutation_char: str, passphrase: str
+    def test_mutated_ciphertext_is_always_rejected(
+        self, data: st.DataObject, mutation_char: str, passphrase: str
     ):
-        """Fuzz: Mutated ciphertexts should fail authentication, not crash."""
-        # Create valid ciphertext first
+        """Fuzz: any single-character mutation must fail authentication.
+
+        This is the test that matters most in this file: a successful
+        decrypt of mutated ciphertext would be an AEAD authentication
+        bypass. A prior version only suppressed the exception without
+        asserting it, so that bypass would have made this test *pass*.
+
+        The position is drawn against the token's real length rather than a
+        fixed range. A fixed `st.integers(0, 100) % len(token)` silently
+        excluded positions 101-135 of the 136-character token — which is
+        where the encoded GCM tag lives (it starts near character 113), so
+        the one region whose mutation an AEAD must catch was never tried.
+        """
         original = encrypt_text("Test message for mutation", passphrase)
 
-        # Mutate at random position
-        if len(original) > 0:
-            pos = ciphertext_mutation % len(original)
-            mutated = original[:pos] + mutation_char + original[pos + 1 :]
+        pos = data.draw(st.integers(min_value=0, max_value=len(original) - 1))
+        mutated = original[:pos] + mutation_char + original[pos + 1 :]
+        # Substituting a character for itself is not a mutation; that token
+        # must still decrypt, so it is not a counterexample.
+        assume(mutated != original)
 
-            with suppress(CryptoError, ValueError):
-                decrypt_text(mutated, passphrase)
+        with pytest.raises((CryptoError, ValueError)):
+            decrypt_text(mutated, passphrase)
 
 
 # =============================================================================
