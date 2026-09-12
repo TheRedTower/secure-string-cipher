@@ -17,6 +17,7 @@ Welcome to the secure-string-cipher documentation.
 - [Security Policy](../.github/SECURITY.md) — Supported versions, vulnerability reporting, and security policy
 - [Cryptographic Design](../.github/CRYPTOGRAPHY.md) — Detailed cryptographic design document for security auditors
 - [Audit Checklist](../.github/AUDIT_CHECKLIST.md) — Current review checklist for security auditors
+- [SSC2 Protocol Specification](SSC2_PROTOCOL_SPECIFICATION.md) — Language-independent wire format for the `.ssc` v2 container, `.ssckey` files, and their cryptographic construction
 
 ### Development
 

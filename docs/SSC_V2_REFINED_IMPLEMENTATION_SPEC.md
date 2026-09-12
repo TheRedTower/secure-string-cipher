@@ -5,6 +5,17 @@ Review date: 9 September 2026
 Target feature release: 2.0.0; retain Beta status until separately justified
 Status: implementation-planning baseline, with repository evidence and explicit technical decisions
 
+> **2026-09-12 note:** the wire-format-defining sections of this document
+> (§5–§10) have been extracted into
+> [`SSC2_PROTOCOL_SPECIFICATION.md`](SSC2_PROTOCOL_SPECIFICATION.md), a
+> standalone, implementation-language-neutral specification, independently
+> re-verified against shipped `v2/` code as of package `v2.0.0` — including
+> at least one correction (`grant_id` is not a parser-enforced literal
+> `"grant-0"`, contrary to how §8.1 below reads). For the normative wire
+> format, treat that document as authoritative; this one remains the
+> historical design-decision record explaining *why* choices were made and
+> documenting corrections made during implementation.
+
 ## 1. Purpose, authority, and scope
 
 This document verifies the quoted Gemini 3.1 Pro review and supplies a concrete replacement baseline for Antigravity's V2 implementation plan. It is a design specification, not evidence that V2 cryptography has been implemented or audited.
