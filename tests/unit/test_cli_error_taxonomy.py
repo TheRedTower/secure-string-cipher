@@ -17,6 +17,7 @@ from secure_string_cipher.cli_args import (
     EXIT_INTERNAL_ERROR,
     EXIT_VAULT_ERROR,
     _classify_failure,
+    _env_flag_enabled,
     create_parser,
 )
 from secure_string_cipher.core import CryptoError
@@ -42,7 +43,6 @@ class TestExitCodeMapping:
             (VaultBusyError("vault is locked"), EXIT_VAULT_ERROR),
             (VaultTransactionError("write", "rollback failed"), EXIT_VAULT_ERROR),
             (KeychainError("keychain refused"), EXIT_VAULT_ERROR),
-            (KeyError("no-such-key"), EXIT_VAULT_ERROR),
             (
                 KeyExportSurvivedRegistrationFailureError(
                     Path("/keys/k.ssckey"), RuntimeError("vault commit failed")
@@ -92,6 +92,16 @@ class TestExitCodeMapping:
         # A plain ValueError has no documented code and is a program fault.
         assert _classify_failure(ValueError("plain"))[0] == EXIT_INTERNAL_ERROR
 
+    def test_key_error_is_an_internal_fault_not_a_vault_miss(self) -> None:
+        """KeyError is a common programming fault and its str() is the key.
+
+        Mapping it to a vault miss would both mislabel ordinary bugs and echo
+        whatever the missing key happened to be.
+        """
+        code, message = _classify_failure(KeyError("some-internal-dict-key"))
+        assert code == EXIT_INTERNAL_ERROR
+        assert "some-internal-dict-key" not in message
+
     def test_permission_error_is_not_treated_as_a_generic_os_error(self) -> None:
         """PermissionError derives from OSError; both land on EXIT_FILE_ERROR."""
         code, message = _classify_failure(
@@ -125,3 +135,27 @@ class TestDebugFlag:
         parser = create_parser()
         assert parser.parse_args(["vault", "list"]).debug is False
         assert parser.parse_args(["--debug", "vault", "list"]).debug is True
+
+    @pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on", " on "])
+    def test_affirmative_env_values_enable_debug(
+        self, value: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("SSC_DEBUG", value)
+        assert _env_flag_enabled("SSC_DEBUG") is True
+
+    @pytest.mark.parametrize("value", ["", "0", "false", "FALSE", "no", "off", "maybe"])
+    def test_non_affirmative_env_values_leave_debug_off(
+        self, value: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`SSC_DEBUG=false` must not enable debug output.
+
+        A deployment manifest disabling a boolean by setting it to "false" is
+        common, and enabling traceback printing there would start emitting
+        exception text.
+        """
+        monkeypatch.setenv("SSC_DEBUG", value)
+        assert _env_flag_enabled("SSC_DEBUG") is False
+
+    def test_unset_env_leaves_debug_off(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("SSC_DEBUG", raising=False)
+        assert _env_flag_enabled("SSC_DEBUG") is False

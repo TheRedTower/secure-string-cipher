@@ -2160,6 +2160,17 @@ Examples:
 # =============================================================================
 
 
+def _env_flag_enabled(name: str) -> bool:
+    """Report whether an environment variable holds an affirmative value.
+
+    Only an explicit affirmative enables the flag. Treating "any non-empty
+    value except 0" as true would mean `SSC_DEBUG=false` — a common way for a
+    deployment manifest to disable an option — switched debug output *on*,
+    which for this particular flag would start printing exception text.
+    """
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _classify_failure(error: BaseException) -> tuple[int, str]:
     """Map an escaped exception to an exit code and a user-facing message.
 
@@ -2192,9 +2203,14 @@ def _classify_failure(error: BaseException) -> tuple[int, str]:
     ):
         return EXIT_VAULT_ERROR, str(error)
 
-    # A vault service raises KeyError for an unknown key id/fingerprint.
-    if isinstance(error, KeyError):
-        return EXIT_VAULT_ERROR, str(error).strip("'\"") or "Not found in vault."
+    # KeyError is deliberately *not* mapped to a vault miss. V2VaultService
+    # does raise it for an unknown key id, but KeyError is also one of the
+    # most common ordinary programming faults, and its str() is the missing
+    # key itself — which on a non-vault path could be arbitrary content. It
+    # therefore falls through to the sanitized internal-error branch below.
+    # Distinguishing a genuine vault miss needs a typed not-found exception
+    # on the service, which belongs with the service-layer extraction rather
+    # than here.
 
     # Path and permission policy violations.
     if isinstance(error, SecurityError):
@@ -2235,7 +2251,7 @@ def main() -> NoReturn:
     # Set global flags
     _quiet_mode = args.quiet
     _no_color = args.no_color
-    _debug_mode = args.debug or os.environ.get("SSC_DEBUG", "") not in ("", "0")
+    _debug_mode = args.debug or _env_flag_enabled("SSC_DEBUG")
 
     # No command specified
     if not args.command:
