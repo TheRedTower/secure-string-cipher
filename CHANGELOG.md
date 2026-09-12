@@ -48,6 +48,18 @@
   `sanitize_filename`, and `secure_atomic_write` are unaffected and remain
   the module's public surface.
 
+### Added
+
+- **`docs/SSC2_PROTOCOL_SPECIFICATION.md`**: a standalone,
+  implementation-language-neutral specification for the `.ssc` v2
+  container wire format, `.ssckey` files, and their cryptographic
+  construction, extracted from and independently re-verified against
+  `docs/SSC_V2_REFINED_IMPLEMENTATION_SPEC.md` and the shipped
+  `secure_string_cipher.v2` code. Corrects one claim from the
+  implementation spec in the process: `grant_id` is not a
+  parser-enforced literal `"grant-0"` — the parser accepts any string,
+  since the single grant is consumed positionally, not by matching an id.
+
 ## [2.0.0] - 2026-09-11
 
 This is a major version for one specific reason: **`ssc vault backups`/

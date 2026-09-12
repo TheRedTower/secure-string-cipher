@@ -37,6 +37,8 @@ additive: no other existing v1 API/CLI/format changed or was removed.
 Designed from [`docs/V2_MANAGED_KEYS_ARCHITECTURE.md`](docs/V2_MANAGED_KEYS_ARCHITECTURE.md)
 and refined in
 [`docs/SSC_V2_REFINED_IMPLEMENTATION_SPEC.md`](docs/SSC_V2_REFINED_IMPLEMENTATION_SPEC.md).
+The normative, language-independent wire format is
+[`docs/SSC2_PROTOCOL_SPECIFICATION.md`](docs/SSC2_PROTOCOL_SPECIFICATION.md).
 The full feature — container format, `.ssckey` identities, vault-backed key
 lifecycle, and CLI integration (`ssc encrypt --with ...`, `ssc key ...`) —
 merged to `main` in PR #40 (commit `59147fc`) on 2026-09-11, followed by
