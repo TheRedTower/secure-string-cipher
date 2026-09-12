@@ -93,13 +93,12 @@ class TestDeprecatedRootExports:
         import subprocess
         import sys
 
+        probe = (
+            "import sys, secure_string_cipher; "
+            "print('secure_string_cipher.cli' in sys.modules)"
+        )
         result = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                "import sys, secure_string_cipher; "
-                "print('secure_string_cipher.cli' in sys.modules)",
-            ],
+            [sys.executable, "-c", probe],
             capture_output=True,
             text=True,
             check=True,
