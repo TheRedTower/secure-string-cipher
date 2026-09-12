@@ -4,11 +4,43 @@ Shared test configuration and fixtures
 
 import contextlib
 import os
+import shutil
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
 
 import pytest
+
+# ---------------------------------------------------------------------------
+# Hermetic home directory
+#
+# Every on-disk location this package chooses for itself resolves through
+# Path.home(): the config dir (config.py::get_config_dir -> ~/.secure-cipher,
+# which also carries the vault, its backups and rate_limits.json), the default
+# audit log (audit_log.py, since config.AUDIT_LOG_PATH is None), the vault lock
+# directory (v2/vault_lock.py -> ~/.secure_string_cipher) and managed-key
+# lookup (cli_args.py -> ~/.ssc/keys). Redirecting HOME therefore redirects
+# all of them at once.
+#
+# This runs at conftest *import* time, not in a fixture, because
+# cli_args.py:74 instantiates a PersistentRateLimiter at module import and
+# that binds its state path immediately. A fixture would run too late: any
+# test module importing cli_args would already have bound the real path. Under
+# pytest-xdist each worker imports this file in its own process, so each worker
+# also gets its own private home and they cannot contend for the same log.
+# ---------------------------------------------------------------------------
+# The invoking user's real home is captured through the environment, not by
+# calling Path.home() here. With -n auto the xdist controller imports this
+# file and rewrites HOME *before* spawning workers, so a worker evaluating
+# Path.home() at this point would see the controller's fake home and the
+# guard tests below would then be monitoring a temporary directory rather
+# than the home they exist to protect. setdefault means the controller
+# records the true value once and every worker inherits it.
+REAL_HOME = Path(os.environ.setdefault("SSC_TEST_REAL_HOME", str(Path.home())))
+
+_FAKE_HOME = Path(tempfile.mkdtemp(prefix="ssc-test-home-"))
+os.environ["HOME"] = str(_FAKE_HOME)
+os.environ["USERPROFILE"] = str(_FAKE_HOME)  # Path.home() uses this on Windows
 
 
 @pytest.fixture(scope="session")
@@ -84,17 +116,64 @@ def secure_test_dir(temp_dir: Path) -> Path:
 
 
 @pytest.fixture(autouse=True)
-def reset_environment():
+def reset_environment() -> Generator[None]:
     """Reset environment state between tests."""
     # Store original environment
     original_env = os.environ.copy()
     os.environ["CIPHER_VAULT_BACKEND"] = "file"
+
+    # Re-assert the hermetic home (see module header). The module-level
+    # assignment covers import time; this covers a test that reassigns HOME
+    # directly instead of via monkeypatch, so the next test still starts
+    # pointed away from the real home.
+    os.environ["HOME"] = str(_FAKE_HOME)
+    os.environ["USERPROFILE"] = str(_FAKE_HOME)
 
     yield
 
     # Restore original environment
     os.environ.clear()
     os.environ.update(original_env)
+
+
+@pytest.fixture(autouse=True)
+def reset_cli_output_flags() -> Generator[None]:
+    """Restore cli_args' module-level output flags after each test.
+
+    `_quiet_mode` and `_no_color` are process-wide globals that gate
+    `_print_info`/`_print_warning`. 39 tests in tests/unit/test_cli_args.py
+    set them to True without restoring, so every later test in the same
+    xdist worker saw silenced output — a latent order dependency that showed
+    up as `CaptureResult(out='', err='')` in the `ssc key` end-to-end tests
+    on whichever Python version happened to distribute them together.
+
+    Restoring here keeps that coupling from mattering, rather than relying on
+    the worker layout staying lucky.
+    """
+    from secure_string_cipher import cli_args
+
+    names = ("_quiet_mode", "_no_color", "_debug_mode")
+    saved = {name: getattr(cli_args, name) for name in names if hasattr(cli_args, name)}
+
+    yield
+
+    for name, value in saved.items():
+        setattr(cli_args, name, value)
+
+
+@pytest.fixture
+def fake_home() -> Path:
+    """The session's hermetic home directory (what Path.home() resolves to)."""
+    return _FAKE_HOME
+
+
+@pytest.fixture
+def real_home() -> Path:
+    """The invoking user's actual home, captured before redirection.
+
+    Only for the isolation guard tests, which assert it stays untouched.
+    """
+    return REAL_HOME
 
 
 @pytest.fixture
@@ -114,3 +193,10 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     config.addinivalue_line("markers", "slow: Slow tests (take more than 1 second)")
     config.addinivalue_line("markers", "security: Security-focused tests")
+
+
+def pytest_sessionfinish(
+    session: pytest.Session, exitstatus: int
+) -> None:  # pragma: no cover - teardown
+    """Remove this worker's hermetic home directory."""
+    shutil.rmtree(_FAKE_HOME, ignore_errors=True)

@@ -176,3 +176,48 @@ def test_cleanup_failure_is_suppressed(tmp_path, monkeypatch):
             raise ValueError("abort")
 
     # The unlink OSError is suppressed, but the original ValueError bubbles up
+
+
+class TestSystemSymlinkAllowlistIsLiteral:
+    """The allowlist exempts only the literal allowlisted path.
+
+    Matching a symlink's *target* instead would exempt any attacker-created
+    symlink pointing at an allowlisted path. On a system where /var is an
+    ordinary directory (Linux), `evil -> /var` would then let
+    `evil/tmp/key.ssckey` redirect a keyfile or lock write into /var/tmp.
+    """
+
+    def test_symlink_pointing_at_an_allowlisted_path_is_still_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from secure_string_cipher.v2 import paths as v2_paths
+
+        target = tmp_path / "allowlisted"
+        target.mkdir()
+        evil = tmp_path / "evil"
+        evil.symlink_to(target)
+
+        # Stand in for /var on a platform where it is a real directory.
+        monkeypatch.setattr(v2_paths, "SYSTEM_SYMLINK_ALLOWLIST", frozenset({target}))
+
+        assert v2_paths.is_allowed_system_symlink(evil) is False
+        with pytest.raises(OSError, match="symlink"):
+            v2_paths.reject_symlink_components(evil / "sub" / "key.ssckey")
+        with pytest.raises(CryptoError, match="Symlinks not allowed"):
+            validate_path_safety(evil / "sub" / "out.ssc")
+
+    def test_the_allowlisted_component_itself_is_still_exempt(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """macOS ships /var as a symlink, which is why the exemption exists."""
+        from secure_string_cipher.v2 import paths as v2_paths
+
+        real = tmp_path / "real"
+        real.mkdir()
+        link = tmp_path / "link"
+        link.symlink_to(real)
+
+        monkeypatch.setattr(v2_paths, "SYSTEM_SYMLINK_ALLOWLIST", frozenset({link}))
+
+        assert v2_paths.is_allowed_system_symlink(link) is True
+        v2_paths.reject_symlink_components(link / "sub" / "key.ssckey")
