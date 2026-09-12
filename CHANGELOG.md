@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Secure-memory fallback wiping simplified to a single zero-fill pass.**
+  When libsodium's `sodium_memzero` isn't available, `secure_wipe`'s
+  fallback previously did 3 passes of random data followed by a zero-fill.
+  RAM has no magnetic remanence for extra random passes to defeat (that's
+  a spinning-disk-forensics concern), and CPython has no dead-store-elimination
+  optimizer that would silently drop a real buffer-protocol write the way a
+  C compiler can drop a provably-dead local `memset` — so the random passes
+  added runtime cost without adding any real erasure guarantee beyond what
+  the final zero-fill already provided on its own. Functional behavior
+  (the buffer ends up zeroed) is unchanged.
+- **Documented the PyNaCl private-FFI reliance as accepted technical debt**,
+  inline in `secure_memory.py`: `nacl._sodium` is not a public API, and the
+  comment now states explicitly why this is safe today (pinned `pynacl`
+  version, `AttributeError`-tolerant fallback, direct test coverage of both
+  code paths) and what the durable fix would be.
+
 ## [2.0.0] - 2026-09-11
 
 This is a major version for one specific reason: **`ssc vault backups`/
