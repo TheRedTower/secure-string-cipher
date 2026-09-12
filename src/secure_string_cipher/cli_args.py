@@ -12,7 +12,9 @@ from __future__ import annotations
 import argparse
 import getpass
 import hashlib
+import os
 import sys
+import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
@@ -43,6 +45,7 @@ from .core import (
     encrypt_file,
     encrypt_text,
 )
+from .keychain_backend import KeychainError
 from .passphrase_generator import generate_passphrase
 from .passphrase_manager import (
     PassphraseVault,
@@ -50,7 +53,8 @@ from .passphrase_manager import (
     read_bounded_vault_file,
     validate_raw_vault,
 )
-from .rate_limiter import PersistentRateLimiter
+from .rate_limiter import PersistentRateLimiter, RateLimitError
+from .security import SecurityError
 from .timing_safe import check_password_strength
 from .utils import colorize, secure_overwrite
 from .v2.decrypt import decrypt_v2_file, decrypt_v2_text
@@ -64,6 +68,8 @@ from .v2.encrypt import (
 )
 from .v2.key_identity import KeyStatus
 from .v2.keyfile import KeyFileData, load_keyfile
+from .v2.keywrap import KeyWrapError
+from .v2.vault_lock import VaultBusyError
 from .v2.vault_service import (
     KeyExportSurvivedRegistrationFailureError,
     V2VaultService,
@@ -82,6 +88,7 @@ EXIT_INPUT_ERROR = 1  # Invalid arguments, missing flags
 EXIT_AUTH_ERROR = 2  # Wrong password, decryption failed
 EXIT_VAULT_ERROR = 3  # Not initialized, label not found
 EXIT_FILE_ERROR = 4  # Not found, permission denied
+EXIT_INTERNAL_ERROR = 70  # Unexpected fault in this program (sysexits EX_SOFTWARE)
 
 # Generic V2 decryption failure message (never includes exception internals).
 _V2_DECRYPT_FAILURE_MESSAGE = "Decryption failed. Wrong password/key or corrupted data."
@@ -92,6 +99,7 @@ _V2_DECRYPT_FAILURE_MESSAGE = "Decryption failed. Wrong password/key or corrupte
 
 _quiet_mode = False
 _no_color = False
+_debug_mode = False
 
 
 class _StdinSizeError(CryptoError):
@@ -1733,6 +1741,14 @@ Run 'ssc <command> --help' for command-specific help.
         action="store_true",
         help="Disable colored output",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help=(
+            "On an unexpected failure, print a traceback to stderr instead of "
+            "a one-line summary (or set SSC_DEBUG=1)"
+        ),
+    )
 
     subparsers = parser.add_subparsers(dest="command", title="commands")
 
@@ -2144,9 +2160,74 @@ Examples:
 # =============================================================================
 
 
+def _classify_failure(error: BaseException) -> tuple[int, str]:
+    """Map an escaped exception to an exit code and a user-facing message.
+
+    Without this, every unanticipated failure collapsed into a single
+    "Command failed." with EXIT_INPUT_ERROR, which told a script that its
+    arguments were wrong when the real cause might have been a full disk, a
+    revoked key or a bug in this program. The documented exit-code taxonomy
+    above only described the codes that individual commands returned
+    deliberately; anything raised was flattened.
+
+    Specific types are tested before their bases: VaultBusyError,
+    VaultTransactionError and KeyWrapError all derive from ValueError, and
+    PermissionError/FileNotFoundError derive from OSError.
+    """
+    # Rate limiting carries its own wait time and was previously uncaught.
+    if isinstance(error, RateLimitError):
+        return EXIT_AUTH_ERROR, str(error)
+
+    # Credential / cryptographic failures.
+    if isinstance(error, KeyWrapError | CryptoError):
+        return EXIT_AUTH_ERROR, str(error) or _V2_DECRYPT_FAILURE_MESSAGE
+
+    # Vault state: busy, mid-transaction, missing record, or backend trouble.
+    if isinstance(
+        error,
+        VaultBusyError
+        | VaultTransactionError
+        | KeyExportSurvivedRegistrationFailureError
+        | KeychainError,
+    ):
+        return EXIT_VAULT_ERROR, str(error)
+
+    # A vault service raises KeyError for an unknown key id/fingerprint.
+    if isinstance(error, KeyError):
+        return EXIT_VAULT_ERROR, str(error).strip("'\"") or "Not found in vault."
+
+    # Path and permission policy violations.
+    if isinstance(error, SecurityError):
+        return EXIT_FILE_ERROR, str(error)
+
+    # Filesystem problems.
+    if isinstance(error, OSError):
+        detail = error.strerror or str(error)
+        location = f": {error.filename}" if error.filename else ""
+        return EXIT_FILE_ERROR, f"{detail}{location}"
+
+    # No input available — typically getpass with stdin closed, which is how
+    # a non-interactive invocation without a credential source fails.
+    if isinstance(error, EOFError):
+        return (
+            EXIT_INPUT_ERROR,
+            "No input available for a required prompt. This command needs a "
+            "credential it can only read interactively.",
+        )
+
+    # Anything left is a fault in this program. Report the type but not the
+    # message, which could carry arbitrary interpolated content; --debug
+    # prints the full traceback for diagnosis.
+    return (
+        EXIT_INTERNAL_ERROR,
+        f"Internal error ({type(error).__name__}). "
+        "Re-run with --debug for a traceback, and please report this.",
+    )
+
+
 def main() -> NoReturn:
     """Main entry point for ssc CLI."""
-    global _quiet_mode, _no_color
+    global _quiet_mode, _no_color, _debug_mode
 
     parser = create_parser()
     args = parser.parse_args()
@@ -2154,6 +2235,7 @@ def main() -> NoReturn:
     # Set global flags
     _quiet_mode = args.quiet
     _no_color = args.no_color
+    _debug_mode = args.debug or os.environ.get("SSC_DEBUG", "") not in ("", "0")
 
     # No command specified
     if not args.command:
@@ -2182,8 +2264,11 @@ def main() -> NoReturn:
     except KeyboardInterrupt:
         print("\nCancelled.", file=sys.stderr)
         sys.exit(EXIT_INPUT_ERROR)
-    except Exception:
-        _exit_error(EXIT_INPUT_ERROR, "Command failed.")
+    except Exception as error:
+        if _debug_mode:
+            traceback.print_exc()
+        code, message = _classify_failure(error)
+        _exit_error(code, message)
 
 
 if __name__ == "__main__":
