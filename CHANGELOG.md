@@ -4,6 +4,30 @@
 
 ### Added
 
+- **Non-interactive credentials: `--password-file` / `SSC_PASSWORD` and
+  `--master-password-file` / `SSC_MASTER_PASSWORD`.** There was previously no
+  way to supply a password without a prompt, so v2 password mode and v2
+  combined mode could not be scripted at all, and anything touching the vault
+  required an interactive master password. Piping worked only via CPython's
+  degraded `getpass` fallback, which prints a warning and has no Windows
+  equivalent. The flag takes precedence over the variable. A password file
+  must be a regular file, not reached through a symlink, and on POSIX not
+  group/other-readable; one trailing newline is stripped; an empty,
+  oversized or non-UTF-8 file is refused. A supplied password is still
+  strength-checked where a new password is being set, and fails rather than
+  looping since it cannot be re-prompted. A third source,
+  `--new-master-password-file` / `SSC_NEW_MASTER_PASSWORD`, supplies the
+  replacement value for `ssc vault change-password`: setting a master
+  password and using one are separate roles, and a single value read as both
+  would re-encrypt the vault with the password it already had while
+  reporting a successful rotation. That command now refuses to run when only
+  the current password was supplied, and refuses a new password equal to the
+  old one. A credential file is opened with `O_NOFOLLOW` and validated with
+  `fstat`, so the type and permission checks apply to the descriptor that is
+  read rather than to the path as it looked a moment earlier, and with
+  `O_BINARY` so that Windows cannot collapse a CRLF or truncate at a
+  control-Z inside a password before it is read.
+
 - **`secure_string_cipher.v2.app` — a reusable application layer for v2
   credentials and managed-key policy.** Key resolution, key-status policy,
   header→requirement mapping, armoured-header parsing and credential
@@ -18,6 +42,13 @@
   be decided — the module is importable but not yet re-exported.
 
 ### Fixed
+
+- **`.ssckey` files are now read in binary mode.** `load_keyfile` opened the
+  descriptor without `O_BINARY`, so on Windows the C runtime collapsed CRLF
+  to LF and truncated at a control-Z before the parser saw the bytes —
+  defeating `parse_keyfile_content`'s own deliberate rejection of mixed line
+  endings and bare carriage returns, and silently shortening a keyfile that
+  happened to contain a control-Z.
 
 - **Stale "V2 not yet released" banners.** `docs/API.md`'s "V2 Encryption"
   heading still said "(in progress, unreleased — see ROADMAP.md)", and
