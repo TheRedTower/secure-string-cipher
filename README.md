@@ -48,9 +48,11 @@ records are clearly separated in the documentation archive.
   create/import/export/show/list/rename are functional — see
   [ROADMAP.md](ROADMAP.md) for the deferred `ssc start` interactive-menu
   parity item. `archive`/`revoke`/`destroy` change the vault record's
-  status; by default encryption/decryption don't check it (a key file you
-  hold still works, by design), but passing `--vault LABEL` alongside a
-  key source now rejects a revoked or destroyed key that this vault tracks
+  status, and encryption/decryption enforce it by default: when a vault
+  exists, a key it records as revoked or destroyed is refused. Pass
+  `--no-enforce-key-status` to skip the check when the vault is
+  unreachable — a key file you hold can always be used offline, which is
+  inherent to a bearer secret
 - **OS Keychain integration** – store vault in macOS Keychain, Windows Credential Vault, or Linux Secret Service
 - **Hidden password input** – passwords hidden in interactive terminals, visible for scripts/tests
 - **Inline passphrase generation** – type `/gen` at an interactive
@@ -157,6 +159,29 @@ written with `echo` has one.
 Prefer a file over an environment variable where you can: on some systems a
 process's environment is readable by other processes owned by the same user,
 and variables are easily captured in shell history and CI logs.
+
+#### Managed-key status enforcement
+
+When a vault exists on this machine, `ssc encrypt --with key:...` and
+`ssc decrypt` of a managed-key object check that vault's record for the key
+and refuse one marked `revoked` or `destroyed`. A key the vault does not
+track cannot be checked and is allowed through; `archived` is bookkeeping
+and never blocks use.
+
+The check needs the vault master password, so supply it from a file or the
+environment (above) in automation. Two cases need no password at all: no
+vault on this machine, and `--no-enforce-key-status`.
+
+```bash
+# Skip the check — for an unreachable vault, or a deliberately offline run
+# (a global flag, so it goes before the subcommand, like --password-file)
+ssc --no-enforce-key-status encrypt -f document.pdf --with key:my-key
+```
+
+Skipping is not a way to un-revoke a key: holding a `.ssckey` file is
+holding the key it contains, so an offline copy always works. The check
+raises the cost of a revoked key staying in use where the vault *is*
+reachable; it is not a cryptographic revocation.
 
 ```bash
 # Encrypt text

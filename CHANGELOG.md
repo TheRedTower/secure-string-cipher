@@ -63,6 +63,23 @@
 
 ### Changed
 
+- **Managed-key status is now enforced by default, not only with `--vault`.**
+  `ssc key revoke` / `destroy` previously changed a vault record that
+  encrypt and decrypt did not read unless the operator also passed
+  `--vault LABEL`, so revocation did nothing for anyone who did not opt in
+  — which is to say, for the default path. The check now runs whenever a
+  vault exists on this machine: a key that vault records as `revoked` or
+  `destroyed` is refused. A key the vault does not track cannot be checked
+  and passes through, and `archived` still never blocks use.
+  `--no-enforce-key-status` skips the check for an unreachable vault or a
+  deliberately offline run. **This can turn a previously-succeeding
+  command into exit 2**, and, because reading status needs the master
+  password, it can introduce a prompt where there was none — supply it
+  with `--master-password-file` / `SSC_MASTER_PASSWORD`, or skip the check.
+  With no vault present, nothing changes: no check, no prompt. The control
+  remains advisory rather than cryptographic — whoever holds a `.ssckey`
+  holds the key it contains — so it raises the cost of using a revoked key
+  instead of making it impossible; see `docs/THREAT_MODEL.md` §5.5.
 - **CLI failures now map to the documented exit codes, and say what went
   wrong.** `main()` previously caught every exception with a bare
   `except Exception` and reported `Error: Command failed.` with

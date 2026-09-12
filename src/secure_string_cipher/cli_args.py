@@ -126,6 +126,9 @@ _master_password_source: str | None = None
 # would make `vault change-password` rotate to the password it already has.
 _new_master_password_source: str | None = None
 
+# Key-status enforcement runs by default; --no-enforce-key-status turns it off.
+_enforce_key_status = True
+
 # A password file is read with the same bound v2 applies to a password before
 # derivation, so an oversized file is refused rather than fed to Argon2id.
 _MAX_PASSWORD_FILE_BYTES = 65536
@@ -647,7 +650,7 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
         if has_password and keys and require_all:
             password = _prompt_password("Enter password: ", confirm=True)
             key_data = _resolve_v2_key_source(keys[0])
-            if getattr(args, "vault", None):
+            if _enforce_key_status:
                 _enforce_v2_key_status(key_data.fingerprint)
             credential = CombinedCredential(
                 password, key_data.fingerprint, key_data.secret_bytes
@@ -657,7 +660,7 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
             credential = PasswordCredential(password)
         elif keys:
             key_data = _resolve_v2_key_source(keys[0])
-            if getattr(args, "vault", None):
+            if _enforce_key_status:
                 _enforce_v2_key_status(key_data.fingerprint)
             credential = KeyCredential(key_data.fingerprint, key_data.secret_bytes)
         else:
@@ -1086,22 +1089,37 @@ def _get_v2_password(args: argparse.Namespace) -> str:
 
 
 def _enforce_v2_key_status(fingerprint: str) -> None:
-    """Reject a managed key that this vault has marked revoked or destroyed.
+    """Reject a managed key this vault has marked revoked or destroyed.
 
-    Encrypt/decrypt normally resolve ``.ssckey`` files straight off disk
-    (see ``_resolve_v2_key_source``) without ever touching the vault, so a
-    key you still physically hold keeps working even after ``ssc key
-    revoke``/``destroy`` — that's inherent to holding the file, not a bug.
-    This check is therefore opt-in: it only runs when the caller passes
-    ``--vault``, and even then a key with no matching vault record (a bare
-    ``.ssckey`` that was never registered) can't be checked and is let
-    through unchanged. It only closes the gap for keys this vault actually
-    tracks.
+    Holding a ``.ssckey`` is sufficient to use the key inside it, so ordinary
+    encrypt/decrypt reads the file straight off disk (see
+    ``_resolve_v2_key_source``). That is inherent to a bearer secret. This
+    check exists so that ``ssc key revoke``/``destroy`` mean something for a
+    key the vault actually tracks, and it runs by default.
+
+    Skipped entirely when no vault exists — there is nothing to consult, and
+    prompting would be pointless. A key the vault does not track cannot be
+    judged and passes through. ``archived`` never blocks use.
+
+    Reading status needs the master password, so this is the one place a
+    key-only operation may prompt. ``--master-password-file`` /
+    ``SSC_MASTER_PASSWORD`` avoid that for automation, and
+    ``--no-enforce-key-status`` skips the check altogether.
     """
     vault = PassphraseVault()
     if not vault.vault_exists():
         return
+
+    if _master_password_source is None:
+        # Explain the prompt at the moment it appears, so an operator who did
+        # not expect it learns both why it is there and how to opt out.
+        _print_info(
+            "Checking the key's status against the vault. "
+            "Use --no-enforce-key-status to skip, or --master-password-file "
+            "to avoid this prompt."
+        )
     master = _prompt_master_password()
+
     try:
         KeyStatusPolicy(V2VaultService(vault)).check(
             fingerprint, master_password=master
@@ -1111,10 +1129,18 @@ def _enforce_v2_key_status(fingerprint: str) -> None:
         _exit_error(
             EXIT_AUTH_ERROR,
             f"Key '{rejected_id}' is {rejected_status} in this vault; "
-            "refusing to use it.",
+            "refusing to use it. Pass --no-enforce-key-status to override.",
         )
     except VaultUnlockFailed:
-        _exit_error(EXIT_AUTH_ERROR, "Could not unlock vault to check key status.")
+        # Fail closed: proceeding here would report a status check that never
+        # happened. The override is explicit rather than implied by a failure,
+        # since anyone holding the keyfile can pass it anyway — the check
+        # guards against accident, not against a determined holder.
+        _exit_error(
+            EXIT_AUTH_ERROR,
+            "Could not unlock the vault to check key status. Pass "
+            "--no-enforce-key-status to proceed without checking.",
+        )
 
 
 def _resolve_v2_credential_from_header(
@@ -1145,7 +1171,7 @@ def _resolve_v2_credential_from_header(
     if requirement.needs_managed_key:
         assert requirement.key_fingerprint is not None
         key_data = _resolve_v2_key_source(key_file_ref or requirement.key_fingerprint)
-        if getattr(args, "vault", None):
+        if _enforce_key_status:
             _enforce_v2_key_status(requirement.key_fingerprint)
 
     return build_credential(requirement, password=password, key_data=key_data)
@@ -1933,6 +1959,15 @@ Run 'ssc <command> --help' for command-specific help.
         ),
     )
     parser.add_argument(
+        "--no-enforce-key-status",
+        action="store_true",
+        help=(
+            "Do not check a managed key's vault status before using it. "
+            "By default a key this vault records as revoked or destroyed is "
+            "refused, which requires the vault master password"
+        ),
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help=(
@@ -2296,7 +2331,10 @@ Examples:
     # key revoke
     key_revoke_parser = key_subparsers.add_parser(
         "revoke",
-        help="Set status=revoked (enforced at encrypt/decrypt only with --vault)",
+        help=(
+            "Set status=revoked (enforced at encrypt/decrypt unless "
+            "--no-enforce-key-status)"
+        ),
     )
     key_revoke_parser.add_argument("id", metavar="ID", help="Key ID")
     key_revoke_parser.set_defaults(func=cmd_key_revoke)
@@ -2434,7 +2472,7 @@ def _classify_failure(error: BaseException) -> tuple[int, str]:
 
 def main() -> NoReturn:
     """Main entry point for ssc CLI."""
-    global _quiet_mode, _no_color, _debug_mode
+    global _quiet_mode, _no_color, _debug_mode, _enforce_key_status
 
     parser = create_parser()
     args = parser.parse_args()
@@ -2443,6 +2481,7 @@ def main() -> NoReturn:
     _quiet_mode = args.quiet
     _no_color = args.no_color
     _debug_mode = args.debug or _env_flag_enabled("SSC_DEBUG")
+    _enforce_key_status = not getattr(args, "no_enforce_key_status", False)
     _resolve_credential_sources(args)
 
     # No command specified

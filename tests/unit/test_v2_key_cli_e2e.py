@@ -294,9 +294,15 @@ def test_key_archive_sets_status_but_never_blocks_use(
     assert rc == cli_args.EXIT_SUCCESS
 
 
-def test_key_revoke_blocks_use_only_with_vault_flag(
+def test_key_revoke_blocks_use_by_default(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """A revoke set by this exact CLI command is enforced without any flag.
+
+    Enforcement used to be opt-in via --vault, which meant `ssc key revoke`
+    had no effect on a key the operator still held unless they knew to pass an
+    unrelated password label. It now runs whenever a vault exists.
+    """
     keys_dir = Path(os.environ["HOME"]) / ".ssc" / "keys"
     keys_dir.mkdir(parents=True)
     dest = keys_dir / "revoked-key.ssckey"
@@ -308,21 +314,55 @@ def test_key_revoke_blocks_use_only_with_vault_flag(
     assert rc == cli_args.EXIT_SUCCESS
     assert "revoked" in capsys.readouterr().err
 
-    # Without --vault: the CLI's default offline behavior is unchanged.
+    with pytest.raises(SystemExit) as excinfo:
+        cli_args.cmd_encrypt(
+            _encrypt_args(text="secret", with_sources=["key:revoked-key"])
+        )
+    assert excinfo.value.code == cli_args.EXIT_AUTH_ERROR
+    message = capsys.readouterr().err.lower()
+    assert "revoked" in message
+    assert "--no-enforce-key-status" in message, (
+        "the refusal must name the override, or an operator hits a wall"
+    )
+
+
+def test_revoked_key_is_usable_when_enforcement_is_disabled(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--no-enforce-key-status restores the offline behaviour deliberately.
+
+    Holding the keyfile is sufficient to use the key, so the override has to
+    exist; what changed is that it is now an explicit choice rather than the
+    default.
+    """
+    keys_dir = Path(os.environ["HOME"]) / ".ssc" / "keys"
+    keys_dir.mkdir(parents=True)
+    dest = keys_dir / "revoked-key.ssckey"
+    cli_args.cmd_key_create(_create_args("revoked-key", external_file=str(dest)))
+    cli_args.cmd_key_revoke(_id_args("revoked-key"))
+    capsys.readouterr()
+
+    monkeypatch.setattr(cli_args, "_enforce_key_status", False)
     rc = cli_args.cmd_encrypt(
         _encrypt_args(text="secret", with_sources=["key:revoked-key"])
     )
     assert rc == cli_args.EXIT_SUCCESS
 
-    # With --vault: the revoke set by this exact CLI command is enforced.
-    with pytest.raises(SystemExit) as excinfo:
-        cli_args.cmd_encrypt(
-            _encrypt_args(
-                text="secret", with_sources=["key:revoked-key"], vault="anything"
-            )
-        )
-    assert excinfo.value.code == cli_args.EXIT_AUTH_ERROR
-    assert "revoked" in capsys.readouterr().err.lower()
+
+def test_active_key_is_unaffected_by_enforcement(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The common case must not become harder: an active key still works."""
+    keys_dir = Path(os.environ["HOME"]) / ".ssc" / "keys"
+    keys_dir.mkdir(parents=True)
+    dest = keys_dir / "live-key.ssckey"
+    cli_args.cmd_key_create(_create_args("live-key", external_file=str(dest)))
+    capsys.readouterr()
+
+    rc = cli_args.cmd_encrypt(
+        _encrypt_args(text="secret", with_sources=["key:live-key"])
+    )
+    assert rc == cli_args.EXIT_SUCCESS
 
 
 def test_key_destroy_with_confirm_flag_removes_recoverable_secret(
@@ -346,13 +386,12 @@ def test_key_destroy_with_confirm_flag_removes_recoverable_secret(
     assert excinfo.value.code == cli_args.EXIT_VAULT_ERROR
 
 
-def test_key_destroy_blocks_decrypt_only_with_vault_flag(
-    capsys: pytest.CaptureFixture[str],
+def test_key_destroy_blocks_decrypt_by_default(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The revoke test above chains into cmd_encrypt; this one chains into
-    cmd_decrypt specifically, so both directions of the --vault key-status
-    enforcement (added in B2.6) are actually exercised through the CLI
-    commands that set the status, not just one of the two."""
+    cmd_decrypt, so both directions of key-status enforcement are exercised
+    through the CLI commands that actually set the status."""
     keys_dir = Path(os.environ["HOME"]) / ".ssc" / "keys"
     keys_dir.mkdir(parents=True)
     dest = keys_dir / "doomed-key.ssckey"
@@ -383,11 +422,13 @@ def test_key_destroy_blocks_decrypt_only_with_vault_flag(
         base.update(overrides)
         return argparse.Namespace(**base)
 
-    # Without --vault: destroying the vault record doesn't touch the
-    # physical .ssckey file, so offline decryption is unaffected.
+    # With enforcement disabled, destroying the vault record leaves the
+    # physical .ssckey untouched, so decryption still works.
+    monkeypatch.setattr(cli_args, "_enforce_key_status", False)
     rc = cli_args.cmd_decrypt(_decrypt_args())
     assert rc == cli_args.EXIT_SUCCESS
     assert capsys.readouterr().out.strip() == "secret"
+    monkeypatch.setattr(cli_args, "_enforce_key_status", True)
 
     # With --vault: the destroy set by this exact CLI command is enforced.
     with pytest.raises(SystemExit) as excinfo:
@@ -425,3 +466,23 @@ def test_key_destroy_without_confirm_prompts_and_can_proceed(
 
     cli_args.cmd_key_show(_id_args("prompted-doomed"))
     assert "Status: destroyed" in capsys.readouterr().out
+
+
+def test_enforcement_is_on_by_default_and_the_flag_is_a_global_option() -> None:
+    """The opt-out is a top-level flag, so it precedes the subcommand.
+
+    Asserted here because the position is invisible until it fails: placed
+    after the subcommand, argparse rejects it as an unrecognized argument,
+    and a documented example that cannot run is worse than none. Verified
+    together with the default so the two cannot drift apart.
+    """
+    parser = cli_args.create_parser()
+
+    args = parser.parse_args(["encrypt", "-t", "x"])
+    assert args.no_enforce_key_status is False
+
+    args = parser.parse_args(["--no-enforce-key-status", "encrypt", "-t", "x"])
+    assert args.no_enforce_key_status is True
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["encrypt", "-t", "x", "--no-enforce-key-status"])

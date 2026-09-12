@@ -545,15 +545,42 @@ def test_v2_cli_encrypt_with_vault_allows_archived_key(
     assert rc == cli_args.EXIT_SUCCESS
 
 
-def test_v2_cli_encrypt_without_vault_flag_ignores_revoked_status(
+def test_v2_cli_encrypt_rejects_revoked_status_without_the_vault_flag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Without --vault, enforcement never runs: a physically-held .ssckey
-    file keeps working after revoke, matching documented behavior (this is
-    the existing, deliberately offline-friendly default, not the gap)."""
+    """Enforcement no longer needs --vault to opt in.
+
+    Revocation that a physically-held .ssckey could simply ignore was
+    revocation in name only, so the check now runs whenever a vault is
+    present, whether or not --vault was passed.
+    """
     home = tmp_path / "home"
     _use_hermetic_home(monkeypatch, home)
     _register_key_in_vault(home, status="revoked")
+    _mock_master_password(monkeypatch)
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli_args.cmd_encrypt(
+            _encrypt_args(text="secret", with_sources=[f"key:{_FINGERPRINT}"])
+        )
+    assert excinfo.value.code == cli_args.EXIT_AUTH_ERROR
+    assert "revoked" in capsys.readouterr().err.lower()
+
+
+def test_v2_cli_encrypt_ignores_revoked_status_when_enforcement_is_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--no-enforce-key-status restores the offline-friendly behaviour.
+
+    The holder of a .ssckey can always use the key it contains — that is
+    inherent to a bearer secret. The flag exists so that an operator who
+    knows the vault is unreachable can proceed deliberately rather than
+    being blocked by a check that cannot complete.
+    """
+    home = tmp_path / "home"
+    _use_hermetic_home(monkeypatch, home)
+    _register_key_in_vault(home, status="revoked")
+    monkeypatch.setattr(cli_args, "_enforce_key_status", False)
 
     rc = cli_args.cmd_encrypt(
         _encrypt_args(text="secret", with_sources=[f"key:{_FINGERPRINT}"])
