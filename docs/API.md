@@ -260,12 +260,12 @@ bounded metadata string, not a filesystem path. The current writer emits
 version 5 and authenticates the original metadata bytes as AES-GCM additional
 authenticated data; only after authentication may an automatic destination use
 a sanitized name. Legacy version 4 metadata is readable but unauthenticated, so
-its stored name is ignored for destination selection. Eexplicit output paths are
+its stored name is ignored for destination selection. Explicit output paths are
 authoritative for both versions.
 
 ---
 
-### V2 Encryption (in progress, unreleased — see [ROADMAP.md](../ROADMAP.md))
+### V2 Encryption
 
 The `secure_string_cipher.v2` submodule adds a new `.ssc` container format
 with AEAD DEK wrapping, alongside (not replacing) the V4/V5 legacy format.
@@ -319,7 +319,8 @@ output_path = decrypt_v2_file(
 
 **Key V2 Concepts**:
 - **Credentials**: `PasswordCredential(passphrase)`, `KeyCredential(key_fingerprint, managed_secret)` (a 32-byte managed-key secret plus its fingerprint — not a "direct" arbitrary-length key), or `CombinedCredential(passphrase, key_fingerprint, managed_secret)`.
-- **`V2VaultService`** (`secure_string_cipher.v2.vault_service`): the actual key-lifecycle implementation — there is no separate `KeyManager` class. Managed keys are random 256-bit secrets (not deterministic). The `ssc key` CLI subcommands (`create`/`import`/`show`/`export`/`list`/`rename`/`archive`/`revoke`/`destroy`) all wrap this service and work end to end (see ROADMAP.md for the remaining release gate — CLI end-to-end test coverage and frame-level golden vectors, not functional bugs). `load_keyfile`/`save_keyfile` (`secure_string_cipher.v2.keyfile`) remain the direct API for working with a `.ssckey` file's bytes.
+- **`V2VaultService`** (`secure_string_cipher.v2.vault_service`): the actual key-lifecycle implementation — there is no separate `KeyManager` class. Managed keys are random 256-bit secrets (not deterministic). The `ssc key` CLI subcommands (`create`/`import`/`show`/`export`/`list`/`rename`/`archive`/`revoke`/`destroy`) all wrap this service and work end to end, with full CLI-level test coverage. `load_keyfile`/`save_keyfile` (`secure_string_cipher.v2.keyfile`) remain the direct API for working with a `.ssckey` file's bytes.
+- **File extensions are a human convention, not a format signal.** `ssc encrypt -f document.pdf` (v1) defaults to `document.pdf.enc`; `ssc encrypt -f document.pdf --with password` (v2) defaults to `document.pdf.ssc` — see `cli_args.py::cmd_encrypt`'s two `with_suffix(...)` calls. `ssc decrypt` never looks at the extension: it reads the file's own magic bytes (`SSC2` for v2; the legacy header for v1) to decide which format it is, so decrypting a v2 container that was renamed to end in `.enc` (or vice versa) still works correctly.
 
 ---
 

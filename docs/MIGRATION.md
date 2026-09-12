@@ -1,10 +1,8 @@
 # Migration Guide: V1 to V2
 
-> **Status:** V2 is merged to `main` (PR #40, commit `59147fc`,
-> 2026-09-11) but not yet the source of a tagged release (see
-> [ROADMAP.md](../ROADMAP.md) for the remaining release gate). The `ssc key
-> create`/`rename` issues noted in a 2026-09-10 audit are fixed as of this
-> merge; the sections below have been updated accordingly.
+> **Status:** V2 shipped as part of package release `v2.0.0` (2026-09-11).
+> The `ssc key create`/`rename` issues noted in a 2026-09-10 audit are
+> fixed; the sections below reflect the released behavior.
 
 ## Overview
 
