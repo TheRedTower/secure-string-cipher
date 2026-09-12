@@ -5,16 +5,10 @@ These tests verify that all input validation functions handle
 arbitrary malicious inputs without crashing or allowing exploits.
 """
 
-from contextlib import suppress
-
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from secure_string_cipher.security import (
-    SecurityError,
-    sanitize_filename,
-    validate_safe_path,
-)
+from secure_string_cipher.security import sanitize_filename
 from secure_string_cipher.timing_safe import check_password_strength
 
 # =============================================================================
@@ -91,44 +85,6 @@ class TestFilenameSanitizationFuzz:
         result = sanitize_filename(malicious)
         # Null bytes should never appear in result
         assert "\x00" not in result
-
-
-# =============================================================================
-# Path Validation Fuzz Tests
-# =============================================================================
-
-
-class TestPathValidationFuzz:
-    """Fuzz tests for path validation."""
-
-    @settings(max_examples=200)
-    @given(
-        path=st.text(min_size=0, max_size=500),
-    )
-    def test_validate_path_never_crashes(self, path: str):
-        """Fuzz: Path validation should never crash."""
-        with suppress(SecurityError, ValueError, OSError):
-            validate_safe_path(path)
-
-    @settings(max_examples=100)
-    @given(
-        traversal=st.sampled_from(
-            [
-                "../../../etc/passwd",
-                "..\\..\\..\\windows\\system32",
-                "/etc/shadow",
-                "~/.ssh/id_rsa",
-                "....//....//etc/passwd",
-                "..%2f..%2f..%2fetc/passwd",
-                "..%252f..%252f..%252fetc/passwd",
-            ]
-        ),
-    )
-    def test_validate_path_blocks_traversal(self, traversal: str):
-        """Fuzz: Known path traversal patterns should be blocked."""
-        # These should either raise SecurityError or be blocked by OS
-        with suppress(SecurityError, ValueError, OSError):
-            validate_safe_path(traversal)
 
 
 # =============================================================================

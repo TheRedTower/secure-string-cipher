@@ -1212,18 +1212,21 @@ except CryptoError:
 
 ### SecurityError
 
-Raised by the policy helpers in `secure_string_cipher.security` for path,
-symlink, execution-context, and secure-publication violations. The exception is
-exported at the package root; the helpers themselves are submodule APIs.
+Raised by `secure_string_cipher.security.secure_atomic_write` for secure-write
+policy violations (non-owner-only mode, unwritable destination, etc). The
+exception is exported at the package root; the helper itself is a submodule
+API. Path traversal and symlink-attack protection for actual file I/O is not
+a standalone policy helper — it lives next to each writer instead (see
+`core.py` for v1 and `secure_string_cipher.v2.output` for v2).
 
 ```python
 from secure_string_cipher import SecurityError
-from secure_string_cipher.security import validate_safe_path
+from secure_string_cipher.security import secure_atomic_write
 
 try:
-    validate_safe_path("../outside.txt", ".")
+    secure_atomic_write("out.txt", b"data", mode=0o644)
 except SecurityError:
-    print("Path rejected")
+    print("Write rejected: mode must be 0o600")
 ```
 
 ### RateLimitError

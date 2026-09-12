@@ -200,30 +200,6 @@ class TestSecurityWorkflows:
         assert output_file.parent == tmp_path
         assert ".." not in str(output_file)
 
-    def test_path_validation_workflow(self, tmp_path):
-        """Test path validation in file operations."""
-        from secure_string_cipher.core import encrypt_file
-        from secure_string_cipher.security import SecurityError, validate_safe_path
-
-        input_file = tmp_path / "test.txt"
-        input_file.write_text("test content")
-
-        # Try to write outside allowed directory
-        dangerous_output = tmp_path.parent / "escape.enc"
-        password = "TestPassword123!@#"
-
-        # Validate path - should catch traversal
-        try:
-            validate_safe_path(str(dangerous_output), allowed_dir=str(tmp_path))
-            # If validation passes, encryption should still be safe
-            encrypt_file(str(input_file), str(dangerous_output), password)
-            # Clean up if it somehow succeeded
-            if dangerous_output.exists():
-                dangerous_output.unlink()
-        except SecurityError:
-            # Expected - path validation caught the issue
-            pass
-
 
 @pytest.mark.integration
 class TestErrorHandlingWorkflows:

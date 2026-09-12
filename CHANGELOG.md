@@ -20,6 +20,21 @@
   version, `AttributeError`-tolerant fallback, direct test coverage of both
   code paths) and what the durable fix would be.
 
+### Removed
+
+- **Dead security-policy helpers.** `secure_string_cipher.security` no
+  longer exports `validate_filename_safety`, `validate_safe_path`,
+  `detect_symlink`, `validate_output_path`, `check_elevated_privileges`,
+  `check_sensitive_directory`, `validate_execution_context`, or
+  `create_secure_temp_file`. None of these had any call site in `src/` —
+  path-traversal and symlink protection for real file I/O has always lived
+  in dedicated, independently-implemented checks next to each writer
+  instead (`core.py`'s `_ensure_no_symlink` for v1,
+  `secure_string_cipher.v2.output.validate_path_safety` for v2), which is
+  why the shared generic versions were never wired in. `SecurityError`,
+  `sanitize_filename`, and `secure_atomic_write` are unaffected and remain
+  the module's public surface.
+
 ## [2.0.0] - 2026-09-11
 
 This is a major version for one specific reason: **`ssc vault backups`/
