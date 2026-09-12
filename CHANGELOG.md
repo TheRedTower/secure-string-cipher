@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Stale "V2 not yet released" banners.** `docs/API.md`'s "V2 Encryption"
+  heading still said "(in progress, unreleased — see ROADMAP.md)", and
+  the top-of-file status banners in `docs/MIGRATION.md` and
+  `docs/THREAT_MODEL.md` still said "merged to `main`... but not yet the
+  source of a tagged release" — all three predate the `v2.0.0` release and
+  were missed by the earlier doc-truth pass. Updated to reflect that V2
+  shipped as part of package release `v2.0.0` (2026-09-11). Also documented,
+  in `docs/API.md`, that `.enc` (v1 default) vs `.ssc` (v2 default) are
+  human-facing output-filename conventions only — `ssc decrypt` reads a
+  file's magic bytes, never its extension, to decide which format it is.
+
 ### Changed
 
 - **Secure-memory fallback wiping simplified to a single zero-fill pass.**
