@@ -122,6 +122,32 @@ contain accepted changes that have not yet been included in a release.
 
 For scripting and automation, use the `ssc` command:
 
+#### Supplying credentials without a prompt
+
+Passwords are read interactively by default. For automation, supply them
+from a file or the environment:
+
+```bash
+# The data password
+ssc --password-file /run/secrets/pw encrypt -f document.pdf --with password
+SSC_PASSWORD="..." ssc encrypt -f document.pdf --with password
+
+# The vault master password, for vault and key commands
+ssc --master-password-file /run/secrets/master key list
+SSC_MASTER_PASSWORD="..." ssc key list
+```
+
+The flag wins over the variable, so a stale exported value cannot quietly
+override what the command line asked for. A password file must be a regular
+file, not reached through a symlink, and on POSIX not readable by group or
+other — it is a bearer secret, so a world-readable one is refused rather
+than used with a warning. One trailing newline is removed, since a file
+written with `echo` has one.
+
+Prefer a file over an environment variable where you can: on some systems a
+process's environment is readable by other processes owned by the same user,
+and variables are easily captured in shell history and CI logs.
+
 ```bash
 # Encrypt text
 ssc encrypt -t "Secret message"
