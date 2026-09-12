@@ -32,11 +32,18 @@ def test_public_python_examples_are_syntactically_valid(relative_path: Path) -> 
 
 
 def test_api_index_covers_every_package_root_export() -> None:
-    """Make additions or removals from the public API update its index."""
+    """Make additions or removals from the public API update its index.
+
+    Reads the table rows only, not the whole section: prose explaining the
+    table is free to mention a backticked identifier (a deprecation notice
+    naming `DeprecationWarning`, say) without that counting as a documented
+    export, which would otherwise make this fail for writing about the API.
+    """
     document = (REPOSITORY_ROOT / "docs" / "API.md").read_text(encoding="utf-8")
-    table = document.split("## Public API at a glance", maxsplit=1)[1].split(
+    section = document.split("## Public API at a glance", maxsplit=1)[1].split(
         "## Core Encryption", maxsplit=1
     )[0]
-    documented = set(re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", table))
+    rows = [line for line in section.splitlines() if line.lstrip().startswith("|")]
+    documented = set(re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", "\n".join(rows)))
 
     assert documented == set(secure_string_cipher.__all__)
