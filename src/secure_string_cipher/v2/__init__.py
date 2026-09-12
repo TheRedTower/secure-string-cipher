@@ -15,11 +15,11 @@ v1's API, and flattening two container formats into one namespace would make
     from secure_string_cipher import v2
     from secure_string_cipher.v2 import encrypt_v2_file, PasswordCredential
 
-The ``app`` submodule is the layer above these primitives: it resolves a key
-reference to a keyfile, decides what credential an object requires, and
-enforces managed-key lifecycle policy, without prompting or exiting. Use it
-when building an interface; use the primitives here when you already hold a
-credential.
+The ``app`` submodule is the layer above these primitives: it reads a
+container's header (binary or armoured), resolves a key reference to a
+keyfile, decides what credential an object requires, and enforces managed-key
+lifecycle policy — without prompting or exiting. Use it when building an
+interface; use the primitives here when you already hold a credential.
 """
 
 from . import app

@@ -11,6 +11,13 @@ Nothing here performs interactive input or exits the process. Callers supply
 credentials and receive either a value or a typed exception, and decide for
 themselves how to prompt, render and exit.
 
+Both container shapes are reachable from here: `header_from_container` /
+`header_from_stream` for the binary `.ssc` framing and `header_from_armour`
+for an armoured message. That matters because `required_credential` needs a
+header, so without a public way to read one from a file the layer could not
+do its primary job without reaching into `v2.header_parser` — which is
+internal.
+
 Deliberately *not* included: obtaining a password. Where a password comes
 from — a prompt, a vault entry, a file, an environment variable — is an
 interface concern, so it stays with the caller. This module only says which
@@ -22,6 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import BinaryIO
 
 from secure_string_cipher.v2.encrypt import (
     CombinedCredential,
@@ -50,6 +58,8 @@ __all__ = [
     "build_credential",
     "default_keys_dir",
     "header_from_armour",
+    "header_from_container",
+    "header_from_stream",
     "required_credential",
 ]
 
@@ -201,6 +211,43 @@ def header_from_armour(armoured_text: str) -> V2Header:
         return validate_v2_header(header_dict, raw_bytes)
     except Exception as error:
         raise MalformedContainer(error) from error
+
+
+def header_from_stream(stream: BinaryIO) -> V2Header:
+    """Read and validate the protected header from a binary `SSC2` stream.
+
+    The counterpart to `header_from_armour` for the format a `.ssc` *file*
+    actually uses. Both exist because the header is framed differently in
+    each: binary containers carry `SSC2` plus a length prefix, armoured
+    messages carry Base64'd canonical JSON.
+
+    The stream is left positioned after the header, so a caller that is about
+    to decrypt does not have to re-open the file.
+
+    Raises `MalformedContainer`, deliberately without detail: the caller is
+    about to decide whether to attempt decryption, and a parse failure should
+    not describe the input back.
+    """
+    from secure_string_cipher.v2.header_parser import parse_header_stream
+
+    try:
+        header, _ = parse_header_stream(stream)
+    except Exception as error:
+        raise MalformedContainer(error) from error
+    return header
+
+
+def header_from_container(path: Path) -> V2Header:
+    """Read the protected header from a `.ssc` file on disk.
+
+    An `OSError` from opening the file is deliberately *not* wrapped: "this
+    file is unreadable" and "this file is not a v2 container" call for
+    different handling by the caller, and collapsing them into
+    `MalformedContainer` would report a permissions problem as a corrupt
+    object.
+    """
+    with open(path, "rb") as stream:
+        return header_from_stream(stream)
 
 
 def required_credential(header: V2Header) -> GrantRequirement:

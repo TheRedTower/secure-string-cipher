@@ -70,6 +70,7 @@ from .v2.app import (
     VaultUnlockFailed,
     build_credential,
     header_from_armour,
+    header_from_container,
     required_credential,
 )
 from .v2.decrypt import decrypt_v2_file, decrypt_v2_text
@@ -1182,8 +1183,6 @@ def _cmd_decrypt_v2(
     args: argparse.Namespace, is_message: bool, rate_identifier: str = ""
 ) -> int:
 
-    from .v2.header_parser import parse_header_stream
-
     if is_message:
         try:
             header = header_from_armour(args.text)
@@ -1208,9 +1207,8 @@ def _cmd_decrypt_v2(
     # File decrypt V2 (real binary SSC2 container: magic + length prefix).
     filepath = Path(args.file)
     try:
-        with open(filepath, "rb") as f:
-            header, _ = parse_header_stream(f)
-    except (OSError, PermissionError):
+        header = header_from_container(filepath)
+    except OSError:
         _exit_error(EXIT_FILE_ERROR, "File error.")
     except Exception:
         _cli_limiter.record_attempt("decrypt_file", rate_identifier, success=False)

@@ -306,6 +306,38 @@ surface is missing something, so it is worth raising rather than importing.
 `v2` is not flattened into the package root: the root namespace is v1's API,
 and two `encrypt_file`-shaped functions in one namespace would be ambiguous to
 a reader. Import the submodule — `from secure_string_cipher import v2`.
+
+`v2.app` is what an interface should build on. It reads a container's header,
+says which credential that container's grant requires, resolves a key
+reference to a keyfile, and applies managed-key lifecycle policy — raising
+typed errors under a `V2AppError` base, never prompting and never exiting:
+
+```python
+from pathlib import Path
+
+from secure_string_cipher.v2 import app, decrypt_v2_file
+
+passphrase = "MySecurePass123!"  # pragma: allowlist secret - documentation example
+
+header = app.header_from_container(Path("report.pdf.ssc"))
+requirement = app.required_credential(header)
+
+if requirement.needs_managed_key:
+    assert requirement.key_fingerprint is not None
+    key_data = app.KeyResolver().resolve(requirement.key_fingerprint)
+else:
+    key_data = None
+
+credential = app.build_credential(
+    requirement,
+    password=passphrase if requirement.needs_password else None,  # pragma: allowlist secret
+    key_data=key_data,
+)
+decrypt_v2_file(Path("report.pdf.ssc"), credential=credential)
+```
+
+`header_from_armour` is the same entry point for an armoured text message;
+the header is framed differently in each, which is why there are two.
 Each `.ssc` object carries exactly **one** access grant — there is no
 multi-grant access control. That grant can require a password and a managed
 key together via `CombinedCredential`; it cannot be satisfied by either alone,

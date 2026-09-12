@@ -3,6 +3,7 @@ secure_string_cipher - Core encryption functionality
 """
 
 from importlib.metadata import PackageNotFoundError, version
+from typing import TYPE_CHECKING
 
 from . import v2
 from .audit_log import (
@@ -147,6 +148,16 @@ _DEPRECATED_EXPORTS = {
     "ProgressBar": ("secure_string_cipher.utils", "ProgressBar"),
     "main": ("secure_string_cipher.cli", "main"),
 }
+
+if TYPE_CHECKING:
+    # This package ships py.typed, so a type checker's view of these names is
+    # part of what "still works until 3.0.0" means. Without these imports the
+    # lazy loader gives them the static type `object`, and a typed consumer
+    # calling `main()` or annotating with `ProgressBar` fails to check *now* —
+    # which would make the deprecation a break rather than a warning. The
+    # imports cost nothing at runtime, so the interactive CLI stays unloaded.
+    from .cli import main
+    from .utils import ProgressBar, colorize
 
 
 def __getattr__(name: str) -> object:

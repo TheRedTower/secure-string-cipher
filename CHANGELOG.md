@@ -42,6 +42,12 @@
   container formats sharing one namespace would make `encrypt_file`
   ambiguous. Anything reached through a deeper path (`v2.envelope`,
   `v2.vault_service`) remains internal and may change in a minor release.
+  `v2.app` also gained `header_from_container` / `header_from_stream`, the
+  binary counterparts to `header_from_armour`: `required_credential` needs a
+  header, so without a public way to read one from a `.ssc` file the layer
+  could not do its main job without importing `v2.header_parser` — which the
+  same change declares internal. `cli_args.py` now goes through them too, so
+  the CLI stops being a counter-example to its own boundary.
 
 - **`secure_string_cipher.v2.app` — a reusable application layer for v2
   credentials and managed-key policy.** Key resolution, key-status policy,
