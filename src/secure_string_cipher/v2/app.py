@@ -37,6 +37,7 @@ from secure_string_cipher.v2.vault_service import V2VaultService
 __all__ = [
     "CredentialRequirement",
     "GrantRequirement",
+    "KeyDirectoryUnreadable",
     "KeyResolver",
     "KeyStatusPolicy",
     "KeyFileNotFound",
@@ -81,6 +82,20 @@ class KeyFileUnreadable(V2AppError):
         self.path = path
         self.cause = cause
         super().__init__(f"Could not load key file: {path}")
+
+
+class KeyDirectoryUnreadable(V2AppError):
+    """The keys directory exists but could not be searched.
+
+    Distinct from `KeyFileNotFound`: the reference may well have matched, but
+    the directory could not be read to find out. Reporting "not found" for an
+    unreadable directory would send the caller looking for the wrong problem.
+    """
+
+    def __init__(self, keys_dir: Path, cause: BaseException):
+        self.keys_dir = keys_dir
+        self.cause = cause
+        super().__init__(f"Could not search the keys directory: {keys_dir}")
 
 
 class KeyStatusRejected(V2AppError):
@@ -264,7 +279,16 @@ class KeyResolver:
 
         keys_dir = self.keys_dir
         if keys_dir.is_dir():
-            for child in sorted(keys_dir.iterdir()):
+            try:
+                children = sorted(keys_dir.iterdir())
+            except OSError as error:
+                # An unreadable directory, or one removed between the is_dir
+                # check and the listing, would otherwise raise a bare
+                # PermissionError/OSError straight past the V2AppError
+                # hierarchy this module advertises.
+                raise KeyDirectoryUnreadable(keys_dir, error) from error
+
+            for child in children:
                 if child.suffix != ".ssckey":
                     continue
                 try:
