@@ -1064,7 +1064,7 @@ def _resolve_v2_key_source(key_ref: str) -> KeyFileData:
     its typed errors into CLI exits.
     """
     try:
-        return KeyResolver().resolve(key_ref)
+        key_data = KeyResolver().resolve(key_ref)
     except KeyFileUnreadable:
         _exit_error(EXIT_FILE_ERROR, "Could not load key file.")
     except KeyDirectoryUnreadable as error:
@@ -1079,6 +1079,7 @@ def _resolve_v2_key_source(key_ref: str) -> KeyFileData:
             "Key not found: provide a .ssckey path or a fingerprint/key-id "
             f"present in {keys_dir}.",
         )
+    return key_data
 
 
 def _get_v2_password(args: argparse.Namespace) -> str:
