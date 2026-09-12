@@ -58,6 +58,7 @@ from .security import SecurityError
 from .timing_safe import check_password_strength
 from .utils import colorize, secure_overwrite
 from .v2.app import (
+    KeyDirectoryUnreadable,
     KeyFileNotFound,
     KeyFileUnreadable,
     KeyResolver,
@@ -884,6 +885,9 @@ def _resolve_v2_key_source(key_ref: str) -> KeyFileData:
         return KeyResolver().resolve(key_ref)
     except KeyFileUnreadable:
         _exit_error(EXIT_FILE_ERROR, "Could not load key file.")
+    except KeyDirectoryUnreadable as error:
+        keys_dir = error.keys_dir
+        _exit_error(EXIT_FILE_ERROR, f"Could not search the keys directory: {keys_dir}")
     except KeyFileNotFound as error:
         # Hoisted out of the message expression so no exception name appears
         # in the sink call itself (tools/check_sensitive_output.py).

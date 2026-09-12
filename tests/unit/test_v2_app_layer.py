@@ -7,6 +7,7 @@ reintroduces `getpass` or `sys.exit` into this module, the tests that drive
 it headlessly are what will notice.
 """
 
+import os
 import secrets
 from pathlib import Path
 
@@ -15,6 +16,7 @@ import pytest
 from secure_string_cipher.v2.app import (
     CredentialRequirement,
     GrantRequirement,
+    KeyDirectoryUnreadable,
     KeyFileNotFound,
     KeyFileUnreadable,
     KeyResolver,
@@ -132,6 +134,29 @@ class TestKeyResolver:
         (tmp_path / "broken.ssckey").write_text("garbage\n")
         _, good = _write_keyfile(tmp_path, "good-key")
         assert KeyResolver(tmp_path).resolve("good-key").fingerprint == good.fingerprint
+
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX permission semantics")
+    def test_unreadable_keys_directory_raises_a_typed_error(
+        self, tmp_path: Path
+    ) -> None:
+        """An unreadable directory must not raise a bare PermissionError.
+
+        The layer advertises that every failure is a V2AppError; a raw
+        filesystem exception escaping past that breaks the contract for any
+        caller writing `except V2AppError`. It is also reported distinctly
+        from "not found", since the reference may well have matched.
+        """
+        keys_dir = tmp_path / "keys"
+        keys_dir.mkdir()
+        os.chmod(keys_dir, 0o000)
+        try:
+            with pytest.raises(KeyDirectoryUnreadable) as excinfo:
+                KeyResolver(keys_dir).resolve("anything")
+            assert isinstance(excinfo.value, V2AppError)
+            assert isinstance(excinfo.value.cause, OSError)
+            assert excinfo.value.keys_dir == keys_dir
+        finally:
+            os.chmod(keys_dir, 0o700)
 
     def test_missing_keys_directory_is_not_an_error_in_itself(
         self, tmp_path: Path
@@ -266,6 +291,7 @@ class TestLayerIsHeadless:
         """A caller can handle the whole layer without enumerating classes."""
         for error in (
             KeyFileNotFound("x", Path("/k")),
+            KeyDirectoryUnreadable(Path("/k"), OSError("denied")),
             KeyFileUnreadable(Path("/k/x.ssckey"), OSError("boom")),
             KeyStatusRejected("k", KeyStatus.REVOKED),
             VaultUnlockFailed(),
