@@ -27,7 +27,7 @@ services:
       - /tmp:rw,noexec,nosuid,nodev,size=100m
 
     healthcheck:
-      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      test: ["CMD", "ssc", "--version"]
       interval: 10s
       timeout: 2s
       retries: 2

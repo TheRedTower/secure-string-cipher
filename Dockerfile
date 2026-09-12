@@ -1,4 +1,5 @@
-FROM python:3.14-alpine AS builder
+# python:3.14-alpine (3.14.7-alpine3.24, multi-arch index digest)
+FROM python:3.14-alpine@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -18,17 +19,25 @@ RUN --mount=type=cache,target=/var/cache/apk \
 
 COPY pyproject.toml README.md LICENSE ./
 
+# Pinned to the same exact versions pyproject.toml/uv.lock require, so the
+# wheel this stage builds is metadata-consistent with the hash-locked wheel
+# `make build` produces for the PyPI release (see Makefile's `build` target).
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=cache,target=/root/.cargo/registry \
     pip install --upgrade pip \
-    && pip install build cryptography wcwidth pyperclip
+    && pip install \
+    build==1.3.0 \
+    cryptography==50.0.1 \
+    wcwidth==0.8.3 \
+    pyperclip==1.11.0
 
 COPY src/ ./src/
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m build --wheel --outdir /build/wheels
 
-FROM python:3.14-alpine
+# python:3.14-alpine (3.14.7-alpine3.24, multi-arch index digest)
+FROM python:3.14-alpine@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc
 
 ARG SSC_VERSION=dev
 
@@ -56,8 +65,10 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 USER cipheruser
 WORKDIR /data
 
+# Exercises the actual installed console_script entry point end to end
+# (import + argparse + version resolution), not just "is Python alive".
 HEALTHCHECK --interval=10s --timeout=2s --start-period=3s --retries=2 \
-    CMD python -c "import sys; sys.exit(0)"
+    CMD ssc --version || exit 1
 
 ENTRYPOINT ["ssc"]
 CMD ["start"]
