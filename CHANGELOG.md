@@ -75,6 +75,32 @@
   data" — whenever the underlying exception has nothing to add, rather than
   leaving the message dangling at the colon.
 
+- **The most misleading page in the repository, corrected.**
+  `docs/SSC_V2_REFINED_IMPLEMENTATION_SPEC.md` §10.3's lifecycle table
+  described a `--allow-revoked-key` CLI flag that never existed, and
+  claimed `archived` blocks new encryption when shipped behavior is the
+  opposite (archive never blocks). Rewritten to match shipped behavior,
+  split into the two genuinely separate mechanisms that govern it:
+  `_enforce_v2_key_status` for `encrypt`/`decrypt` (default-on,
+  `--no-enforce-key-status` overrides), and `V2VaultService.get_key`'s own
+  `allow_revoked` parameter for `key show`/`key export` (no CLI override
+  exists for this one at all — see #130, filed while writing this
+  correction).
+
+- **Six of thirteen files under `docs/` were missing from its own index,**
+  including two still-current documents (`MIGRATION.md`, the refined
+  implementation spec) simply missed rather than deliberately excluded.
+  Added a test (`test_docs_readme_indexes_every_file_in_the_docs_directory`)
+  so a future addition under `docs/` fails CI if it isn't indexed.
+
+- **A contradicted audit-checklist claim.** `.github/AUDIT_CHECKLIST.md`
+  §5.1 asserted "same error for wrong password vs. corrupted file."
+  Empirically false: a wrong password fails key-commitment verification
+  first, with a different message than a tampered ciphertext's AEAD
+  failure. Neither leaks secret material, which is the property that
+  actually matters; corrected the item to check for that instead of
+  indistinguishability.
+
 - **`.ssckey` files are now read in binary mode.** `load_keyfile` opened the
   descriptor without `O_BINARY`, so on Windows the C runtime collapsed CRLF
   to LF and truncated at a control-Z before the parser saw the bytes —

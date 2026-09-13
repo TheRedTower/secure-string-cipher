@@ -186,9 +186,18 @@ assessment; source and tests are authoritative when this guide becomes stale.
   - All files
   - Check: No passwords, keys, or plaintexts in error messages
 
-- [ ] **Decryption failures are generic**
+- [ ] **Decryption failures do not leak key material or plaintext**
   - File: `core.py`
-  - Expected: Same error for wrong password vs. corrupted file
+  - Expected: no error message names a password, key, or plaintext byte.
+    Confirmed empirically that a wrong password and a tampered ciphertext
+    byte in fact fail with *different* messages (key-commitment
+    verification fails fast on a wrong key before the AEAD is even
+    attempted, so it is caught earlier and reported differently than a
+    tampered-ciphertext AEAD failure) — this checklist previously claimed
+    the two were identical, which they are not and have not been. Neither
+    is a leak, since neither names any secret material; the property that
+    actually matters here is the absence of leakage, not
+    indistinguishability between the two failure causes.
 
 - [ ] **Audit logs redact sensitive fields**
   - File: `audit_log.py`

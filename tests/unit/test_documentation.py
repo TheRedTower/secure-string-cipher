@@ -47,3 +47,26 @@ def test_api_index_covers_every_package_root_export() -> None:
     documented = set(re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", "\n".join(rows)))
 
     assert documented == set(secure_string_cipher.__all__)
+
+
+def test_docs_readme_indexes_every_file_in_the_docs_directory() -> None:
+    """Make an addition under docs/ show up in its own index.
+
+    #113 found six of thirteen files in docs/ absent from docs/README.md's
+    index -- including two that are still current (MIGRATION.md, the
+    refined implementation spec) and were simply missed, not deliberately
+    excluded. This does not require every file to be linked with a specific
+    description; it only requires the filename to appear *somewhere* in the
+    index, so a file can be covered by a general historical-evidence bullet
+    without a dedicated line of its own.
+    """
+    docs_dir = REPOSITORY_ROOT / "docs"
+    readme = (docs_dir / "README.md").read_text(encoding="utf-8")
+
+    markdown_files = {
+        path.name for path in docs_dir.glob("*.md") if path.name != "README.md"
+    }
+    assert markdown_files, "expected at least one markdown file under docs/"
+
+    missing = {name for name in markdown_files if name not in readme}
+    assert not missing, f"docs/README.md does not mention: {sorted(missing)}"
