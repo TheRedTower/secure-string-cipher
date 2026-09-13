@@ -141,22 +141,29 @@ jobs:
         fi
 
   platform-safety:
-    name: Platform Safety (${{ matrix.os }} - ${{ matrix.python-version }})
+    name: Platform Safety (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     needs: quality
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.12", "3.13", "3.14"]
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Set up Python ${{ matrix.python-version }}
+    # A single, current Python version: this job exists to catch OS-specific
+    # bugs (path-safety logic, permission handling, file locking, the
+    # keychain backend), not Python-version-specific ones -- the `test` job
+    # above already covers 3.12/3.13/3.14 cross-version compatibility on
+    # Linux. SSC-003 (a macOS-only symlink-rejection bug, #90) went
+    # unnoticed for exactly this reason: the full suite ran on Linux only,
+    # and pytest's tmp_path is pre-resolved so even Linux couldn't have
+    # exercised the symlinked-ancestor case tmp_path hid.
+    - name: Set up Python 3.14
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: "3.14"
         allow-prereleases: true
 
     - name: Install uv
@@ -171,19 +178,8 @@ jobs:
     - name: Sync (locked)
       run: uv sync --extra dev --locked
 
-    - name: Run focused platform safety tests
-      run: >-
-        uv run --locked pytest
-        tests/integration/test_legacy_fixtures.py
-        tests/integration/test_platform_safety.py
-        tests/unit/test_file_size_limits.py
-        tests/unit/test_vault_transport.py
-        tests/unit/test_vault_candidate_validation.py
-        tests/unit/test_vault_transactions.py
-        tests/unit/test_v2_vault_transactions.py
-        tests/unit/test_v2_output_safety.py
-        tests/unit/test_v2_keyfile.py
-        -n 0
+    - name: Run full test suite
+      run: uv run --locked pytest tests/ -m "not benchmark" -n 0
 
   benchmarks:
     name: Benchmarks (informational)

@@ -14,6 +14,7 @@ class TestInlinePassphraseGeneration:
     ):
         """Test /gen auto-generates alphanumeric passphrase."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         input_data = "\n".join(
             [
                 "1",  # Encrypt text
@@ -49,6 +50,7 @@ class TestInlinePassphraseGeneration:
     def test_gen_command_with_test_message(self, tmp_path, monkeypatch):
         """Test /gen with a different test message."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         input_data = "\n".join(
             [
                 "1",
@@ -78,6 +80,7 @@ class TestInlinePassphraseGeneration:
     def test_gen_command_with_vault_storage(self, tmp_path, monkeypatch):
         """Test /gen with vault storage."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         input_data = "\n".join(
             [
                 "1",  # Encrypt text
@@ -112,6 +115,7 @@ class TestInlinePassphraseGeneration:
     def test_gen_command_aliases(self, tmp_path, monkeypatch):
         """Test that /generate and /g also work."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         for index, alias in enumerate(["/generate", "/g"], 1):
             input_data = "\n".join(
                 [
@@ -144,6 +148,7 @@ class TestInlinePassphraseGeneration:
         """Test that generated passwords skip confirmation prompt."""
         # This test ensures that after /gen, there's no "Confirm passphrase:" prompt
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         input_data = "\n".join(
             [
                 "1",

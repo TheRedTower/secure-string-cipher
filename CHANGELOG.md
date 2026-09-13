@@ -4,6 +4,21 @@
 
 ### Added
 
+- **The full test suite now runs on macOS and Windows, not only Linux.**
+  `platform-safety` previously ran a curated 9-file subset there; it now
+  runs the entire suite (minus benchmarks, which have their own job).
+  Traded the previous 3-Python-version matrix on each non-Linux OS for a
+  single current version (3.14): this job exists to catch OS-specific bugs
+  — path-safety logic, permission handling, file locking, the keychain
+  backend — not Python-version-specific ones, which the `test` job already
+  covers with all three versions on Linux. This is not a theoretical gap:
+  SSC-003 (issue #90, already fixed) was a macOS-only bug in
+  `v2/paths.py`'s symlink rejection that went unnoticed specifically
+  because the full suite had never run there, compounded by `tmp_path`
+  being pre-resolved so even Linux's own runs couldn't have exercised the
+  symlinked-ancestor case that hid it. Required branch-protection status
+  checks updated to match the renamed jobs (`Platform Safety (<os>)`,
+  dropping the Python-version suffix) once this merged.
 - **The built wheel is now actually installed and run, not just built and
   statically inspected.** `ci.yml`'s `quality` job already ran `make
   build`, and `release.yml`'s own `build` job already checked the resulting
@@ -147,6 +162,26 @@
   `secure_string_cipher.v2.app`.
 
 ### Fixed
+
+- **Five genuine Windows-only bugs, surfaced by the first full-suite
+  Windows CI run described above.** (1) `↔` (U+2194) in `vault migrate
+  --help` text raised `UnicodeEncodeError` under Windows' cp1252 console
+  codepage whenever `--help` output was captured via subprocess (as the
+  wheel-smoke-test job does) — replaced with `<->`; a much larger latent
+  version of this same class of bug exists in the interactive `ssc start`
+  menu (tracked separately as #139, out of scope here since it isn't
+  exercised by the current suite). (2) `monkeypatch.setenv("HOME", ...)`
+  alone does not redirect `Path.home()` on Windows — `ntpath.expanduser`
+  checks `USERPROFILE` first, unconditionally, with no fallback to `HOME`
+  — so every test doing this now sets `USERPROFILE` alongside `HOME`.
+  (3) Windows has no POSIX permission bits, so a `0o600` assertion in
+  `test_secure_atomic_write_basic` split into its own
+  `skipif(os.name != "posix")` test. (4) `os.readlink()` on Windows can
+  return the extended-length path form (`\\?\C:\...`), which doesn't
+  string-match a plain `str(Path(...))` even though both name the same
+  file — compared via `Path(...) == Path(...)` instead. Verified locally
+  on macOS (1716 passed, 1 skipped) with final confirmation from Windows
+  CI itself.
 
 - **A decryption failure could report "Decryption failed: " with nothing
   after the colon.** A GCM tag failure raises

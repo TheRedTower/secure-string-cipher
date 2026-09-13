@@ -13,6 +13,7 @@ Covers:
 from __future__ import annotations
 
 import base64
+import os
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -230,6 +231,7 @@ class TestGenerateKeyPair:
         with pytest.raises(CryptoError):
             generate_key_pair(str(private_key), str(public_key))
 
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX permission check")
     def test_generate_key_pair_permissions(self, tmp_path):
         """Should set correct permissions on key files."""
         private_key = tmp_path / "id_rsa"
