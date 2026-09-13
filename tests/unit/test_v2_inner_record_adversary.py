@@ -25,7 +25,13 @@ class DummyVaultAdapter:
 
 
 def get_service():
-    return V2VaultService(DummyVaultAdapter())
+    # These tests exercise V2VaultService's private wrap/unwrap helpers
+    # directly, which take every input as an explicit argument and never
+    # touch self._vault at all -- so a dummy that satisfies no part of
+    # PassphraseVault's real interface is fine here, and a full stub
+    # matching that interface would be pure ceremony for tests that never
+    # call it.
+    return V2VaultService(DummyVaultAdapter())  # type: ignore[arg-type]
 
 
 def get_base_meta():

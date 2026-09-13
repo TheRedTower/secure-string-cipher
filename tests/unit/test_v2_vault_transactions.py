@@ -13,7 +13,7 @@ from secure_string_cipher.passphrase_manager import (
     validate_raw_vault_document,
 )
 from secure_string_cipher.v2.key_identity import KeyStorageMode
-from secure_string_cipher.v2.vault_schema import b64url_encode
+from secure_string_cipher.v2.vault_schema import V2VaultDocument, b64url_encode
 from secure_string_cipher.v2.vault_service import V2VaultService
 
 MASTER = "Public-Test-Transaction-Master-2026!"  # pragma: allowlist secret
@@ -63,6 +63,7 @@ def test_document_publication_failure_restores_exact_snapshot(
             "test-key", KeyStorageMode.VAULT_COPY, master_password=MASTER
         )
     previous = vault.read_raw_vault()
+    assert previous is not None
     real_write = vault.write_raw_vault
     calls = 0
 
@@ -175,6 +176,8 @@ def test_import_rejects_unusable_inner_secret(vault: PassphraseVault) -> None:
         "test-key", KeyStorageMode.VAULT_COPY, master_password=MASTER
     )
     _, doc = vault._load_document(MASTER)
+    assert isinstance(doc, V2VaultDocument)
+    assert record.vault_secret is not None
     bad_secret = dict(record.vault_secret)
     bad_secret["tag"] = b64url_encode(b"\x00" * 16)
     bad_record = replace(record, vault_secret=bad_secret)
@@ -231,6 +234,7 @@ def test_keychain_password_rotation_failure_preserves_old_keys(tmp_path, monkeyp
             "test-key", KeyStorageMode.VAULT_COPY, master_password=MASTER
         )
         before = vault.read_raw_vault()
+        assert before is not None
         backend.fail_next = True
         with pytest.raises(VaultTransactionError) as caught:
             service.change_master_password(MASTER, NEW_MASTER)

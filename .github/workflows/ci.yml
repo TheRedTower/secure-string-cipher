@@ -51,6 +51,9 @@ jobs:
     - name: Type check (mypy)
       run: uv run --locked mypy src
 
+    - name: Type check tests (mypy)
+      run: uv run --locked mypy tests --allow-untyped-defs --check-untyped-defs
+
     - name: Guard sensitive CLI output
       run: uv run --locked python tools/check_sensitive_output.py
 

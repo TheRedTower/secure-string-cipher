@@ -29,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Protocol
 
 from secure_string_cipher.v2.encrypt import (
     CombinedCredential,
@@ -38,9 +38,8 @@ from secure_string_cipher.v2.encrypt import (
     V2Credential,
 )
 from secure_string_cipher.v2.envelope import GrantType, V2Header
-from secure_string_cipher.v2.key_identity import KeyStatus
+from secure_string_cipher.v2.key_identity import KeyIdentity, KeyStatus
 from secure_string_cipher.v2.keyfile import KeyFileData, load_keyfile
-from secure_string_cipher.v2.vault_service import V2VaultService
 
 __all__ = [
     "CredentialRequirement",
@@ -356,6 +355,18 @@ class KeyResolver:
 # ---------------------------------------------------------------------------
 
 
+class KeyLister(Protocol):
+    """What `KeyStatusPolicy` actually needs from a vault service.
+
+    Depending on this instead of the concrete `V2VaultService` is not just
+    a typing nicety: it is what lets a test stand in a lightweight stub
+    for a real vault, and states plainly that status-checking has no
+    business calling anything else on the service.
+    """
+
+    def list_keys(self, master_password: str) -> list[KeyIdentity]: ...
+
+
 class KeyStatusPolicy:
     """Refuses a managed key this vault marks revoked or destroyed.
 
@@ -369,7 +380,7 @@ class KeyStatusPolicy:
     `ARCHIVED` is bookkeeping only and never blocks use.
     """
 
-    def __init__(self, service: V2VaultService):
+    def __init__(self, service: KeyLister):
         self._service = service
 
     def check(self, fingerprint: str, *, master_password: str) -> None:

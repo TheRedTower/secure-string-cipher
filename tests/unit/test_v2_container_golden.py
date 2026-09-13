@@ -19,6 +19,7 @@ import hashlib
 import json
 import struct
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -37,9 +38,9 @@ FRAME_HEADER_LEN = 4 + 8 + 4 + 2 + 1
 TAG_LEN = 16
 
 
-def _vector() -> dict:
+def _vector() -> dict[str, Any]:
     manifest = json.loads(MANIFEST_PATH.read_text("utf-8"))
-    return manifest["container"]["password_two_frame"]
+    return cast(dict[str, Any], manifest["container"]["password_two_frame"])
 
 
 def _expected_plaintext(length: int) -> bytes:

@@ -286,8 +286,8 @@ class TestConstantTimeBenchmarks:
     @pytest.mark.benchmark
     def test_constant_time_compare_same_length(self):
         """Benchmark: Constant-time comparison with same-length strings."""
-        a = "a" * 100
-        b = "b" * 100
+        a = b"a" * 100
+        b = b"b" * 100
         iterations = 10000
 
         start = time.perf_counter()
