@@ -174,7 +174,7 @@ MiB means 1,048,576 bytes; KiB means 1,024 bytes. Limits apply to both writers a
 | V2 password input | At most 65,536 UTF-8 bytes before copying/deriving |
 | Object/header JSON | At most 16 container levels and 1,024 total members/elements |
 | Vault raw representation | Existing 104,857,600-byte cap, counted as strict UTF-8 bytes |
-| Managed identities per V2 vault | At most 1,024; no new semantic count limit on legacy passphrase entries |
+| Managed identities per V2 vault | No implemented count limit; bounded only indirectly by the existing 104,857,600-byte vault raw-representation cap above. No new semantic count limit on legacy passphrase entries either. |
 | Argon2 profile | Exactly the initial profile in section 7; one derivation at a time per operation |
 
 The header JSON node/depth limits do not apply wholesale to a large legacy vault. V2 vault schema depth is separately bounded to 16; its passphrase namespace remains governed by the legacy raw-size boundary.
