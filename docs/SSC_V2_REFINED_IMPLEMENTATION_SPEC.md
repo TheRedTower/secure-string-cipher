@@ -673,12 +673,35 @@ Keyfiles are **plaintext bearer secrets**. The format is not encrypted, signed, 
 
 ### 10.3 Storage and lifecycle
 
-| State | New encryption | Decryption | Export |
-| --- | --- | --- | --- |
-| active | Allowed | Allowed | Explicit destination and warning |
-| archived | Blocked | Allowed with warning | Allowed with warning |
-| revoked | Blocked | Explicit --allow-revoked-key recovery only | Same explicit recovery override |
-| destroyed | Blocked | No key supplied by this record | No key supplied by this record |
+This table describes shipped behavior, verified directly against
+`v2/vault_service.py` and `cli_args.py` rather than restated from an
+earlier design draft. `--allow-revoked-key` never existed as a CLI flag —
+it was this document's own aspirational name for a mechanism that shipped
+differently. Neither the encrypt/decrypt path nor the vault-service path
+prints a warning anywhere; "with warning" in an earlier version of this
+table did not match any code.
+
+**`ssc encrypt` / `ssc decrypt`** (governed by `cli_args.py`'s
+`_enforce_v2_key_status`/`KeyStatusPolicy`, added in the default-on-status
+work):
+
+| State | Behavior |
+| --- | --- |
+| active | Allowed |
+| archived | Allowed — archiving is bookkeeping only and never blocks use |
+| revoked | Blocked by default whenever a vault exists and tracks the key; `--no-enforce-key-status` overrides |
+| destroyed | Blocked by the same default-on mechanism; a bearer `.ssckey` file held externally still works regardless, as for revoked — holding the file is holding the key |
+
+**`ssc key show` / `ssc key export`** (governed instead by
+`V2VaultService.get_key`'s own `allow_revoked` parameter, a separate
+mechanism `--no-enforce-key-status` has no effect on):
+
+| State, storage | `show` | `export` |
+| --- | --- | --- |
+| any status, external-only | Allowed (no secret is ever unwrapped for an external-only record; nothing to check) | Blocked — "external-only identities store no secret in the vault", independent of status |
+| active / archived, vault-copy | Allowed | Allowed |
+| revoked, vault-copy | **Blocked unconditionally** — `allow_revoked` defaults to `False` and is never passed `True` from the CLI, so there is currently no override at all. Tracked as a real gap, not documented intent: issue [#130](https://github.com/TheRedTower/secure-string-cipher/issues/130) | Blocked, same cause |
+| destroyed, vault-copy | Allowed — `get_key` returns the record with no secret rather than raising, so its status remains visible | Blocked — the secret was tombstoned (`vault_secret = None`) at the moment of destruction; nothing exists to export regardless of any override |
 
 - external-only stores metadata and an optional path hint, never the secret in the vault.
 - vault-copy stores metadata and an inner-wrapped copy. It still permits a separate external keyfile.
