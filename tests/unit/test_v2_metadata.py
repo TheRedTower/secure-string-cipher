@@ -117,14 +117,8 @@ def test_encrypt_validation_errors():
     with pytest.raises(TypeError, match="original_filename must be a string"):
         encrypt_metadata(header, dek, original_filename=123)  # type: ignore
 
-    # The character-count check this replaced was dead code: UTF-8 encodes
-    # at most 4 bytes per code point, so 255 chars can never exceed the
-    # 1020-byte limit below it, and the check rejected legitimate short
-    # multi-byte filenames for no protective reason (see test below).
-    with pytest.raises(ValueError, match="original_filename exceeds 1020 bytes"):
-        encrypt_metadata(
-            header, dek, original_filename="\U0001f600" * 256
-        )  # 1024 bytes
+    with pytest.raises(ValueError, match="original_filename exceeds 255 characters"):
+        encrypt_metadata(header, dek, original_filename="a" * 256)
 
     with pytest.raises(TypeError, match="original_size must be an integer"):
         encrypt_metadata(header, dek, original_size="123")  # type: ignore
@@ -317,22 +311,22 @@ class TestPostAuthenticationGuards:
         with pytest.raises((TypeError, ValueError), match=match):
             encrypt_metadata(header, os.urandom(32), original_filename="x.txt")
 
-    def test_a_cjk_filename_well_under_the_byte_limit_is_now_accepted(self) -> None:
-        """Regression test for the bug the byte-limit fix above corrects:
-        300 three-byte characters is 900 bytes -- comfortably inside the
-        1020-byte budget -- but was previously rejected outright by the
-        now-removed 255-*character* check, which had no byte-safety
-        rationale behind it."""
+    def test_the_character_limit_is_not_redundant_with_the_byte_limit(self) -> None:
+        """The two `original_filename` limits look redundant if you only
+        consider a string's own raw UTF-8 encoding (255 scalars * 4 bytes
+        each caps out at exactly 1020), but the value is JSON-escaped inside
+        the metadata plaintext, not stored raw. A control character
+        (U+0000-U+001F) escapes to a 6-byte JSON unicode-escape sequence, so
+        a string well under the 1020-*raw*-byte limit can still blow the
+        4096-byte metadata-plaintext budget once escaped. 683 control
+        characters is 683 raw bytes -- comfortably under 1020 -- but would
+        encode to 4122 bytes: over budget, and something `decrypt_metadata`
+        would then refuse to read back. The scalar-count check catches it
+        first."""
         header = get_test_header()
         dek = os.urandom(32)
-        filename = "中" * 300  # a CJK character, 3 bytes in UTF-8
-        assert len(filename.encode("utf-8")) == 900
+        filename = "\x00" * 683
+        assert len(filename.encode("utf-8")) == 683  # under the byte limit alone
 
-        ciphertext, tag = encrypt_metadata(header, dek, original_filename=filename)
-        forged = get_test_header(
-            metadata_overrides={
-                "ciphertext": b64url_encode(ciphertext),
-                "tag": b64url_encode(tag),
-            }
-        )
-        assert decrypt_metadata(forged, dek)["original_filename"] == filename
+        with pytest.raises(ValueError, match="exceeds 255 characters"):
+            encrypt_metadata(header, dek, original_filename=filename)
