@@ -93,6 +93,8 @@ class RateLimiter:
         window_seconds: float = RATE_LIMIT_WINDOW_SECONDS,
         lockout_seconds: float = RATE_LIMIT_LOCKOUT_SECONDS,
         backoff_multiplier: float = RATE_LIMIT_BACKOFF_MULTIPLIER,
+        *,
+        clock: Callable[[], float] | None = None,
     ):
         """Initialize the rate limiter.
 
@@ -101,6 +103,18 @@ class RateLimiter:
             window_seconds: Time window for counting attempts (seconds)
             lockout_seconds: Base lockout duration after exceeding max attempts
             backoff_multiplier: Multiplier for exponential backoff on repeated lockouts
+            clock: Time source, injectable so a test can control elapsed time
+                directly instead of sleeping through real backoff windows.
+                Deliberately stored as-is, `None` included, rather than
+                resolved to `time.time` here: some existing tests
+                `monkeypatch.setattr(time, "time", ...)` *after*
+                constructing a limiter and expect its next call to observe
+                the patched value, which a value captured once at
+                construction (whether as a `= time.time` default or
+                resolved eagerly in this body) would not see. `_now()`
+                below re-reads the module attribute on every call instead,
+                so both an explicitly injected clock and a real-time
+                caller relying on monkeypatching keep working.
         """
         self._records: dict[str, AttemptRecord] = defaultdict(AttemptRecord)
         self._lock = threading.Lock()
@@ -108,6 +122,12 @@ class RateLimiter:
         self.window_seconds = window_seconds
         self.lockout_seconds = lockout_seconds
         self.backoff_multiplier = backoff_multiplier
+        self._clock = clock
+
+    def _now(self) -> float:
+        """The current time: the injected clock if one was given, otherwise
+        a fresh read of `time.time` -- not a value captured once."""
+        return self._clock() if self._clock is not None else time.time()
 
     def _make_key(self, operation: str, identifier: str = "") -> str:
         """Create a unique key for tracking attempts."""
@@ -144,7 +164,7 @@ class RateLimiter:
             - wait_seconds: Seconds to wait if blocked (0 if allowed)
         """
         key = self._make_key(operation, identifier)
-        now = time.time()
+        now = self._now()
 
         with self._lock:
             record = self._records[key]
@@ -186,7 +206,7 @@ class RateLimiter:
             success: Whether the attempt succeeded (resets consecutive failures)
         """
         key = self._make_key(operation, identifier)
-        now = time.time()
+        now = self._now()
 
         with self._lock:
             record = self._records[key]
@@ -212,7 +232,7 @@ class RateLimiter:
             Number of remaining attempts (0 if locked out)
         """
         key = self._make_key(operation, identifier)
-        now = time.time()
+        now = self._now()
 
         with self._lock:
             record = self._records[key]
@@ -261,12 +281,15 @@ class PersistentRateLimiter(RateLimiter):
         window_seconds: float = RATE_LIMIT_WINDOW_SECONDS,
         lockout_seconds: float = RATE_LIMIT_LOCKOUT_SECONDS,
         backoff_multiplier: float = RATE_LIMIT_BACKOFF_MULTIPLIER,
+        *,
+        clock: Callable[[], float] | None = None,
     ):
         super().__init__(
             max_attempts=max_attempts,
             window_seconds=window_seconds,
             lockout_seconds=lockout_seconds,
             backoff_multiplier=backoff_multiplier,
+            clock=clock,
         )
         if state_path is None:
             state_path = str(get_config_dir() / "rate_limits.json")
@@ -383,7 +406,7 @@ class PersistentRateLimiter(RateLimiter):
             return
 
         with self._lock:
-            self._prune_locked(time.time())
+            self._prune_locked(self._now())
             data: dict[str, object] = {
                 key: {
                     "attempts": record.attempts,

@@ -1,0 +1,46 @@
+name: Nightly Fuzz
+
+on:
+  schedule:
+    # 03:00 UTC daily
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  randomized-suite:
+    name: Full suite with randomized Hypothesis examples
+    runs-on: ubuntu-latest
+    # Purely exploratory: CI's own gating run derandomizes Hypothesis
+    # (tests/conftest.py) so the release gate stays reproducible. This job
+    # exists so new random examples keep getting explored somewhere instead
+    # of losing that exploration entirely once CI stopped being it -- never
+    # a condition of merging.
+    continue-on-error: true
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Set up Python 3.14
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      with:
+        python-version: "3.14"
+        allow-prereleases: true
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      with:
+        version: "0.9.17"
+        enable-cache: true
+        cache-dependency-glob: |
+          uv.lock
+          pyproject.toml
+
+    - name: Sync (locked)
+      run: uv sync --extra dev --locked
+
+    - name: Run full suite with randomized Hypothesis examples
+      env:
+        HYPOTHESIS_PROFILE: dev
+      run: uv run --locked pytest tests/ -m "not benchmark"
