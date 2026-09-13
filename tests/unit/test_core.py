@@ -219,6 +219,34 @@ class TestTextEncryption:
         with pytest.raises(CryptoError):
             decrypt_text(encrypted, TEST_PASSWORDS["NO_SYMBOLS"])
 
+    def test_wrong_password_message_names_key_commitment(self):
+        """A wrong password fails the key-commitment check specifically
+        (same ciphertext, different derived key), which has always had a
+        real message. Pinned here as the contrasting case to the tampered-
+        ciphertext test below, which historically did not."""
+        encrypted = encrypt_text("Hello, World!", TEST_PASSWORDS["VALID"])
+        with pytest.raises(CryptoError, match="Key commitment verification failed"):
+            decrypt_text(encrypted, TEST_PASSWORDS["NO_SYMBOLS"])
+
+    def test_tampered_ciphertext_message_is_never_left_dangling(self):
+        """A single flipped byte in the ciphertext/tag passes key-commitment
+        (the derived key is still correct) and fails GCM tag verification
+        instead, raising `cryptography.exceptions.InvalidTag`, whose
+        `str()` is empty. Before the fix, this produced the bare, malformed
+        message "Decryption failed: " with nothing after the colon."""
+        encrypted = encrypt_text("Hello, World!", TEST_PASSWORDS["VALID"])
+        raw = bytearray(base64.b64decode(encrypted))
+        raw[-1] ^= 0xFF  # last byte of the GCM tag
+        tampered = base64.b64encode(bytes(raw)).decode()
+
+        with pytest.raises(CryptoError) as exc_info:
+            decrypt_text(tampered, TEST_PASSWORDS["VALID"])
+        message = str(exc_info.value)
+        assert message.startswith("Decryption failed:")
+        assert not message.endswith(":")
+        assert not message.endswith(": ")
+        assert "wrong password or corrupted data" in message
+
     def test_corrupted_data(self):
         """Test handling of corrupted encrypted data."""
         with pytest.raises(CryptoError) as exc_info:
@@ -958,6 +986,38 @@ class TestErrorHandling:
         with contextlib.suppress(OSError):
             os.unlink(enc_path)
             os.unlink(dec_path)
+
+    def test_tampered_ciphertext_message_is_never_left_dangling(self, temp_file):
+        """File-decryption counterpart to the text test of the same name:
+        a flipped trailing byte fails the GCM tag (empty `str()` on the
+        underlying `InvalidTag`) rather than key commitment, and the
+        resulting CryptoError message must not be left dangling at the
+        colon."""
+        with open(temp_file, "wb") as f:
+            f.write(b"Secret data")
+
+        enc_path = temp_file + ".enc"
+        dec_path = temp_file + ".dec"
+        encrypt_file(temp_file, enc_path, TEST_PASSWORDS["VALID"])
+
+        with open(enc_path, "r+b") as f:
+            f.seek(-1, os.SEEK_END)
+            last_byte = f.read(1)
+            f.seek(-1, os.SEEK_END)
+            f.write(bytes([last_byte[0] ^ 0xFF]))
+
+        try:
+            with pytest.raises(CryptoError) as exc_info:
+                decrypt_file(enc_path, dec_path, TEST_PASSWORDS["VALID"])
+            message = str(exc_info.value)
+            assert message.startswith("Decryption failed:")
+            assert not message.endswith(":")
+            assert not message.endswith(": ")
+            assert "wrong password or corrupted data" in message
+        finally:
+            with contextlib.suppress(OSError):
+                os.unlink(enc_path)
+                os.unlink(dec_path)
 
     def test_corrupted_metadata(self, temp_file):
         """Test handling of corrupted metadata in file."""
