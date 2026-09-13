@@ -65,6 +65,75 @@
 
 ### Fixed
 
+- **A decryption failure could report "Decryption failed: " with nothing
+  after the colon.** A GCM tag failure raises
+  `cryptography.exceptions.InvalidTag()`, whose `str()` is empty; tampering
+  with a byte of ciphertext (as opposed to supplying the wrong password,
+  which fails key-commitment verification first, with a real message) hits
+  this path. `decrypt_text`/`decrypt_bytes` and `decrypt_file` now fall back
+  to a fixed phrase — "authentication failed — wrong password or corrupted
+  data" — whenever the underlying exception has nothing to add, rather than
+  leaving the message dangling at the colon.
+
+- **`cleanup-caches.yml` deleted every cache on every run, not just old
+  ones.** It computed a cache's age and then never used it — every cache
+  was deleted unconditionally regardless of the comment describing a
+  7-day cutoff. Rewritten against the native `gh cache` command (no
+  longer needs the third-party `gh-actions-cache` extension) with a real
+  date comparison: only a cache last accessed more than 7 days ago is
+  deleted. Also sorts that listing ascending by last-accessed time — `gh
+  cache list` defaults to descending, so with more than 100 caches the
+  `--limit` would have kept only the newest ones and the stale caches
+  this step exists to find would never have appeared in the page at all.
+
+- **`codeql.yml` had an unreachable manual-build step.** Its matrix
+  configures `build-mode: none` for both languages it analyzes; no entry
+  ever uses `manual`, so the step gated on that value could never run.
+  Removed it along with the template's boilerplate comments and an
+  always-false `matrix.language == 'swift'` runner-selection ternary (no
+  `swift` entry exists in the matrix either).
+
+- **The most misleading page in the repository, corrected.**
+  `docs/SSC_V2_REFINED_IMPLEMENTATION_SPEC.md` §10.3's lifecycle table
+  described a `--allow-revoked-key` CLI flag that never existed, and
+  claimed `archived` blocks new encryption when shipped behavior is the
+  opposite (archive never blocks). Rewritten to match shipped behavior,
+  split into the two genuinely separate mechanisms that govern it:
+  `_enforce_v2_key_status` for `encrypt`/`decrypt` (default-on,
+  `--no-enforce-key-status` overrides), and `V2VaultService.get_key`'s own
+  `allow_revoked` parameter for `key show`/`key export` (no CLI override
+  exists for this one at all — see #130, filed while writing this
+  correction).
+
+- **Six of thirteen files under `docs/` were missing from its own index,**
+  including two still-current documents (`MIGRATION.md`, the refined
+  implementation spec) simply missed rather than deliberately excluded.
+  Added a test (`test_docs_readme_indexes_every_file_in_the_docs_directory`)
+  so a future addition under `docs/` fails CI if it isn't indexed.
+
+- **A contradicted audit-checklist claim, corrected rather than
+  weakened.** `.github/AUDIT_CHECKLIST.md` §5.1 asserted "same error for
+  wrong password vs. corrupted file," which is empirically false: a wrong
+  password fails key-commitment verification first, with a different
+  message than a tampered ciphertext's AEAD failure. The requirement
+  itself is real, not cosmetic — the two distinguishable failures are a
+  password-validity oracle for anything that exposes or logs them, even
+  though neither message contains the password, key, or plaintext.
+  Marked the checklist item as currently failing rather than redefining
+  it down to match current behavior; filed #133 to track fixing it.
+
+- **A spec claim that no code enforces.** `docs/SSC_V2_REFINED_IMPLEMENTATION_SPEC.md`
+  §5 stated a vault may hold "at most 1,024" managed identities. No such
+  check exists anywhere in `v2/vault_service.py` — the only `1024` in the
+  codebase is `envelope.py`'s `MAX_TOTAL_NODES`, an unrelated JSON
+  node/depth limit for parsing object headers, not a vault key count.
+  Corrected the table to state plainly that vault key count is unenforced,
+  bounded only indirectly by the vault's existing 100 MiB raw-size cap.
+  Not implementing the cap instead: the vault is the operator's own
+  trusted file, not attacker-supplied input, so an artificial count limit
+  would add real complexity for a threat this format doesn't actually
+  have.
+
 - **`.ssckey` files are now read in binary mode.** `load_keyfile` opened the
   descriptor without `O_BINARY`, so on Windows the C runtime collapsed CRLF
   to LF and truncated at a control-Z before the parser saw the bytes —
@@ -82,6 +151,28 @@
   in `docs/API.md`, that `.enc` (v1 default) vs `.ssc` (v2 default) are
   human-facing output-filename conventions only — `ssc decrypt` reads a
   file's magic bytes, never its extension, to decide which format it is.
+
+### Changed
+
+- **`ssc encrypt --require` now accepts only `all`, and its default
+  changed from `any` to `all`.** With one `--with` source, `any` vs `all`
+  was already a distinction that did nothing; with two or more, `any` —
+  the previous default — was already rejected outright with a
+  hand-written error. It could never be usefully passed. A v2 object
+  carries exactly one access grant, so two `--with` sources have only
+  ever meant "both required together" — `--require` now documents that
+  intent rather than offering a choice that never had a live option on
+  the other side.
+
+  **This changes behavior, not just documentation.** Two `--with` sources
+  with no `--require` at all previously hit the default `any` and failed
+  with `"Multiple sources require --require all"`; the caller had to type
+  `--require all` explicitly to get a combined grant. That invocation now
+  succeeds, since the default is `all`. Every invocation that already
+  spelled out `--require all` explicitly — every script and doc example in
+  this repository — is unaffected either way. Only an explicit
+  `--require any` newly fails, by argparse itself, and it never did
+  anything useful in the first place.
 
 ### Deprecated
 

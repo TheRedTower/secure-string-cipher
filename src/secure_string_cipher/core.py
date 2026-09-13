@@ -537,6 +537,24 @@ class FileMetadata:
 # =============================================================================
 
 
+def _decryption_failure_message(error: Exception) -> str:
+    """Build a "Decryption failed" message that is never left dangling.
+
+    Most decrypt-time exceptions have a useful `str()`, but a GCM tag
+    failure raises `cryptography.exceptions.InvalidTag()`, whose `str()` is
+    empty -- producing "Decryption failed: " with nothing after the colon.
+    Falls back to a fixed phrase whenever the underlying exception has
+    nothing to add, without inventing detail the exception didn't provide
+    and without leaking the exception's type name.
+    """
+    detail = str(error)
+    if detail:
+        return f"Decryption failed: {detail}"
+    return (
+        "Decryption failed: authentication failed -- wrong password or corrupted data"
+    )
+
+
 def _encrypt_data(data: bytes, passphrase: str) -> bytes:
     """
     Encrypt data using AES-256-GCM with Argon2id and key commitment.
@@ -633,7 +651,7 @@ def _decrypt_data(encrypted: bytes, passphrase: str) -> bytes:
     except CryptoError:
         raise
     except Exception as e:
-        raise CryptoError(f"Decryption failed: {e}") from e
+        raise CryptoError(_decryption_failure_message(e)) from e
 
 
 def encrypt_text(text: str, passphrase: str) -> str:
@@ -1033,7 +1051,7 @@ def decrypt_file(
     except CryptoError:
         raise
     except Exception as e:
-        raise CryptoError(f"Decryption failed: {e}") from e
+        raise CryptoError(_decryption_failure_message(e)) from e
 
 
 # =============================================================================

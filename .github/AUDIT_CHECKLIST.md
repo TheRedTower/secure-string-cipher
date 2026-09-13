@@ -186,9 +186,25 @@ assessment; source and tests are authoritative when this guide becomes stale.
   - All files
   - Check: No passwords, keys, or plaintexts in error messages
 
-- [ ] **Decryption failures are generic**
+- [ ] **Decryption failures are generic — currently failing, see issue #133**
   - File: `core.py`
-  - Expected: Same error for wrong password vs. corrupted file
+  - Expected: a wrong password and a tampered ciphertext byte fail with
+    the *same* message. Confirmed empirically that they do not: key
+    commitment fails fast on a wrong key before the AEAD is even
+    attempted, and is reported as "Key commitment verification failed..."
+    — a different, earlier-caught message than a tampered-ciphertext AEAD
+    failure's "Decryption failed: authentication failed...". This
+    checklist previously claimed the two already read identically; they
+    do not and have not.
+  - Why this is a real requirement, not merely cosmetic: if decryption is
+    exposed through a service, or either message reaches logs a lower-
+    privileged party can read, the distinguishable failure modes let an
+    attacker learn whether a submitted password derived the correct key
+    — a password-validity oracle — even though neither message contains
+    the password, key, or plaintext itself. Rate limiting and Argon2id's
+    cost bound the *throughput* of exploiting that oracle; they do not
+    remove it. Retained as a real requirement this codebase does not yet
+    meet, rather than redefined down to match current behavior.
 
 - [ ] **Audit logs redact sensitive fields**
   - File: `audit_log.py`
