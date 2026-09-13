@@ -4,6 +4,40 @@
 
 ### Added
 
+- **Three sources of CI nondeterminism, closed.**
+  - **Benchmarks ran as part of the gating test suite,** competing with
+    `-n auto`'s parallel workers for CPU on a shared runner while asserting
+    on wall-clock timings (`assert avg_time > 0.01`, `< 5.0`, `< 1000µs`, a
+    timing-side-channel ratio `< 5.0`) — a source of unrelated flakiness on
+    a job meant to gate merges. Deselected (`-m "not benchmark"`) from the
+    `test` job; a new, explicitly non-gating `benchmarks` job
+    (`continue-on-error: true`) runs them separately so a severe regression
+    is still visible in the log without ever blocking a merge.
+  - **The rate limiter's exponential-backoff tests asserted tight windows
+    around real `time.sleep()` calls** (`0.9 <= wait1 <= 1.1` after a real
+    1-second sleep, a 150ms margin after a sub-second one) — the kind of
+    margin parallel CPU contention can burn through. `RateLimiter` gained
+    an injectable `clock` parameter (keyword-only, defaulting to a live
+    `time.time` read so nothing else changes); the tests now advance a
+    settable fake clock instead of sleeping, replacing a tolerance window
+    with an exact equality and completing instantly instead of over a real
+    second. The clock isn't captured once at construction — some existing
+    tests `monkeypatch.setattr(time, "time", ...)` *after* constructing a
+    limiter and expect the next call to see it, which a value resolved
+    once up front (whether via a mutable default or eagerly in `__init__`)
+    would not observe; verified this specific failure mode by reproducing
+    it before settling on reading the module attribute fresh on every call.
+  - **Hypothesis drew fresh random examples on every run,** so a
+    `--maxfail=5` session could abort on one unlucky draw with nothing to
+    reproduce it by. Registered a `ci` profile (`derandomize=True,
+    print_blob=True`) that CI now loads via `HYPOTHESIS_PROFILE=ci`: each
+    test's examples become a fixed function of the test itself rather than
+    of when it happened to run, and a failure prints an exact reproduction
+    blob. A new nightly workflow (`nightly-fuzz.yml`) runs the full suite
+    under the previous randomized behavior instead, so new examples keep
+    getting explored somewhere rather than losing that exploration
+    entirely — non-gating, since its purpose is discovery, not release
+    gating.
 - **`mypy tests` now runs in CI and `make ci`, and is real, not aspirational.**
   It existed only as `make lint-tests`, described in its own help text as
   "the gradual non-blocking mypy check for tests" -- never invoked by CI or

@@ -446,52 +446,77 @@ class TestRateLimiterBasic:
         assert allowed is True
 
 
+class _FakeClock:
+    """A settable time source, injected via RateLimiter's `clock` parameter.
+
+    Replaces real time.sleep()-based waits in the tests below: this codebase
+    runs its full suite with -n auto parallel workers competing for CPU, so a
+    150ms margin around a real sleep is a real source of CI flakiness. Moving
+    time forward instead is both instant and exact -- no margin to tune at
+    all, since "just barely expired" and "just barely not expired" become
+    exact, reproducible instants rather than races against the scheduler.
+    """
+
+    def __init__(self, start: float = 1_000_000.0) -> None:
+        self.now = start
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
 class TestExponentialBackoff:
     """Tests for exponential backoff behavior."""
 
     def test_lockout_duration_increases(self):
         """Lockout duration should increase with consecutive failures."""
+        clock = _FakeClock()
         limiter = RateLimiter(
             max_attempts=1,
             lockout_seconds=1.0,
             backoff_multiplier=2.0,
+            clock=clock,
         )
 
         # First lockout
         limiter.record_attempt("test", success=False)
         _, wait1 = limiter.check_rate_limit("test")
-        assert 0.9 <= wait1 <= 1.1  # ~1 second
+        assert wait1 == 1.0
 
-        # Wait for lockout to expire
-        time.sleep(1.1)
+        # Move past the lockout's expiry exactly, no margin needed.
+        clock.advance(1.0)
 
         # Second lockout should be longer
         limiter.record_attempt("test", success=False)
         _, wait2 = limiter.check_rate_limit("test")
-        assert 1.9 <= wait2 <= 2.1  # ~2 seconds
+        assert wait2 == 2.0
 
     def test_success_resets_backoff(self):
         """Successful auth should reset backoff multiplier."""
+        clock = _FakeClock()
         limiter = RateLimiter(
             max_attempts=1,
             lockout_seconds=0.1,
             backoff_multiplier=2.0,
+            clock=clock,
         )
 
         # Trigger multiple lockouts
         limiter.record_attempt("test", success=False)
         limiter.check_rate_limit("test")
-        time.sleep(0.15)
+        clock.advance(0.1)
         limiter.record_attempt("test", success=False)
 
         # Success should reset
-        time.sleep(0.25)
+        clock.advance(0.2)
         limiter.record_attempt("test", success=True)
 
         # Next lockout should be base duration again
         limiter.record_attempt("test", success=False)
         _, wait = limiter.check_rate_limit("test")
-        assert wait <= 0.15  # Back to base ~0.1 seconds
+        assert wait == 0.1  # Back to exactly the base duration
 
 
 class TestRemainingAttempts:
@@ -556,10 +581,12 @@ class TestWindowExpiration:
 
     def test_old_attempts_expire(self):
         """Attempts outside window should be ignored."""
+        clock = _FakeClock()
         limiter = RateLimiter(
             max_attempts=2,
             window_seconds=0.1,
             lockout_seconds=0.1,  # Short lockout for test
+            clock=clock,
         )
 
         limiter.record_attempt("test", success=False)
@@ -569,8 +596,8 @@ class TestWindowExpiration:
         allowed, _ = limiter.check_rate_limit("test")
         assert allowed is False
 
-        # Wait for both window and lockout to expire
-        time.sleep(0.25)
+        # Move past both the window and the lockout expiring.
+        clock.advance(0.25)
 
         # Should be allowed again (attempts expired, lockout expired)
         allowed, _ = limiter.check_rate_limit("test")
