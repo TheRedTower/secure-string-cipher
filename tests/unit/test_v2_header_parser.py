@@ -25,9 +25,22 @@ MANIFEST_PATH = FIXTURES_DIR / "manifest.json"
 
 @pytest.fixture(scope="session")
 def golden_manifest() -> dict[str, Any]:
+    """Load the committed golden-vector manifest.
+
+    This file is checked into git (`git ls-files` confirms it), so its
+    absence is itself a defect -- a corrupted checkout, a bad .gitignore
+    rule, a broken sparse-checkout -- not an environmental condition to
+    shrug off. `pytest.fail` here turns that into a red suite rather than
+    a quietly-skipped format-regression guard passing for the wrong
+    reason.
+    """
     if not MANIFEST_PATH.exists():
-        pytest.skip(
-            "Golden vectors manifest not found. Run tools/generate_v2_vectors.py first."
+        pytest.fail(
+            f"Golden vector manifest not found at {MANIFEST_PATH}. This file "
+            "is committed to the repository; its absence means the checkout "
+            "is incomplete or broken, not that golden-vector tests should be "
+            "skipped. (If you are intentionally regenerating fixtures, run "
+            "tools/generate_v2_vectors.py first.)"
         )
     data = json.loads(MANIFEST_PATH.read_text("utf-8"))
     assert isinstance(data, dict)

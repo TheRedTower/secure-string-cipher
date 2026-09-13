@@ -4,6 +4,18 @@
 
 ### Added
 
+- **Golden-vector tests now fail, rather than silently skip, when their
+  committed fixtures are missing.** `test_v2_golden_vectors.py` and
+  `test_v2_header_parser.py`'s `golden_manifest` fixtures both called
+  `pytest.skip` if `tests/fixtures/v2/manifest.json` wasn't found. That
+  file is checked into git, so its absence means a broken or incomplete
+  checkout — not an environmental condition to shrug off — and a skip
+  left the entire format-regression guard silently doing nothing with CI
+  still green. Switched to `pytest.fail`. **Verified, not assumed**:
+  temporarily moved the manifest aside and confirmed the exit code changes
+  from 0 (40 passed, 18 skipped) to 2 (9 passed, 17 errors) across both
+  files.
+
 - **Three sources of CI nondeterminism, closed.**
   - **Benchmarks ran as part of the gating test suite,** competing with
     `-n auto`'s parallel workers for CPU on a shared runner while asserting
