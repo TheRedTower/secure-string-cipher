@@ -10,6 +10,25 @@ from collections.abc import Generator
 from pathlib import Path
 
 import pytest
+from hypothesis import settings
+
+# Two profiles, chosen by HYPOTHESIS_PROFILE (defaulting to "dev" so a plain
+# local `pytest` run behaves as it always has -- freshly randomized examples
+# every run, which is how a real bug was found during this project's history
+# (see #91's fuzz-test fix)). "ci" trades that away deliberately: the release
+# gate should not go red on Tuesday and green on Wednesday for the same code,
+# so CI derandomizes -- each test's examples become a fixed function of the
+# test itself rather than of when it happened to run. print_blob=True means a
+# failure prints the exact bytes to reproduce it directly, which is the
+# actionable form of "the seed" for a derandomized run: there is no single
+# session-wide number to log, since each test's sequence is derived
+# independently, and a copyable reproduction is more useful than one would be
+# in isolation anyway. A separate scheduled workflow runs the suite under
+# "dev" specifically so new random examples keep getting explored somewhere,
+# rather than losing that exploration entirely once CI stopped being it.
+settings.register_profile("ci", derandomize=True, print_blob=True)
+settings.register_profile("dev", derandomize=False)
+settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "dev"))
 
 # ---------------------------------------------------------------------------
 # Hermetic home directory
