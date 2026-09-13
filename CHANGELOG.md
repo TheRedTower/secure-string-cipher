@@ -4,6 +4,22 @@
 
 ### Added
 
+- **The full test suite now runs on macOS and Windows, not only Linux.**
+  `platform-safety` previously ran a curated 9-file subset there; it now
+  runs the entire suite (minus benchmarks, which have their own job).
+  Traded the previous 3-Python-version matrix on each non-Linux OS for a
+  single current version (3.14): this job exists to catch OS-specific bugs
+  — path-safety logic, permission handling, file locking, the keychain
+  backend — not Python-version-specific ones, which the `test` job already
+  covers with all three versions on Linux. This is not a theoretical gap:
+  SSC-003 (issue #90, already fixed) was a macOS-only bug in
+  `v2/paths.py`'s symlink rejection that went unnoticed specifically
+  because the full suite had never run there, compounded by `tmp_path`
+  being pre-resolved so even Linux's own runs couldn't have exercised the
+  symlinked-ancestor case that hid it. Required branch-protection status
+  checks updated to match the renamed jobs (`Platform Safety (<os>)`,
+  dropping the Python-version suffix) once this merged.
+
 - **Three sources of CI nondeterminism, closed.**
   - **Benchmarks ran as part of the gating test suite,** competing with
     `-n auto`'s parallel workers for CPU on a shared runner while asserting
