@@ -33,7 +33,14 @@ jobs:
           # cutoff mirrors that same 7-day window for consistency.
           cutoff_epoch=$(date -u -d '7 days ago' +%s)
 
-          gh cache list --limit 100 --json id,key,lastAccessedAt \
+          # --sort/--order matter here, not just cosmetically: `gh cache list`
+          # defaults to last-accessed descending, so with more than 100 caches
+          # the --limit would keep only the *newest* ones and the stale caches
+          # this step exists to find would never appear in the list at all.
+          # Ascending puts the oldest (and therefore most deletion-eligible)
+          # caches within the first page instead.
+          gh cache list --limit 100 --sort last_accessed_at --order asc \
+            --json id,key,lastAccessedAt \
             --jq '.[] | [.id, .lastAccessedAt] | @tsv' | \
           while IFS=$'\t' read -r cache_id last_accessed; do
             last_accessed_epoch=$(date -u -d "$last_accessed" +%s)

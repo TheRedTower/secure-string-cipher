@@ -81,7 +81,10 @@
   7-day cutoff. Rewritten against the native `gh cache` command (no
   longer needs the third-party `gh-actions-cache` extension) with a real
   date comparison: only a cache last accessed more than 7 days ago is
-  deleted.
+  deleted. Also sorts that listing ascending by last-accessed time — `gh
+  cache list` defaults to descending, so with more than 100 caches the
+  `--limit` would have kept only the newest ones and the stale caches
+  this step exists to find would never have appeared in the page at all.
 
 - **`codeql.yml` had an unreachable manual-build step.** Its matrix
   configures `build-mode: none` for both languages it analyzes; no entry
