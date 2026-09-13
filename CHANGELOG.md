@@ -163,6 +163,26 @@
 
 ### Fixed
 
+- **Five genuine Windows-only bugs, surfaced by the first full-suite
+  Windows CI run described above.** (1) `↔` (U+2194) in `vault migrate
+  --help` text raised `UnicodeEncodeError` under Windows' cp1252 console
+  codepage whenever `--help` output was captured via subprocess (as the
+  wheel-smoke-test job does) — replaced with `<->`; a much larger latent
+  version of this same class of bug exists in the interactive `ssc start`
+  menu (tracked separately as #139, out of scope here since it isn't
+  exercised by the current suite). (2) `monkeypatch.setenv("HOME", ...)`
+  alone does not redirect `Path.home()` on Windows — `ntpath.expanduser`
+  checks `USERPROFILE` first, unconditionally, with no fallback to `HOME`
+  — so every test doing this now sets `USERPROFILE` alongside `HOME`.
+  (3) Windows has no POSIX permission bits, so a `0o600` assertion in
+  `test_secure_atomic_write_basic` split into its own
+  `skipif(os.name != "posix")` test. (4) `os.readlink()` on Windows can
+  return the extended-length path form (`\\?\C:\...`), which doesn't
+  string-match a plain `str(Path(...))` even though both name the same
+  file — compared via `Path(...) == Path(...)` instead. Verified locally
+  on macOS (1716 passed, 1 skipped) with final confirmation from Windows
+  CI itself.
+
 - **A decryption failure could report "Decryption failed: " with nothing
   after the colon.** A GCM tag failure raises
   `cryptography.exceptions.InvalidTag()`, whose `str()` is empty; tampering
