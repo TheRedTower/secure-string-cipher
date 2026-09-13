@@ -4,6 +4,33 @@
 
 ### Added
 
+- **`mypy tests` now runs in CI and `make ci`, and is real, not aspirational.**
+  It existed only as `make lint-tests`, described in its own help text as
+  "the gradual non-blocking mypy check for tests" -- never invoked by CI or
+  by `make ci`, so ~25,300 lines of test code were entirely unchecked.
+  Running it as-is (`disallow_untyped_defs = true`, inherited from the
+  project-wide mypy config) produced 1,152 errors in 56 files, 88.5% of
+  them "missing a type annotation" on a test function's own signature --
+  noise a test suite has no real need for, since pytest never calls a test
+  function through a typed interface. `tests --allow-untyped-defs
+  --check-untyped-defs` instead: skips that noise, but still checks the
+  *body* of every test function regardless of whether its signature is
+  annotated, so a real bug hiding inside an untyped test is still caught.
+  That left 132 genuine errors across 13 files, all now fixed rather than
+  suppressed -- several were real: a helper's own return-type annotation
+  said `object` instead of `Namespace` (masking every call site's real
+  argument-type errors), a dict mixing a list into otherwise-single-string
+  values made every access to it infer as `Sequence[str]`, and two test
+  doubles depended on the concrete `V2VaultService` where a `Protocol`
+  (`KeyLister`, in `v2.app`) was both the correct fix and a genuine
+  improvement to what `KeyStatusPolicy` actually depends on. One real
+  runtime gap surfaced too: `StreamProcessor.__init__`'s own signature said
+  `path: str`, but its body has always accepted a file-like object as well
+  (an existing test already carried an unexplained `# type: ignore` at
+  exactly this call, which the fixed signature makes unnecessary) --
+  widened to `str | os.PathLike[str] | BinaryIO`, matching what the class
+  has always actually done.
+
 - **Non-interactive credentials: `--password-file` / `SSC_PASSWORD` and
   `--master-password-file` / `SSC_MASTER_PASSWORD`.** There was previously no
   way to supply a password without a prompt, so v2 password mode and v2

@@ -30,4 +30,7 @@ def test_unsupported_argon_version_rejected_before_kdf(version):
 
 def test_projection_rejects_non_string_keys():
     with pytest.raises(TypeError, match="keys must be strings"):
-        build_projection_w({1: "must not become a string"})
+        # Deliberately the wrong static type: this exercises build_projection_w's
+        # own runtime rejection of a non-string key, which a type checker would
+        # otherwise catch before the test ever ran.
+        build_projection_w({1: "must not become a string"})  # type: ignore[dict-item]

@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 import pytest
 
@@ -22,9 +23,10 @@ from secure_string_cipher.v2.vault_schema import b64url_encode
 
 
 def get_test_header(
-    policy: str = "encrypted", metadata_overrides: dict = None
+    policy: str = "encrypted",
+    metadata_overrides: dict[str, Any] | None = None,
 ) -> V2Header:
-    metadata_block = {
+    metadata_block: dict[str, Any] = {
         "policy": policy,
         "alg": "aes-256-gcm",
         "kdf": {"alg": "hkdf-sha256", "salt": b64url_encode(b"0" * 32)},
@@ -145,7 +147,7 @@ def test_decrypt_authentication_failure():
 
     header_with_ct = get_test_header(
         metadata_overrides={
-            "ciphertext": b64url_encode(tampered_ct),
+            "ciphertext": b64url_encode(bytes(tampered_ct)),
             "tag": b64url_encode(tag),
         }
     )

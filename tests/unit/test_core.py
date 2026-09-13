@@ -39,15 +39,25 @@ from secure_string_cipher.security import sanitize_filename
 from secure_string_cipher.timing_safe import check_password_strength
 
 # Test password constants - only used for testing, never in production
-TEST_PASSWORDS: Final = {
+TEST_PASSWORDS: Final[dict[str, str]] = {
     "VALID": "Kj8#mP9$vN2@xL5",  # Complex password without common patterns
     "SHORT": "Ab1!defgh",
     "NO_UPPER": "abcd1234!@#$",
     "NO_LOWER": "ABCD1234!@#$",
     "NO_DIGITS": "ABCDabcd!@#$",
     "NO_SYMBOLS": "ABCDabcd1234",
-    "COMMON_PATTERNS": ["Password123!@#", "Admin123!@#$", "Qwerty123!@#"],
 }
+# Kept separate from TEST_PASSWORDS rather than as one more entry there: every
+# other entry is a single password plugged into encrypt_text/decrypt_text/etc.,
+# while this one is iterated as a list of examples -- mixing a list into that
+# dict's values made mypy infer every TEST_PASSWORDS[...] access as
+# Sequence[str] instead of str, breaking every call site that expects a plain
+# password string.
+COMMON_PATTERN_PASSWORDS: Final[list[str]] = [
+    "Password123!@#",
+    "Admin123!@#$",
+    "Qwerty123!@#",
+]
 TEST_COMMITMENT: Final = base64.b64encode(b"k" * 32).decode("ascii")
 
 
@@ -131,7 +141,7 @@ class TestPasswordValidation:
 
     def test_common_patterns(self):
         """Test rejection of common password patterns."""
-        for password in TEST_PASSWORDS["COMMON_PATTERNS"]:
+        for password in COMMON_PATTERN_PASSWORDS:
             valid, msg = check_password_strength(password)
             assert not valid
             assert "common patterns" in msg.lower()
@@ -425,6 +435,7 @@ class TestFileMetadata:
         )
         serialized = meta.to_bytes()
         restored = FileMetadata.from_bytes(serialized)
+        assert restored.original_filename is not None
         assert len(restored.original_filename) == 255
 
 
@@ -687,6 +698,7 @@ class TestFileEncryption:
             enc_path, None, TEST_PASSWORDS["VALID"], restore_filename=True
         )
 
+        assert metadata is not None
         assert os.path.basename(actual_path) == "my_document.txt"
         assert metadata.original_filename == "my_document.txt"
 
@@ -714,6 +726,7 @@ class TestFileEncryption:
             enc_path, None, TEST_PASSWORDS["VALID"], restore_filename=False
         )
 
+        assert metadata is not None
         assert actual_path == str(Path(enc_path).with_suffix(".dec"))
         assert (
             metadata.original_filename == "original.txt"

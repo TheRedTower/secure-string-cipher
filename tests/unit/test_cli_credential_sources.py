@@ -7,6 +7,7 @@ password. Piping worked only through CPython's degraded `getpass` fallback,
 which emits a warning and has no equivalent on Windows.
 """
 
+import argparse
 import os
 from pathlib import Path
 
@@ -27,10 +28,8 @@ def _password_file(directory: Path, value: str, *, mode: int = 0o600) -> Path:
     return path
 
 
-def _args(**overrides: object) -> object:
-    import argparse
-
-    defaults = {
+def _args(**overrides: object) -> argparse.Namespace:
+    defaults: dict[str, object] = {
         "quiet": False,
         "no_color": False,
         "debug": False,
@@ -356,7 +355,8 @@ class TestTheFileIsCheckedOnTheDescriptor:
             _args(password_file=str(_password_file(tmp_path, STRONG)))
         )
         assert recorded
-        assert all(flags & os.O_BINARY for flags in recorded)
+        o_binary = getattr(os, "O_BINARY", 0)
+        assert all(flags & o_binary for flags in recorded)
 
     def test_a_password_containing_cr_or_control_z_survives_verbatim(
         self, tmp_path: Path
