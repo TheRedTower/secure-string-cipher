@@ -183,7 +183,12 @@ class TestSecureAtomicWrite:
         assert dest.exists()
         assert dest.read_bytes() == content
 
-        # Check permissions are 0o600
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX permission check")
+    def test_secure_atomic_write_basic_permissions(self, tmp_path):
+        """Written files are owner-only (0o600)."""
+        dest = tmp_path / "test.txt"
+        secure_atomic_write(dest, b"secret content")
+
         stat_info = os.stat(dest)
         perms = stat_info.st_mode & 0o777
         assert perms == 0o600

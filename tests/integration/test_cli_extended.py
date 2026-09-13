@@ -150,6 +150,7 @@ class TestGetPassword:
     def test_get_password_generate_command(self, tmp_path, monkeypatch):
         """Should handle /gen command for passphrase generation."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         inputs = "/gen\ninline-label\nValidMasterPass123!\n"
         in_stream = StringIO(inputs)
         out_stream = StringIO()
@@ -217,6 +218,7 @@ class TestHandleGeneratePassphrase:
     def test_handle_generate_word_strategy(self, tmp_path, monkeypatch):
         """Should generate word-based passphrase for option 1."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         in_stream = StringIO("1\nword-label\nValidMasterPass123!\n")
         out_stream = StringIO()
 
@@ -229,6 +231,7 @@ class TestHandleGeneratePassphrase:
     def test_handle_generate_alphanumeric_strategy(self, tmp_path, monkeypatch):
         """Should generate alphanumeric passphrase for option 2."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         in_stream = StringIO("2\nalpha-label\nValidMasterPass123!\n")
         out_stream = StringIO()
 
@@ -240,6 +243,7 @@ class TestHandleGeneratePassphrase:
     def test_handle_generate_mixed_strategy(self, tmp_path, monkeypatch):
         """Should generate mixed passphrase for option 3."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         in_stream = StringIO("3\nmixed-label\nValidMasterPass123!\n")
         out_stream = StringIO()
 
@@ -255,6 +259,7 @@ class TestHandleGeneratePassphraseInline:
     def test_inline_generation_returns_passphrase(self, tmp_path, monkeypatch):
         """Should return generated passphrase."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         in_stream = StringIO("inline-label\nValidMasterPass123!\n")
         out_stream = StringIO()
 
@@ -367,6 +372,7 @@ class TestMainFunction:
     def test_main_handles_mode_5_generate(self, tmp_path, monkeypatch):
         """Should handle passphrase generation mode."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         in_stream = StringIO("5\n1\nmain-label\nValidMasterPass123!\nn\n")
         out_stream = StringIO()
 
@@ -381,6 +387,7 @@ class TestMainFunction:
     def test_main_continue_loop_yes(self, tmp_path, monkeypatch):
         """Should continue on 'y' response."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         inputs = "5\n1\nloop-label\nValidMasterPass123!\ny\n0\n"
         in_stream = StringIO(inputs)
         out_stream = StringIO()
@@ -394,6 +401,7 @@ class TestMainFunction:
     def test_main_continue_loop_no(self, tmp_path, monkeypatch):
         """Should exit on 'n' response."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         inputs = "5\n1\nexit-label\nValidMasterPass123!\nn\n"
         in_stream = StringIO(inputs)
         out_stream = StringIO()

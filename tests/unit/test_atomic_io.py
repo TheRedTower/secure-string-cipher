@@ -52,7 +52,11 @@ def test_refuses_dangling_symlink_destination_without_overwrite(
             writer.write(b"replacement")
 
     assert destination.is_symlink()
-    assert os.readlink(destination) == str(tmp_path / "missing-target")
+    # os.readlink can come back with Windows' extended-length \\?\ prefix
+    # even when the symlink was created from a plain path -- a cosmetic
+    # difference in how the OS reports the same target, not a different
+    # target. Path() normalizes both sides away from that before comparing.
+    assert Path(os.readlink(destination)) == Path(tmp_path / "missing-target")
     assert _temporary_files(tmp_path, destination) == []
 
 

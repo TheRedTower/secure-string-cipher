@@ -52,6 +52,7 @@ def _hermetic_cli_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     home = tmp_path / "hermetic-home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setattr(
         cli_args,
         "_cli_limiter",
@@ -120,6 +121,7 @@ def _use_hermetic_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> Path:
     keys_dir.mkdir(parents=True)
     _make_keyfile(keys_dir / f"{_KEY_ID}.ssckey")
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     return keys_dir
 
 
@@ -382,6 +384,7 @@ def test_v2_cli_decrypt_missing_keyfile_exits_4(
     home = tmp_path / "empty-home"
     (home / ".ssc" / "keys").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     with pytest.raises(SystemExit) as excinfo:
         cli_args.cmd_decrypt(_decrypt_args(text=armored))
     assert excinfo.value.code == cli_args.EXIT_FILE_ERROR

@@ -2194,7 +2194,7 @@ Examples:
     # vault migrate
     vault_migrate_parser = vault_subparsers.add_parser(
         "migrate",
-        help="Migrate vault between backends (file ↔ keychain)",
+        help="Migrate vault between backends (file <-> keychain)",
         description="Migrate vault data between file and keychain backends.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""

@@ -14,6 +14,7 @@ def test_vault_settings_env_overrides(monkeypatch, tmp_path):
     backup_dir = tmp_path / "env_backups"
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setenv("CIPHER_VAULT_PATH", str(vault_path))
     monkeypatch.setenv("CIPHER_BACKUP_DIR", str(backup_dir))
     monkeypatch.setenv("CIPHER_VAULT_BACKEND", "file")
@@ -29,6 +30,7 @@ def test_vault_settings_env_overrides(monkeypatch, tmp_path):
 
 def test_set_vault_backend_persists_for_default_vault(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
 
     settings = set_vault_backend("file")
     vault = PassphraseVault()
@@ -40,6 +42,7 @@ def test_set_vault_backend_persists_for_default_vault(monkeypatch, tmp_path):
 
 def test_default_vault_prefers_keychain_when_available(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.delenv("CIPHER_VAULT_BACKEND", raising=False)
 
     with patch(
@@ -53,6 +56,7 @@ def test_default_vault_prefers_keychain_when_available(monkeypatch, tmp_path):
 
 def test_default_vault_uses_persisted_keychain_backend(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.delenv("CIPHER_VAULT_BACKEND", raising=False)
     set_vault_backend("keychain")
 

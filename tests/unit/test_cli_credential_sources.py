@@ -286,6 +286,7 @@ class TestTheTwoMasterPasswordRolesAreDistinct:
         """With both files supplied, initialising from the data password
         would leave the very next unlock failing against the master one."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         monkeypatch.setenv("SSC_PASSWORD", OTHER)
         monkeypatch.setenv("SSC_MASTER_PASSWORD", STRONG)
         cli_args._resolve_credential_sources(_args())

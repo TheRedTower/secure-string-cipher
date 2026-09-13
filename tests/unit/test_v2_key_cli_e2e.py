@@ -40,6 +40,7 @@ def _hermetic_cli_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     home = tmp_path / "hermetic-home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setattr(
         cli_args,
         "_cli_limiter",
