@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import multiprocessing
+import os
 import threading
 import time
 from pathlib import Path
@@ -124,6 +125,12 @@ def test_hold_vault_lock_basic(tmp_path: Path) -> None:
     vault_file = tmp_path / "vault.enc"
     with hold_vault_lock(vault_file) as lock_path:
         assert lock_path.is_file()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission check")
+def test_hold_vault_lock_basic_permissions(tmp_path: Path) -> None:
+    vault_file = tmp_path / "vault.enc"
+    with hold_vault_lock(vault_file) as lock_path:
         assert (lock_path.stat().st_mode & 0o777) == 0o600
 
 
@@ -196,6 +203,18 @@ def test_lock_rejects_symlink_file(tmp_path: Path) -> None:
         with hold_vault_lock(target):
             pass
     assert other.read_bytes() == b"unrelated"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission check")
+def test_lock_rejects_symlink_file_leaves_permissions_untouched(tmp_path: Path) -> None:
+    target = tmp_path / "vault.enc"
+    other = tmp_path / "other"
+    other.write_bytes(b"unrelated")
+    other.chmod(0o644)
+    get_vault_lock_path(target).symlink_to(other)
+    with pytest.raises(OSError, match="symlink"):
+        with hold_vault_lock(target):
+            pass
     assert other.stat().st_mode & 0o777 == 0o644
 
 

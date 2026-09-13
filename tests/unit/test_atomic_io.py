@@ -55,8 +55,12 @@ def test_refuses_dangling_symlink_destination_without_overwrite(
     # os.readlink can come back with Windows' extended-length \\?\ prefix
     # even when the symlink was created from a plain path -- a cosmetic
     # difference in how the OS reports the same target, not a different
-    # target. Path() normalizes both sides away from that before comparing.
-    assert Path(os.readlink(destination)) == Path(tmp_path / "missing-target")
+    # target. pathlib doesn't strip that prefix on its own, so strip it
+    # ourselves before comparing.
+    link_target = os.readlink(destination)
+    if link_target.startswith("\\\\?\\"):
+        link_target = link_target[4:]
+    assert Path(link_target) == Path(tmp_path / "missing-target")
     assert _temporary_files(tmp_path, destination) == []
 
 
