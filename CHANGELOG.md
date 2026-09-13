@@ -65,6 +65,16 @@
 
 ### Fixed
 
+- **A decryption failure could report "Decryption failed: " with nothing
+  after the colon.** A GCM tag failure raises
+  `cryptography.exceptions.InvalidTag()`, whose `str()` is empty; tampering
+  with a byte of ciphertext (as opposed to supplying the wrong password,
+  which fails key-commitment verification first, with a real message) hits
+  this path. `decrypt_text`/`decrypt_bytes` and `decrypt_file` now fall back
+  to a fixed phrase — "authentication failed — wrong password or corrupted
+  data" — whenever the underlying exception has nothing to add, rather than
+  leaving the message dangling at the colon.
+
 - **`.ssckey` files are now read in binary mode.** `load_keyfile` opened the
   descriptor without `O_BINARY`, so on Windows the C runtime collapsed CRLF
   to LF and truncated at a control-Z before the parser saw the bytes —
