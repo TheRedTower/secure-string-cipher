@@ -1280,6 +1280,7 @@ keychain = [
     { name = "keyring" },
 ]
 test = [
+    { name = "hypothesis" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-timeout" },
@@ -1297,6 +1298,7 @@ requires-dist = [
     { name = "cryptography", specifier = "==50.0.1" },
     { name = "detect-secrets", marker = "extra == 'dev'", specifier = "==1.5.0" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = "==6.167.1" },
+    { name = "hypothesis", marker = "extra == 'test'", specifier = "==6.167.1" },
     { name = "keyring", marker = "extra == 'dev'", specifier = ">=25.0.0" },
     { name = "keyring", marker = "extra == 'keychain'", specifier = ">=25.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = "==2.3.1" },
