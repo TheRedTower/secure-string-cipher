@@ -19,36 +19,42 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Cleanup old caches
+      - name: Cleanup caches older than 7 days
         run: |
-          echo "Fetching list of cache keys..."
-          gh extension install actions/gh-actions-cache || true
-
           echo "Caches before cleanup:"
-          gh actions-cache list --limit 100 || echo "No caches found"
+          gh cache list --limit 100 --json id,key,lastAccessedAt \
+            --template '{{range .}}{{.id}}  {{.key}}  {{.lastAccessedAt}}{{"\n"}}{{end}}' \
+            || echo "No caches found"
 
           echo ""
-          echo "Cleaning up caches older than 7 days..."
+          echo "Cleaning up caches last accessed more than 7 days ago..."
+          # GitHub itself deletes caches unaccessed for 7 days, so this workflow
+          # only needs to catch caches it would otherwise miss between runs; the
+          # cutoff mirrors that same 7-day window for consistency.
+          cutoff_epoch=$(date -u -d '7 days ago' +%s)
 
-          # Get list of caches and delete old ones
-          gh actions-cache list --limit 100 | grep -v "^$" | while read line; do
-            cache_key=$(echo "$line" | awk '{print $1}')
-            cache_date=$(echo "$line" | awk '{print $4}')
-
-            # Calculate age in days (rough estimate)
-            if [ -n "$cache_key" ]; then
-              echo "Checking cache: $cache_key (created: $cache_date)"
-
-              # Delete caches older than 7 days
-              # GitHub automatically deletes caches after 7 days of inactivity
-              # This ensures we don't accumulate too many
-              gh actions-cache delete "$cache_key" --confirm 2>/dev/null || true
+          # --sort/--order matter here, not just cosmetically: `gh cache list`
+          # defaults to last-accessed descending, so with more than 100 caches
+          # the --limit would keep only the *newest* ones and the stale caches
+          # this step exists to find would never appear in the list at all.
+          # Ascending puts the oldest (and therefore most deletion-eligible)
+          # caches within the first page instead.
+          gh cache list --limit 100 --sort last_accessed_at --order asc \
+            --json id,key,lastAccessedAt \
+            --jq '.[] | [.id, .lastAccessedAt] | @tsv' | \
+          while IFS=$'\t' read -r cache_id last_accessed; do
+            last_accessed_epoch=$(date -u -d "$last_accessed" +%s)
+            if [ "$last_accessed_epoch" -lt "$cutoff_epoch" ]; then
+              echo "Deleting cache $cache_id (last accessed $last_accessed)"
+              gh cache delete "$cache_id" || true
             fi
           done
 
           echo ""
           echo "Caches after cleanup:"
-          gh actions-cache list --limit 100 || echo "No caches found"
+          gh cache list --limit 100 --json id,key,lastAccessedAt \
+            --template '{{range .}}{{.id}}  {{.key}}  {{.lastAccessedAt}}{{"\n"}}{{end}}' \
+            || echo "No caches found"
 
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

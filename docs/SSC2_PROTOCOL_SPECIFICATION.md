@@ -50,7 +50,13 @@ C(x)   = SSC canonical JSON bytes (defined below)
 ||     = byte concatenation, never text concatenation
 ```
 
-All multi-byte integers on the wire are **little-endian**.
+All multi-byte integers on the wire are **little-endian**. This applies to
+this v2 format only. The legacy v1 format (`core.py`) packs its own
+metadata-length prefix (`METADATA_MAGIC || meta_len(2, big-endian) || ...`)
+big-endian, an independent design choice made before v2 existed. Both
+formats are internally consistent and self-describing by their own magic
+bytes; there is no shared endianness convention to violate, and no reader
+mixes the two representations.
 
 `B64` decoding MUST check the alphabet, expected encoded/decoded lengths,
 unused padding bits, and that `encode(decode(value)) == value`. It MUST NOT
