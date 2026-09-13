@@ -99,6 +99,25 @@ class TestEncryptParser:
         args = parser.parse_args(["encrypt", "-f", "file.txt", "--force"])
         assert args.force is True
 
+    def test_encrypt_require_defaults_to_all(self):
+        """A v2 object's single access grant has never meant anything but
+        'both required together' for more than one --with source, so 'all'
+        is the only useful default -- and, after #116, the only value at
+        all."""
+        parser = create_parser()
+        args = parser.parse_args(["encrypt", "-t", "x", "--with", "password"])
+        assert args.require == "all"
+
+    def test_encrypt_require_any_is_rejected_by_argparse(self):
+        """'any' was never usefully selectable (a no-op with one source, an
+        outright error with two), so it is no longer an accepted value at
+        all rather than a value the runtime later rejects."""
+        parser = create_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(
+                ["encrypt", "-t", "x", "--with", "password", "--require", "any"]
+            )
+
 
 class TestDecryptParser:
     """Tests for decrypt subcommand parser."""
