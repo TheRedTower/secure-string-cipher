@@ -93,6 +93,35 @@
   always-false `matrix.language == 'swift'` runner-selection ternary (no
   `swift` entry exists in the matrix either).
 
+- **The most misleading page in the repository, corrected.**
+  `docs/SSC_V2_REFINED_IMPLEMENTATION_SPEC.md` §10.3's lifecycle table
+  described a `--allow-revoked-key` CLI flag that never existed, and
+  claimed `archived` blocks new encryption when shipped behavior is the
+  opposite (archive never blocks). Rewritten to match shipped behavior,
+  split into the two genuinely separate mechanisms that govern it:
+  `_enforce_v2_key_status` for `encrypt`/`decrypt` (default-on,
+  `--no-enforce-key-status` overrides), and `V2VaultService.get_key`'s own
+  `allow_revoked` parameter for `key show`/`key export` (no CLI override
+  exists for this one at all — see #130, filed while writing this
+  correction).
+
+- **Six of thirteen files under `docs/` were missing from its own index,**
+  including two still-current documents (`MIGRATION.md`, the refined
+  implementation spec) simply missed rather than deliberately excluded.
+  Added a test (`test_docs_readme_indexes_every_file_in_the_docs_directory`)
+  so a future addition under `docs/` fails CI if it isn't indexed.
+
+- **A contradicted audit-checklist claim, corrected rather than
+  weakened.** `.github/AUDIT_CHECKLIST.md` §5.1 asserted "same error for
+  wrong password vs. corrupted file," which is empirically false: a wrong
+  password fails key-commitment verification first, with a different
+  message than a tampered ciphertext's AEAD failure. The requirement
+  itself is real, not cosmetic — the two distinguishable failures are a
+  password-validity oracle for anything that exposes or logs them, even
+  though neither message contains the password, key, or plaintext.
+  Marked the checklist item as currently failing rather than redefining
+  it down to match current behavior; filed #133 to track fixing it.
+
 - **A spec claim that no code enforces.** `docs/SSC_V2_REFINED_IMPLEMENTATION_SPEC.md`
   §5 stated a vault may hold "at most 1,024" managed identities. No such
   check exists anywhere in `v2/vault_service.py` — the only `1024` in the
