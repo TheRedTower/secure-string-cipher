@@ -61,6 +61,16 @@ def encrypt_metadata(
     if original_filename is not None:
         if not isinstance(original_filename, str):
             raise TypeError("original_filename must be a string")
+        # Both bounds are independently load-bearing, matching
+        # docs/SSC2_PROTOCOL_SPECIFICATION.md's "at most 255 Unicode scalar
+        # values and 1,020 UTF-8 bytes". They are not a redundant pair: this
+        # value is JSON-escaped inside the metadata plaintext, and a control
+        # character (\x00-\x1f) escapes to a 6-byte \uXXXX sequence, so a
+        # string well within 1020 *raw* UTF-8 bytes can still explode past
+        # the 4096-byte metadata-plaintext budget once escaped -- 683
+        # control characters is 683 raw bytes but 4122 escaped ones. The
+        # scalar-count check is what actually stops that; it is not merely
+        # a looser version of the byte check.
         if len(original_filename) > 255:
             raise ValueError("original_filename exceeds 255 characters")
         if len(original_filename.encode("utf-8")) > 1020:
