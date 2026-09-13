@@ -393,3 +393,134 @@ def test_validate_rejects_malformed_encrypted_metadata_shape(
     mutate(header_dict["metadata"])
     with pytest.raises((TypeError, ValueError), match=match):
         validate_v2_header(header_dict)
+
+
+def _real_header_raw_bytes(tmp_path: Path) -> bytes:
+    """The raw canonical-JSON header bytes from an actual encrypted
+    container, not a hand-built dict. The malleability check under test
+    compares against exactly these bytes, so a mutation that only ever
+    touched a synthetic dict would not exercise the same code path a real
+    attacker-supplied container would."""
+    from secure_string_cipher.v2.encrypt import PasswordCredential, encrypt_v2_file
+
+    input_path = tmp_path / "plain.bin"
+    input_path.write_bytes(b"malleability probe" * 10)
+    output_path = tmp_path / "out.ssc"
+    encrypt_v2_file(
+        input_path=input_path,
+        credential=PasswordCredential("Str0ngPass!2026"),
+        output_path=output_path,
+        store_filename=True,
+    )
+    with open(output_path, "rb") as stream:
+        _, raw_bytes = parse_header_stream(stream)
+    return raw_bytes
+
+
+def _stream_from_raw_bytes(raw_bytes: bytes) -> io.BytesIO:
+    stream = io.BytesIO()
+    stream.write(b"SSC2")
+    stream.write(len(raw_bytes).to_bytes(4, "little"))
+    stream.write(raw_bytes)
+    stream.seek(0)
+    return stream
+
+
+class TestByteLevelHeaderMalleability:
+    """`header_parser.py`'s re-encode-and-compare against canonical JSON
+    (validate_v2_header, near the end) is the *only* defence against
+    wire-level header malleability -- reordered keys, injected whitespace,
+    an alternate number spelling. A refactor that weakened or removed it
+    would leave every other header test passing, because those all check
+    semantic content, not byte identity.
+
+    Each mutation here starts from a real container's header bytes and
+    changes only its byte-level shape, keeping (or, for the JSON-invalid
+    cases, nearly keeping) the same conceptual content -- proving the
+    check catches malleability that no field-level validator has any
+    reason to reject on its own.
+    """
+
+    def test_a_genuine_header_round_trips(self, tmp_path: Path) -> None:
+        """Baseline: the unmutated bytes must be accepted, or every
+        rejection test below would be meaningless."""
+        raw_bytes = _real_header_raw_bytes(tmp_path)
+        header, returned_bytes = parse_header_stream(_stream_from_raw_bytes(raw_bytes))
+        assert returned_bytes == raw_bytes
+        assert header.format == "SSC2"
+
+    def test_reordered_top_level_keys_are_rejected(self, tmp_path: Path) -> None:
+        """Every field present, every value unchanged -- only the byte
+        order differs. No field-level validator reads dict order, so only
+        the canonical-JSON comparison can catch this."""
+        raw_bytes = _real_header_raw_bytes(tmp_path)
+        doc = json.loads(raw_bytes.decode("utf-8"))
+        reordered = dict(reversed(list(doc.items())))
+        mutated = json.dumps(
+            reordered, sort_keys=False, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        assert mutated != raw_bytes, "the mutation did not actually change the bytes"
+
+        with pytest.raises(ValueError, match="does not match canonical JSON"):
+            parse_header_stream(_stream_from_raw_bytes(mutated))
+
+    def test_injected_whitespace_is_rejected(self, tmp_path: Path) -> None:
+        """Canonical JSON has no whitespace at all (`separators=(",", ":")`);
+        a single injected space is still syntactically valid JSON with
+        identical semantic content."""
+        raw_bytes = _real_header_raw_bytes(tmp_path)
+        index = raw_bytes.index(b"{")
+        mutated = raw_bytes[: index + 1] + b" " + raw_bytes[index + 1 :]
+        assert mutated != raw_bytes
+
+        with pytest.raises(ValueError, match="does not match canonical JSON"):
+            parse_header_stream(_stream_from_raw_bytes(mutated))
+
+    def test_non_compact_separators_are_rejected(self, tmp_path: Path) -> None:
+        """Same document, same key order, but re-encoded with `", "` and
+        `": "` instead of the canonical `","`/`":"` -- a plausible output
+        from a JSON encoder that is not deliberately canonicalising."""
+        raw_bytes = _real_header_raw_bytes(tmp_path)
+        doc = json.loads(raw_bytes.decode("utf-8"))
+        mutated = json.dumps(
+            doc, sort_keys=True, separators=(", ", ": "), ensure_ascii=False
+        ).encode("utf-8")
+        assert mutated != raw_bytes
+
+        with pytest.raises(ValueError, match="does not match canonical JSON"):
+            parse_header_stream(_stream_from_raw_bytes(mutated))
+
+    def test_a_respelled_number_is_rejected(self, tmp_path: Path) -> None:
+        """`19` and `19.0` are the same conceptual value; JSON does not
+        require a single canonical spelling for a number, so an alternate
+        encoder could legitimately emit either. Targets the Argon2id
+        `version` field, pinned to the exact integer 19. This one is caught
+        earlier, by that field's own strict-int check rather than by the
+        canonical comparison -- a second, independent layer rejecting the
+        same class of mutation."""
+        raw_bytes = _real_header_raw_bytes(tmp_path)
+        mutated = raw_bytes.replace(b'"version":19', b'"version":19.0', 1)
+        assert mutated != raw_bytes
+        assert mutated.count(b'"version":19.0') == 1, "substitution did not land"
+
+        with pytest.raises(ValueError, match="version must be 19"):
+            parse_header_stream(_stream_from_raw_bytes(mutated))
+
+    def test_a_leading_plus_on_a_number_is_rejected(self, tmp_path: Path) -> None:
+        """`+19` is not valid JSON syntax at all, so this is rejected by
+        `json.loads` itself before any header-specific validation runs --
+        still a rejection, at the layer below the one under test."""
+        raw_bytes = _real_header_raw_bytes(tmp_path)
+        mutated = raw_bytes.replace(b'"version":19', b'"version":+19', 1)
+        assert mutated != raw_bytes
+
+        with pytest.raises(ValueError, match="Invalid JSON in header"):
+            parse_header_stream(_stream_from_raw_bytes(mutated))
+
+    def test_a_header_that_is_not_valid_utf8_is_rejected(self) -> None:
+        """Covers header_parser.py's UTF-8 decode guard, ahead of any JSON
+        or schema validation -- a stream cannot be malleable JSON if it
+        is not decodable text in the first place."""
+        raw_bytes = b'{"bad":"\xff\xfe"}'
+        with pytest.raises(ValueError, match="not valid UTF-8"):
+            parse_header_stream(_stream_from_raw_bytes(raw_bytes))
