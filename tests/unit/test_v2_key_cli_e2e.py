@@ -90,7 +90,7 @@ def _encrypt_args(**overrides: object) -> argparse.Namespace:
         "key_file": None,
         "force": False,
         "with_sources": None,
-        "require": "any",
+        "require": "all",
         "output": None,
     }
     base.update(overrides)

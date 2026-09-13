@@ -93,6 +93,20 @@
   human-facing output-filename conventions only — `ssc decrypt` reads a
   file's magic bytes, never its extension, to decide which format it is.
 
+### Changed
+
+- **`ssc encrypt --require` now accepts only `all`.** With one `--with`
+  source, `any` vs `all` was already a distinction that did nothing; with
+  two or more, `any` was already rejected outright with a hand-written
+  error. It could never be usefully passed. A v2 object carries exactly one
+  access grant, so two `--with` sources have only ever meant "both required
+  together" — `--require` now documents that intent rather than offering a
+  choice that never had a live option on the other side. `--require all` is
+  still accepted (and still the default) for every script or doc example
+  that already spells it out; only an explicit `--require any` starts being
+  rejected, by argparse itself, and it never did anything useful in the
+  first place.
+
 ### Deprecated
 
 - **`colorize`, `ProgressBar` and `main` in the package root.** These are

@@ -22,7 +22,7 @@ def test_encrypt_routing_v1_vs_v2(
         key_file=None,
         force=False,
         with_sources=["password"],
-        require="any",
+        require="all",
         output=None,
     )
     cmd_encrypt(args_v2)
@@ -39,7 +39,7 @@ def test_encrypt_routing_v1_vs_v2(
         key_file=None,
         force=False,
         with_sources=None,
-        require="any",
+        require="all",
         output=None,
     )
     cmd_encrypt(args_v1)
