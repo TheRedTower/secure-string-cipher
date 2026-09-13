@@ -145,12 +145,17 @@ __all__ = [
 class StreamProcessor:
     """Context manager for secure file operations with progress tracking."""
 
-    def __init__(self, path: str, mode: str):
+    def __init__(self, path: str | os.PathLike[str] | BinaryIO, mode: str):
         """
         Initialize a secure file stream processor.
 
         Args:
-            path: Path to the file to process
+            path: Path to the file to process, or an already-open file-like
+                object (stdin/stdout use this; path-specific checks are
+                skipped for it -- see _check_path). The internal isinstance
+                checks also accept raw bytes paths defensively, but nothing
+                in this codebase ever constructs one, so it is not part of
+                the declared type.
             mode: File mode ('rb' for read, 'wb' for write)
 
         Raises:
@@ -165,7 +170,7 @@ class StreamProcessor:
             path, (str, bytes, os.PathLike)
         )
 
-        if self._bounded_path_read:
+        if self._bounded_path_read and isinstance(path, (str, bytes, os.PathLike)):
             size = _preflight_regular_file_size(path, "input file")
             if size is not None and size > MAX_FILE_SIZE:
                 _raise_file_too_large(plaintext=True)

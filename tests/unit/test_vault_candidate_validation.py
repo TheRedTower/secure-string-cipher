@@ -105,7 +105,7 @@ def test_one_bit_corruption_in_each_framed_component_fails(
     _assert_generic_failure("\n".join(lines))
 
 
-def _truncated_candidates(raw: str) -> list[object]:
+def _truncated_candidates(raw: str):
     lines = raw.split("\n")
     boundaries = []
     offset = 0

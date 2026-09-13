@@ -247,7 +247,9 @@ def _valid_argon2id_block() -> dict[str, Any]:
 
 
 def test_validate_hkdf_sha256_accepts_valid_block() -> None:
-    assert _validate_hkdf_sha256(_valid_hkdf_block(), "kdf") is None
+    # A void function: success means it returned without raising, not that
+    # it returned a particular value.
+    _validate_hkdf_sha256(_valid_hkdf_block(), "kdf")
 
 
 @pytest.mark.parametrize(
@@ -272,7 +274,9 @@ def test_validate_hkdf_sha256_rejects_bad_input(bad: Any) -> None:
 
 
 def test_validate_argon2id_accepts_valid_block() -> None:
-    assert _validate_argon2id(_valid_argon2id_block(), "kdf") is None
+    # A void function: success means it returned without raising, not that
+    # it returned a particular value.
+    _validate_argon2id(_valid_argon2id_block(), "kdf")
 
 
 @pytest.mark.parametrize(

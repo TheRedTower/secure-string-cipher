@@ -80,7 +80,7 @@ class TestStreamProcessor:
     def test_file_like_object(self):
         """Should accept file-like objects."""
         buf = BytesIO(b"test data")
-        sp = StreamProcessor(buf, "rb")  # type: ignore
+        sp = StreamProcessor(buf, "rb")
         with sp:
             data = sp.read()
         assert data == b"test data"

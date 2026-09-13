@@ -375,14 +375,26 @@ def test_decrypt_auto_destination_never_touches_target_dir_on_auth_failure(
     real_mkstemp = tempfile.mkstemp
     mkstemp_calls = []
 
-    def _spy_mkstemp(*args: object, **kwargs: object) -> tuple[int, str]:
-        mkstemp_calls.append((args, kwargs))
-        return real_mkstemp(*args, **kwargs)
+    def _spy_mkstemp(
+        suffix: str | None = None,
+        prefix: str | None = None,
+        dir: str | Path | None = None,
+        text: bool = False,
+    ) -> tuple[int, str]:
+        # Typed to match the str-returning overload specifically: every real
+        # call site passes only these keyword arguments, and giving this
+        # spy the same precise signature (rather than *args/**kwargs) is what
+        # lets mypy resolve tempfile.mkstemp's overload instead of seeing an
+        # ambiguous call and returning Any.
+        mkstemp_calls.append(
+            {"suffix": suffix, "prefix": prefix, "dir": dir, "text": text}
+        )
+        return real_mkstemp(suffix=suffix, prefix=prefix, dir=dir, text=text)
 
     import secure_string_cipher.atomic_io as atomic_io_module
 
     original = atomic_io_module.tempfile.mkstemp
-    atomic_io_module.tempfile.mkstemp = _spy_mkstemp  # type: ignore[attr-defined]
+    atomic_io_module.tempfile.mkstemp = _spy_mkstemp  # type: ignore[attr-defined,assignment]
     try:
         with pytest.raises(CryptoError):
             decrypt_v2_file(
@@ -411,14 +423,26 @@ def test_decrypt_auto_destination_write_pass_runs_once_on_success(
     real_mkstemp = tempfile.mkstemp
     mkstemp_calls = []
 
-    def _spy_mkstemp(*args: object, **kwargs: object) -> tuple[int, str]:
-        mkstemp_calls.append((args, kwargs))
-        return real_mkstemp(*args, **kwargs)
+    def _spy_mkstemp(
+        suffix: str | None = None,
+        prefix: str | None = None,
+        dir: str | Path | None = None,
+        text: bool = False,
+    ) -> tuple[int, str]:
+        # Typed to match the str-returning overload specifically: every real
+        # call site passes only these keyword arguments, and giving this
+        # spy the same precise signature (rather than *args/**kwargs) is what
+        # lets mypy resolve tempfile.mkstemp's overload instead of seeing an
+        # ambiguous call and returning Any.
+        mkstemp_calls.append(
+            {"suffix": suffix, "prefix": prefix, "dir": dir, "text": text}
+        )
+        return real_mkstemp(suffix=suffix, prefix=prefix, dir=dir, text=text)
 
     import secure_string_cipher.atomic_io as atomic_io_module
 
     original = atomic_io_module.tempfile.mkstemp
-    atomic_io_module.tempfile.mkstemp = _spy_mkstemp  # type: ignore[attr-defined]
+    atomic_io_module.tempfile.mkstemp = _spy_mkstemp  # type: ignore[attr-defined,assignment]
     try:
         dest = decrypt_v2_file(
             input_path=enc, credential=_key_credential(), output_dir=out_dir

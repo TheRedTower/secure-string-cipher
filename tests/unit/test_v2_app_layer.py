@@ -276,6 +276,7 @@ class TestBuildCredential:
         credential = build_credential(
             GrantRequirement(CredentialRequirement.MANAGED_KEY, self.FP), key_data=data
         )
+        assert isinstance(credential, KeyCredential)
         assert credential.key_fingerprint == self.FP != data.fingerprint
 
     def test_missing_parts_are_refused(self) -> None:

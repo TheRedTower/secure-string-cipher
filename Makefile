@@ -24,6 +24,7 @@ lint:  ## Run all linting checks (Ruff format check, Ruff lint, mypy)
 	uv run --locked ruff check src tests tools
 	@echo "🔬 Running mypy type checks on production code..."
 	uv run --locked mypy src
+	@$(MAKE) lint-tests
 	@$(MAKE) security-guard
 	@echo "✅ All linting checks passed!"
 
@@ -49,9 +50,14 @@ dependency-audit:  ## Audit the locked production dependency set
 	uv run --locked pip-audit --requirement "$$audit_requirements" \
 		--require-hashes --disable-pip --desc
 
-lint-tests:  ## Run the gradual non-blocking mypy check for tests
+lint-tests:  ## Run mypy type checks on tests (blocking; part of `make lint`)
 	@echo "🔬 Running mypy type checks on tests..."
-	uv run --locked mypy tests
+	@# --allow-untyped-defs/--check-untyped-defs, not disallow_untyped_defs=true:
+	@# a test function's own signature genuinely doesn't need annotating the
+	@# way production code does, but a bug hiding in its body still should be
+	@# caught, so bodies are checked regardless of whether the function is
+	@# annotating its parameters.
+	uv run --locked mypy tests --allow-untyped-defs --check-untyped-defs
 
 build:  ## Build packages with hash-checked, locked build dependencies
 	@set -eu; build_constraints="$$(mktemp)"; \
