@@ -649,3 +649,147 @@ def test_v2_cli_decrypt_with_vault_allows_active_key(
     rc = cli_args.cmd_decrypt(_decrypt_args(text=armored, vault="anything"))
     assert rc == cli_args.EXIT_SUCCESS
     assert capsys.readouterr().out.strip() == "secret"
+
+
+# =============================================================================
+# Key-status enforcement on a combined grant, and the two remaining branches
+# of _enforce_v2_key_status itself (no-vault early return; vault-unlock
+# failure). Every other enforcement site (encrypt+revoked, encrypt+destroyed,
+# decrypt(key-only)+revoked/destroyed) has coverage above; combined-grant
+# decrypt did not.
+# =============================================================================
+
+
+def test_v2_cli_decrypt_combined_grant_rejects_revoked_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    home = tmp_path / "home"
+    _use_hermetic_home(monkeypatch, home)
+    _mock_password_prompt(monkeypatch)
+
+    rc = cli_args.cmd_encrypt(
+        _encrypt_args(
+            text="combined secret",
+            with_sources=["password", f"key:{_FINGERPRINT}"],
+            require="all",
+        )
+    )
+    assert rc == cli_args.EXIT_SUCCESS
+    armored = _extract_armored(capsys.readouterr().out)
+
+    _register_key_in_vault(home, status="revoked")
+    _mock_master_password(monkeypatch)
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli_args.cmd_decrypt(_decrypt_args(text=armored))
+    assert excinfo.value.code == cli_args.EXIT_AUTH_ERROR
+    assert "revoked" in capsys.readouterr().err.lower()
+
+
+def test_v2_cli_decrypt_combined_grant_rejects_destroyed_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    home = tmp_path / "home"
+    _use_hermetic_home(monkeypatch, home)
+    _mock_password_prompt(monkeypatch)
+
+    rc = cli_args.cmd_encrypt(
+        _encrypt_args(
+            text="combined secret",
+            with_sources=["password", f"key:{_FINGERPRINT}"],
+            require="all",
+        )
+    )
+    assert rc == cli_args.EXIT_SUCCESS
+    armored = _extract_armored(capsys.readouterr().out)
+
+    _register_key_in_vault(home, status="destroyed")
+    _mock_master_password(monkeypatch)
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli_args.cmd_decrypt(_decrypt_args(text=armored))
+    assert excinfo.value.code == cli_args.EXIT_AUTH_ERROR
+    assert "destroyed" in capsys.readouterr().err.lower()
+
+
+def test_v2_cli_decrypt_combined_grant_allows_active_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Sanity check alongside the two rejections above: the combined-grant
+    decrypt path must still succeed for a key the vault tracks as active,
+    proving the new coverage isn't merely testing a code path that always
+    fails."""
+    home = tmp_path / "home"
+    _use_hermetic_home(monkeypatch, home)
+    _mock_password_prompt(monkeypatch)
+
+    rc = cli_args.cmd_encrypt(
+        _encrypt_args(
+            text="combined secret",
+            with_sources=["password", f"key:{_FINGERPRINT}"],
+            require="all",
+        )
+    )
+    assert rc == cli_args.EXIT_SUCCESS
+    armored = _extract_armored(capsys.readouterr().out)
+
+    _register_key_in_vault(home, status=None)
+    _mock_master_password(monkeypatch)
+
+    rc = cli_args.cmd_decrypt(_decrypt_args(text=armored))
+    assert rc == cli_args.EXIT_SUCCESS
+    assert capsys.readouterr().out.strip() == "combined secret"
+
+
+def test_enforce_key_status_fails_closed_when_the_vault_cannot_be_unlocked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The `VaultUnlockFailed` branch: a vault exists and is consulted, but
+    the supplied master password does not open it. Must fail closed rather
+    than silently letting the key through unchecked -- proceeding here would
+    report a status check that never actually happened."""
+    home = tmp_path / "home"
+    _use_hermetic_home(monkeypatch, home)
+
+    rc = cli_args.cmd_encrypt(
+        _encrypt_args(text="secret", with_sources=[f"key:{_FINGERPRINT}"])
+    )
+    assert rc == cli_args.EXIT_SUCCESS
+    armored = _extract_armored(capsys.readouterr().out)
+
+    _register_key_in_vault(home, status=None)
+    monkeypatch.setattr(
+        cli_args, "_prompt_master_password", lambda: "definitely-the-wrong-password"
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli_args.cmd_decrypt(_decrypt_args(text=armored))
+    assert excinfo.value.code == cli_args.EXIT_AUTH_ERROR
+    err = capsys.readouterr().err.lower()
+    assert "could not unlock the vault" in err
+    assert "--no-enforce-key-status" in err
+
+
+def test_enforce_key_status_skips_the_prompt_hint_when_a_source_was_supplied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """When the master password already came from --master-password-file /
+    SSC_MASTER_PASSWORD, there is no interactive prompt about to surprise the
+    operator, so the explanatory info line must not print."""
+    home = tmp_path / "home"
+    _use_hermetic_home(monkeypatch, home)
+
+    rc = cli_args.cmd_encrypt(
+        _encrypt_args(text="secret", with_sources=[f"key:{_FINGERPRINT}"])
+    )
+    assert rc == cli_args.EXIT_SUCCESS
+    armored = _extract_armored(capsys.readouterr().out)
+
+    _register_key_in_vault(home, status=None)
+    monkeypatch.setattr(cli_args, "_master_password_source", MASTER)
+
+    rc = cli_args.cmd_decrypt(_decrypt_args(text=armored))
+    assert rc == cli_args.EXIT_SUCCESS
+    captured = capsys.readouterr()
+    assert "Checking the key's status against the vault" not in captured.err
+    assert "Checking the key's status against the vault" not in captured.out
