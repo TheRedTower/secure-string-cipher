@@ -104,6 +104,18 @@
   Marked the checklist item as currently failing rather than redefining
   it down to match current behavior; filed #133 to track fixing it.
 
+- **A spec claim that no code enforces.** `docs/SSC_V2_REFINED_IMPLEMENTATION_SPEC.md`
+  §5 stated a vault may hold "at most 1,024" managed identities. No such
+  check exists anywhere in `v2/vault_service.py` — the only `1024` in the
+  codebase is `envelope.py`'s `MAX_TOTAL_NODES`, an unrelated JSON
+  node/depth limit for parsing object headers, not a vault key count.
+  Corrected the table to state plainly that vault key count is unenforced,
+  bounded only indirectly by the vault's existing 100 MiB raw-size cap.
+  Not implementing the cap instead: the vault is the operator's own
+  trusted file, not attacker-supplied input, so an artificial count limit
+  would add real complexity for a threat this format doesn't actually
+  have.
+
 - **`.ssckey` files are now read in binary mode.** `load_keyfile` opened the
   descriptor without `O_BINARY`, so on Windows the C runtime collapsed CRLF
   to LF and truncated at a control-Z before the parser saw the bytes —
