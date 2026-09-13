@@ -61,8 +61,14 @@ def encrypt_metadata(
     if original_filename is not None:
         if not isinstance(original_filename, str):
             raise TypeError("original_filename must be a string")
-        if len(original_filename) > 255:
-            raise ValueError("original_filename exceeds 255 characters")
+        # A byte bound, not a character bound: UTF-8 encodes at most 4 bytes
+        # per code point, so a preceding ">255 characters" check would make
+        # this one unreachable (255 * 4 == 1020, so nothing can ever exceed
+        # 1020 bytes while also passing a 255-character limit) and would
+        # reject a legitimate filename with many short multi-byte characters
+        # (a CJK name well under 1020 bytes can easily exceed 255 characters).
+        # Bytes are what the metadata plaintext's own 4096-byte budget is
+        # denominated in, so bytes are the bound that matters here too.
         if len(original_filename.encode("utf-8")) > 1020:
             raise ValueError("original_filename exceeds 1020 bytes")
         metadata_plaintext_dict["original_filename"] = original_filename

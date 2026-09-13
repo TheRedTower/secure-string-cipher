@@ -65,6 +65,19 @@
 
 ### Fixed
 
+- **A v2 metadata filename byte limit that could never fire, and could
+  wrongly reject a legitimate short filename.** `encrypt_metadata` checked
+  `len(original_filename) > 255` (characters) before
+  `len(original_filename.encode("utf-8")) > 1020` (bytes). Since UTF-8 encodes
+  at most 4 bytes per code point, 255 characters can never exceed 1020 bytes
+  (255 × 4 = 1020 exactly), so the byte check was unreachable dead code —
+  and the character check rejected any filename with many short multi-byte
+  characters (a 300-character CJK filename is 900 bytes, well inside the
+  intended budget, but was rejected outright for having "too many"
+  characters). Removed the character check; the byte check alone is both
+  reachable and the actually meaningful bound, since it matches the unit the
+  metadata plaintext's own 4096-byte cap is denominated in.
+
 - **`.ssckey` files are now read in binary mode.** `load_keyfile` opened the
   descriptor without `O_BINARY`, so on Windows the C runtime collapsed CRLF
   to LF and truncated at a control-Z before the parser saw the bytes —
