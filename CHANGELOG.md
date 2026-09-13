@@ -4,6 +4,28 @@
 
 ### Added
 
+- **The built wheel is now actually installed and run, not just built and
+  statically inspected.** `ci.yml`'s `quality` job already ran `make
+  build`, and `release.yml`'s own `build` job already checked the resulting
+  artifacts statically (version match, exactly one wheel and one sdist, no
+  private working files, valid `METADATA`/`PKG-INFO`) — but nothing
+  anywhere installed the wheel into an environment and ran it. A missing
+  module, a broken entry point, or a bad dependency pin would have reached
+  PyPI undetected. New `wheel-smoke-test` jobs in both workflows install
+  into a fresh venv with no dev extras and assert: `ssc --version`, `ssc
+  --help`, `import secure_string_cipher` / `secure_string_cipher.v2`, and a
+  real `ssc encrypt`/`ssc decrypt` round trip through the installed CLI —
+  not the repository checkout. `ci.yml`'s job builds fresh on every PR;
+  `release.yml`'s installs the exact, already-verified artifact `build`
+  produced (not a rebuild, which would test different — if nominally
+  identical — bytes than what actually reaches PyPI) and gates
+  `publish-pypi` on it. Both also run `twine check --strict`. Verified end
+  to end locally before wiring into CI, including the one snag worth
+  naming: the smoke test's password had to go through a real temporary
+  file rather than process substitution (`<(...)`), since the
+  password-file reader added earlier in this changelog deliberately
+  requires a regular file and correctly refuses a `/dev/fd/N` pipe.
+
 - **Three sources of CI nondeterminism, closed.**
   - **Benchmarks ran as part of the gating test suite,** competing with
     `-n auto`'s parallel workers for CPU on a shared runner while asserting
