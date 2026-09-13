@@ -56,9 +56,16 @@ def test_docs_readme_indexes_every_file_in_the_docs_directory() -> None:
     index -- including two that are still current (MIGRATION.md, the
     refined implementation spec) and were simply missed, not deliberately
     excluded. This does not require every file to be linked with a specific
-    description; it only requires the filename to appear *somewhere* in the
-    index, so a file can be covered by a general historical-evidence bullet
-    without a dedicated line of its own.
+    description; it only requires the filename to appear as an actual
+    Markdown link target somewhere in the index, so a file can be covered
+    by a general historical-evidence bullet without a dedicated line of
+    its own.
+
+    Matches complete link targets' basenames rather than doing a substring
+    search over the raw text: a substring check would consider
+    `THREAT_MODEL.md` sufficient evidence that a hypothetical, unindexed
+    `MODEL.md` was covered, since the shorter name is literally contained
+    in the longer one's text.
     """
     docs_dir = REPOSITORY_ROOT / "docs"
     readme = (docs_dir / "README.md").read_text(encoding="utf-8")
@@ -68,5 +75,9 @@ def test_docs_readme_indexes_every_file_in_the_docs_directory() -> None:
     }
     assert markdown_files, "expected at least one markdown file under docs/"
 
-    missing = {name for name in markdown_files if name not in readme}
-    assert not missing, f"docs/README.md does not mention: {sorted(missing)}"
+    linked_basenames = {
+        target.rsplit("/", 1)[-1] for target in re.findall(r"\]\(([^)]+)\)", readme)
+    }
+
+    missing = markdown_files - linked_basenames
+    assert not missing, f"docs/README.md does not link to: {sorted(missing)}"
