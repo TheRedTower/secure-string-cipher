@@ -48,10 +48,11 @@ The CLI's `--with`/`--require` flags select what a grant requires; they are
 not stored access-policy fields on the object (there is no `require_all` or
 `require_any` field in the `.ssc` header schema).
 
-* `--require all` with two `--with` sources builds one grant requiring both a
-  password and a managed key together.
-* `--require any` with more than one `--with` source is rejected by the CLI —
-  there is no "any of N credentials" mode.
+* Two `--with` sources always build one grant requiring both a password and
+  a managed key together — a v2 object carries exactly one access grant, so
+  there is no "any of N credentials" mode. `--require` accepts only `all`
+  (its default, and now its only valid value); it documents that intent at
+  the call site rather than selecting between alternatives.
 * **Threat mitigated**: for a combined grant, a single stolen credential
   (password *or* key alone) is insufficient.
 

@@ -69,7 +69,7 @@ def _encrypt_args(**overrides: object) -> argparse.Namespace:
         "key_file": None,
         "force": False,
         "with_sources": None,
-        "require": "any",
+        "require": "all",
         "output": None,
     }
     base.update(overrides)
@@ -313,6 +313,32 @@ def test_v2_cli_combined_text_roundtrip(
     rc = cli_args.cmd_decrypt(_decrypt_args(text=armored, key_file=str(key_path)))
     assert rc == cli_args.EXIT_SUCCESS
     assert capsys.readouterr().out.strip() == "combined secret"
+
+
+def test_v2_cli_two_with_sources_combine_without_naming_require(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Two --with sources have always meant "both required together" --
+    a v2 object carries exactly one access grant. #116 stopped requiring
+    the caller to also say --require all to get that: `cmd_encrypt` no
+    longer reads args.require at all, so this must work exactly like the
+    roundtrip above even when the field is left at its default."""
+    _mock_password_prompt(monkeypatch)
+    key_path = tmp_path / "combo2.ssckey"
+    _make_keyfile(key_path)
+
+    args = _encrypt_args(
+        text="still combined", with_sources=["password", f"key:{key_path}"]
+    )
+    del args.require  # proves cmd_encrypt does not consult this field at all
+
+    rc = cli_args.cmd_encrypt(args)
+    assert rc == cli_args.EXIT_SUCCESS
+    armored = _extract_armored(capsys.readouterr().out)
+
+    rc = cli_args.cmd_decrypt(_decrypt_args(text=armored, key_file=str(key_path)))
+    assert rc == cli_args.EXIT_SUCCESS
+    assert capsys.readouterr().out.strip() == "still combined"
 
 
 # =============================================================================

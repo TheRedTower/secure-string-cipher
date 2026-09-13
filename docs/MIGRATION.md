@@ -35,8 +35,10 @@ cannot be opened by more than one distinct credential.
    below.
 3. **Combined authentication**: You can encrypt a single file so that its one
    grant requires *both* a password and a key. There is no "either one"
-   (any-of) mode — `--require any` with more than one `--with` source is
-   rejected by the CLI.
+   (any-of) mode — a v2 object carries exactly one access grant, so two
+   `--with` sources have only ever meant "both required together".
+   `--require` accepts only `all` (its default); it exists to let a caller
+   say so explicitly, not to select between alternatives.
 
 ## Migrating Your Workflows
 
@@ -53,11 +55,13 @@ ssc encrypt -f data.txt --vault my-server
 ssc encrypt -f data.txt --with password --with key:/path/to/my-server.ssckey --require all
 ```
 
-`--require any` is only meaningful with a single `--with` source; with two
-sources it must be `--require all`. `key:ID` resolves either a literal
-`.ssckey` path or a fingerprint/key-id found under `~/.ssc/keys/*.ssckey` —
-nothing in this CLI currently populates that directory automatically, so
-place or symlink the `.ssckey` file there yourself, or use the direct path.
+`--require all` is optional here — two `--with` sources always mean both are
+required, whether or not `--require` is named — but spelling it out is
+harmless and matches this document's other examples. `key:ID` resolves
+either a literal `.ssckey` path or a fingerprint/key-id found under
+`~/.ssc/keys/*.ssckey` — nothing in this CLI currently populates that
+directory automatically, so place or symlink the `.ssckey` file there
+yourself, or use the direct path.
 
 ### 2. Using Keys
 
