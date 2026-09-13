@@ -631,7 +631,6 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
 
     if is_v2:
         sources = args.with_sources
-        require_all = args.require == "all"
 
         has_password = "password" in sources
         keys = [s[4:] for s in sources if s.startswith("key:")]
@@ -644,11 +643,12 @@ def cmd_encrypt(args: argparse.Namespace) -> int:
         if len(keys) > 1:
             _exit_error(EXIT_INPUT_ERROR, "Cannot specify multiple key sources.")
 
-        if len(sources) > 1 and not require_all:
-            _exit_error(EXIT_INPUT_ERROR, "Multiple sources require --require all")
-
+        # A v2 object carries exactly one access grant (AccessPolicy.SINGLE_GRANT),
+        # so two sources have never meant anything but "both required together" --
+        # --require exists to let a caller say so explicitly, not to select
+        # between alternatives. See #116.
         credential: V2Credential
-        if has_password and keys and require_all:
+        if has_password and keys:
             password = _prompt_password("Enter password: ", confirm=True)
             key_data = _resolve_v2_key_source(keys[0])
             if _enforce_key_status:
@@ -2035,9 +2035,13 @@ Examples:
     )
     encrypt_parser.add_argument(
         "--require",
-        choices=["all", "any"],
-        default="any",
-        help="V2 authentication requirement when using multiple sources",
+        choices=["all"],
+        default="all",
+        help=(
+            "V2 authentication requirement when using multiple --with sources "
+            "(documents intent; 'all' is the only value a v2 object's single "
+            "access grant can satisfy)"
+        ),
     )
     encrypt_parser.add_argument(
         "-o",
