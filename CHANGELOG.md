@@ -75,6 +75,21 @@
   data" — whenever the underlying exception has nothing to add, rather than
   leaving the message dangling at the colon.
 
+- **`cleanup-caches.yml` deleted every cache on every run, not just old
+  ones.** It computed a cache's age and then never used it — every cache
+  was deleted unconditionally regardless of the comment describing a
+  7-day cutoff. Rewritten against the native `gh cache` command (no
+  longer needs the third-party `gh-actions-cache` extension) with a real
+  date comparison: only a cache last accessed more than 7 days ago is
+  deleted.
+
+- **`codeql.yml` had an unreachable manual-build step.** Its matrix
+  configures `build-mode: none` for both languages it analyzes; no entry
+  ever uses `manual`, so the step gated on that value could never run.
+  Removed it along with the template's boilerplate comments and an
+  always-false `matrix.language == 'swift'` runner-selection ternary (no
+  `swift` entry exists in the matrix either).
+
 - **`.ssckey` files are now read in binary mode.** `load_keyfile` opened the
   descriptor without `O_BINARY`, so on Windows the C runtime collapsed CRLF
   to LF and truncated at a control-Z before the parser saw the bytes —
