@@ -52,9 +52,9 @@ dev = [
     "pytest-xdist==3.8.0",        # Parallel test execution
     "pytest-timeout==2.4.0",      # Prevent hanging tests
     "pytest-mock==3.15.1",        # Better mocking
-    "hypothesis==6.167.1",        # Property-based testing
+    "hypothesis==6.168.0",        # Property-based testing
     "mypy==2.3.1",
-    "ruff==0.16.6",
+    "ruff==0.16.7",
     "detect-secrets==1.5.0",      # Secret scanning
     "pip-audit==2.10.1",          # Vulnerability scanning
     "pre-commit>=4.6.2",
@@ -65,7 +65,7 @@ test = [
     "pytest-cov==7.1.0",
     "pytest-xdist==3.8.0",        # Parallel execution
     "pytest-timeout==2.4.0",      # Timeout protection
-    "hypothesis==6.167.1",        # Property-based testing; the root conftest
+    "hypothesis==6.168.0",        # Property-based testing; the root conftest
                                    # registers a Hypothesis profile unconditionally
 ]
 
