@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling==1.32.0"]
+requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
@@ -25,7 +25,7 @@ dependencies = [
     "argon2-cffi==25.1.0",
     "pynacl==1.6.2",
     "pyperclip==1.11.0",
-    "wcwidth==0.8.3",
+    "wcwidth==0.9.2",
 ]
 
 classifiers = [
@@ -51,10 +51,10 @@ dev = [
     "pytest-cov==7.1.0",
     "pytest-xdist==3.8.0",        # Parallel test execution
     "pytest-timeout==2.4.0",      # Prevent hanging tests
-    "pytest-mock==3.15.1",        # Better mocking
-    "hypothesis==6.167.1",        # Property-based testing
-    "mypy==2.3.1",
-    "ruff==0.16.6",
+    "pytest-mock==3.16.0",        # Better mocking
+    "hypothesis==6.170.0",        # Property-based testing
+    "mypy==2.4.0",
+    "ruff==0.17.1",
     "detect-secrets==1.5.0",      # Secret scanning
     "pip-audit==2.10.1",          # Vulnerability scanning
     "pre-commit>=4.6.2",
@@ -65,7 +65,7 @@ test = [
     "pytest-cov==7.1.0",
     "pytest-xdist==3.8.0",        # Parallel execution
     "pytest-timeout==2.4.0",      # Timeout protection
-    "hypothesis==6.167.1",        # Property-based testing; the root conftest
+    "hypothesis==6.170.0",        # Property-based testing; the root conftest
                                    # registers a Hypothesis profile unconditionally
 ]
 
@@ -81,7 +81,7 @@ test = [
 ssc = "secure_string_cipher.cli_args:main"
 
 [dependency-groups]
-build = ["hatchling==1.32.0"]
+build = ["hatchling==1.32.4"]
 
 [tool.uv]
 required-version = ">=0.9.17"
