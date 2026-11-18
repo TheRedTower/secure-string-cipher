@@ -85,9 +85,12 @@ negotiation and no flags field.
 
 ### 4.3 Payload nonce
 
-16 random bytes, generated with the file key. It makes `payload_key` unique to
-this file even if a file key were ever reused, and it never changes while the
-file key stays the same.
+16 random bytes. A writer MUST generate a fresh `payload_nonce` **every time
+it writes a payload**: on encryption, on rotation, and when it replaces the
+payload under the same file key (section 7.4). Since `payload_key` is
+derived from it, each payload gets its own key, and the counter nonces of
+section 6 are never reused under one key. Rewriting only the access block
+leaves the payload bytes, and so `payload_nonce`, unchanged.
 
 ### 4.4 Access block
 
@@ -197,6 +200,20 @@ removes the temporary file on any failure.
   whole payload, and rewrap every grant that is kept. This is the only
   operation that stops a previously known file key from opening the new
   file. It does nothing about old copies.
+
+### 7.4 Replace the payload
+
+This is used for an object whose contents change while its access stays the
+same, such as the vault. Open the file to recover `file_key`, generate a
+**new** `payload_nonce`, encrypt the new contents, and recompute
+`access_mac`. That recomputation is needed because `payload_nonce` is part
+of the fixed header the MAC covers. The grants are kept byte for byte.
+
+Reusing the old `payload_nonce` here would encrypt different plaintext under
+the same key and nonces, which breaks AES-GCM completely. Writers MUST NOT
+do it.
+
+### 7.5 Writing safely
 
 Every rewrite goes to a temporary file in the same directory, which is then
 renamed over the original, so a failure never leaves a half-written file.
