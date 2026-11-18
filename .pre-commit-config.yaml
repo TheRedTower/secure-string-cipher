@@ -1,0 +1,15 @@
+# Runs the same lint checks as CI, using the versions pinned in uv.lock.
+# Set up with: uv run pre-commit install
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --locked ruff check --force-exclude
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --locked ruff format --check --force-exclude
+        language: system
+        types: [python]
