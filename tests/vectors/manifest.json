@@ -1,0 +1,672 @@
+{
+  "about": "SSC 3.0 test vectors. All randomness is fixed and recorded, so an encryptor given the same inputs must reproduce each file byte for byte. Plaintext 'mod251:N' means bytes(i % 251 for i in range(N)).",
+  "credentials": {
+    "password": "correct horse battery staple",
+    "unicode_password_nfd": "pássword",
+    "key_a": "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc",
+    "key_b": "d4ba4f8a39eb21678ce4c75ecd8ca999371d4ae52ed22319328d0e53b941022b",
+    "recovery_r": "3aef22aa7a642a3512275029c7653a50d59b",
+    "recovery_text": "7BQJ-5AKT-CGN3-A4H7-A0MW-ES9T-A3AS-P7TY",
+    "vault_entry_id": "45f3d4a2eeb2b41e02d9dc08fc5175b6"
+  },
+  "valid": [
+    {
+      "name": "format-0-bytes",
+      "file": "format-0-bytes.ssc",
+      "sha256": "b5b77953ffe414cd426f123ff16472bdb61a96bfeb0633cfd26888d0bdaf3221",
+      "plaintext": "mod251:0",
+      "plaintext_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b",
+        "grant_salt": "4f4821f90e00c68637389383c49ac64c"
+      },
+      "note": "One key grant (key_a)."
+    },
+    {
+      "name": "format-1-bytes",
+      "file": "format-1-bytes.ssc",
+      "sha256": "8fcdbf4bfa2f8a27af6c9e33ad090a77c22ee0b054c073092b294aa244b14ed8",
+      "plaintext": "mod251:1",
+      "plaintext_sha256": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b",
+        "grant_salt": "4f4821f90e00c68637389383c49ac64c"
+      },
+      "note": "One key grant (key_a)."
+    },
+    {
+      "name": "format-65536-bytes",
+      "file": "format-65536-bytes.ssc",
+      "sha256": "c31f9516aa387824ce73c03a51328ca20a70c17773ea4c7a5d87f52e1221ec71",
+      "plaintext": "mod251:65536",
+      "plaintext_sha256": "4b640d85ab3ba30fd02c9fc9db4a8928f416322ad27022ea58a65aaee68a4df2",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b",
+        "grant_salt": "4f4821f90e00c68637389383c49ac64c"
+      },
+      "note": "One key grant (key_a)."
+    },
+    {
+      "name": "format-65537-bytes",
+      "file": "format-65537-bytes.ssc",
+      "sha256": "7da0a95f62bd5cd08d931ce8da4bbb0a254aa3603b9a787e9fa4d2af4d3b1c95",
+      "plaintext": "mod251:65537",
+      "plaintext_sha256": "237356e18b503616912abb8ffaed3a72591e397d4ac294c4637917d48a3f529d",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b",
+        "grant_salt": "4f4821f90e00c68637389383c49ac64c"
+      },
+      "note": "One key grant (key_a)."
+    },
+    {
+      "name": "format-armored",
+      "file": "format-armored.ssc",
+      "sha256": "866719e0fe13895ddd789bb9e9034501ad7c5d71d946f11aa414c9a233246daa",
+      "plaintext": "hello, ssc 3\n",
+      "plaintext_sha256": "2252a2b0b7ed50c2862db34ad3ecf83d07f78780b44c0abdbc4e3f8d0f467e73",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b",
+        "grant_salt": "4f4821f90e00c68637389383c49ac64c"
+      },
+      "note": "The armoured form of a one-key-grant file."
+    },
+    {
+      "name": "access-password",
+      "file": "access-password.ssc",
+      "sha256": "464df8ea9a78aecef9d622272559198e606cd813d4b62beafbc644fd4b1f8bf4",
+      "plaintext": "access\n",
+      "plaintext_sha256": "74a53d5ef93d260701dee7ef8ae4957d363a299d9e8a195cbd87ab63ffb4d0e4",
+      "open_with": {
+        "passwords": [
+          "correct horse battery staple"
+        ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b",
+        "grant_salt": "4f4821f90e00c68637389383c49ac64c",
+        "password_salt": "a0b67ee99fe331ae2e72bc1ae1c6482a"
+      },
+      "note": ""
+    },
+    {
+      "name": "access-vault-password-entry",
+      "file": "access-vault-password-entry.ssc",
+      "sha256": "99b81f7f343202095b6d52cd61527af2b453312f9f3bd7caf35d0cc48b63ce98",
+      "plaintext": "access\n",
+      "plaintext_sha256": "74a53d5ef93d260701dee7ef8ae4957d363a299d9e8a195cbd87ab63ffb4d0e4",
+      "open_with": {
+        "vault_entries": {
+          "45f3d4a2eeb2b41e02d9dc08fc5175b6": "correct horse battery staple"
+        }
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b",
+        "grant_salt": "4f4821f90e00c68637389383c49ac64c",
+        "password_salt": "a0b67ee99fe331ae2e72bc1ae1c6482a"
+      },
+      "note": ""
+    },
+    {
+      "name": "access-key",
+      "file": "access-key.ssc",
+      "sha256": "523cefbe63691f17fb6effac39588c0250d3ba66094acd12aeb5a7c1a34b23c1",
+      "plaintext": "access\n",
+      "plaintext_sha256": "74a53d5ef93d260701dee7ef8ae4957d363a299d9e8a195cbd87ab63ffb4d0e4",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b",
+        "grant_salt": "4f4821f90e00c68637389383c49ac64c"
+      },
+      "note": ""
+    },
+    {
+      "name": "access-recovery-code",
+      "file": "access-recovery-code.ssc",
+      "sha256": "a6f468ed95893d260e78ca6ee4f36e0fea65da096a54673c345a23342798013a",
+      "plaintext": "access\n",
+      "plaintext_sha256": "74a53d5ef93d260701dee7ef8ae4957d363a299d9e8a195cbd87ab63ffb4d0e4",
+      "open_with": {
+        "recovery_r": [
+          "3aef22aa7a642a3512275029c7653a50d59b"
+        ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b",
+        "grant_salt": "4f4821f90e00c68637389383c49ac64c"
+      },
+      "note": ""
+    },
+    {
+      "name": "access-password-and-key",
+      "file": "access-password-and-key.ssc",
+      "sha256": "3d791f6d88b8df1b6875e3fdb20bd6297f245ded5f898b0389e8e57949b3da84",
+      "plaintext": "access\n",
+      "plaintext_sha256": "74a53d5ef93d260701dee7ef8ae4957d363a299d9e8a195cbd87ab63ffb4d0e4",
+      "open_with": {
+        "passwords": [
+          "correct horse battery staple"
+        ],
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b",
+        "grant_salt": "4f4821f90e00c68637389383c49ac64c",
+        "password_salt": "a0b67ee99fe331ae2e72bc1ae1c6482a"
+      },
+      "note": ""
+    },
+    {
+      "name": "access-password-key-recovery",
+      "file": "access-password-key-recovery.ssc",
+      "sha256": "5f01b3413d9cb9923355359c2f74ac3c3ba28b34b3d338376653487003fc240b",
+      "plaintext": "access\n",
+      "plaintext_sha256": "74a53d5ef93d260701dee7ef8ae4957d363a299d9e8a195cbd87ab63ffb4d0e4",
+      "open_with": {
+        "passwords": [
+          "correct horse battery staple"
+        ],
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ],
+        "recovery_r": [
+          "3aef22aa7a642a3512275029c7653a50d59b"
+        ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b",
+        "grant_salt": "4f4821f90e00c68637389383c49ac64c",
+        "password_salt": "a0b67ee99fe331ae2e72bc1ae1c6482a"
+      },
+      "note": ""
+    },
+    {
+      "name": "access-any-of-three-grants",
+      "file": "access-any-of-three-grants.ssc",
+      "sha256": "0e70b96096bef34f75791916db83f331c943fe2c51ed15f5e4fb67469c525af3",
+      "plaintext": "access\n",
+      "plaintext_sha256": "74a53d5ef93d260701dee7ef8ae4957d363a299d9e8a195cbd87ab63ffb4d0e4",
+      "open_with": {
+        "recovery_r": [
+          "3aef22aa7a642a3512275029c7653a50d59b"
+        ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b",
+        "grant_salt": "4f4821f90e00c68637389383c49ac64c",
+        "password_salt": "a0b67ee99fe331ae2e72bc1ae1c6482a",
+        "grant_salt_2": "782d5549558e090b53ae60684acad434",
+        "grant_salt_3": "0ead16efb8b96db52c682346b1a10dbf"
+      },
+      "note": ""
+    },
+    {
+      "name": "access-unknown-grant-skipped",
+      "file": "access-unknown-grant-skipped.ssc",
+      "sha256": "02321c748fb0d4683501172eda48dc4d3b025ff37c8304b9cbb42ec6d5c3f912",
+      "plaintext": "access\n",
+      "plaintext_sha256": "74a53d5ef93d260701dee7ef8ae4957d363a299d9e8a195cbd87ab63ffb4d0e4",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b",
+        "grant_salt": "4f4821f90e00c68637389383c49ac64c",
+        "unknown_grant": "0062782d5549558e090b53ae60684acad434017fbecb45106d62d5bed2b388f59298ec25e32d05d0e0af6e1430c87d3c21490de6e99ce513a2a846708c7cbbbf78317d8c922d6b910dbd340f3b7e27a5a0700da3a4088c1e1477a02410ba03636fbb8d73"
+      },
+      "note": ""
+    },
+    {
+      "name": "access-password-nfc",
+      "file": "access-password-nfc.ssc",
+      "sha256": "deafc80678d15c36f60e1a9f3d17c3fcf63682864c1234c303db72c7ccd77e2e",
+      "plaintext": "access\n",
+      "plaintext_sha256": "74a53d5ef93d260701dee7ef8ae4957d363a299d9e8a195cbd87ab63ffb4d0e4",
+      "open_with": {
+        "passwords": [
+          "pássword"
+        ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b",
+        "grant_salt": "4f4821f90e00c68637389383c49ac64c",
+        "password_salt": "a0b67ee99fe331ae2e72bc1ae1c6482a"
+      },
+      "note": ""
+    }
+  ],
+  "reject": [
+    {
+      "name": "magic",
+      "file": "reject-magic.ssc",
+      "sha256": "36e538f073ab9b83327cc4c06a1b69925b5bbd7b4d2c302265d7e29505abf8f4",
+      "reason": "magic",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": "Magic changed."
+    },
+    {
+      "name": "version",
+      "file": "reject-version.ssc",
+      "sha256": "0d693baff2fef59045dce32bf99d6bbece92e85dbef1dbbde1e7cec6500ae19d",
+      "reason": "version",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": "Version 2."
+    },
+    {
+      "name": "access-length-zero",
+      "file": "reject-access-length-zero.ssc",
+      "sha256": "663c39285a2805d73b4b88d4728282656f87ff29819ab8a2692b13353d91d113",
+      "reason": "access-length",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": ""
+    },
+    {
+      "name": "access-length-too-big",
+      "file": "reject-access-length-too-big.ssc",
+      "sha256": "7a1e1733bdf1d2dc12b729c6a2177ed2196ead4aa3616f0960c4c57280f5c020",
+      "reason": "access-length",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": "65,537 bytes."
+    },
+    {
+      "name": "access-mac",
+      "file": "reject-access-mac.ssc",
+      "sha256": "03c9609b31a7daeb88698bdc9403391c1195f4b5f54ab4e6f9f4bb3d9bc9496e",
+      "reason": "cannot-open",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": "First bit of access_mac flipped."
+    },
+    {
+      "name": "payload-nonce-flipped",
+      "file": "reject-payload-nonce-flipped.ssc",
+      "sha256": "327c3f3ed0073fcd1710ce9c821f44b29d2e07f7dbb12dd17f55c6d73a191fb9",
+      "reason": "cannot-open",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": "First bit of payload_nonce flipped; the MAC covers the fixed header."
+    },
+    {
+      "name": "truncated-at-chunk-boundary",
+      "file": "reject-truncated-at-chunk-boundary.ssc",
+      "sha256": "faef8ee2395784918f2a28dd7ae52c1548b41aef9f77b9bd9b6a56622e63f2cd",
+      "reason": "chunk-auth",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": "Final chunk removed."
+    },
+    {
+      "name": "appended-byte",
+      "file": "reject-appended-byte.ssc",
+      "sha256": "38e735e6fcf6fd37d4df272388b5725519faa10703f4714464c5e7be5d80943b",
+      "reason": "chunk-auth",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": "One byte appended."
+    },
+    {
+      "name": "empty-trailing-chunk",
+      "file": "reject-empty-trailing-chunk.ssc",
+      "sha256": "1485a5eb595f16defa9c02064883dbebe70e11da5944097f3add6495fb8911f3",
+      "reason": "empty-final-chunk",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": "65,536 bytes written as a full chunk plus an empty final chunk."
+    },
+    {
+      "name": "trailing-partial-chunk",
+      "file": "reject-trailing-partial-chunk.ssc",
+      "sha256": "882386d9cb0a196e90d861445f551bede6a7f5e44044d1d6c97b4f1f7618c08a",
+      "reason": "truncated",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": ""
+    },
+    {
+      "name": "wrong-key",
+      "file": "reject-wrong-key.ssc",
+      "sha256": "69d539df5390c0ade12fc50e51545aa0bacd2bb803244963ae14bc6af07532da",
+      "reason": "cannot-open",
+      "open_with": {
+        "keys": [
+          "d4ba4f8a39eb21678ce4c75ecd8ca999371d4ae52ed22319328d0e53b941022b"
+        ]
+      },
+      "note": ""
+    },
+    {
+      "name": "factor-order",
+      "file": "reject-factor-order.ssc",
+      "sha256": "efd12877405d2e45aa6bd86d7afaddfbff1b44db81ea04d5872d0d26a8ba950f",
+      "reason": "factor-order",
+      "open_with": {
+        "passwords": [
+          "correct horse battery staple"
+        ],
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": "Key factor before password factor."
+    },
+    {
+      "name": "factor-duplicate",
+      "file": "reject-factor-duplicate.ssc",
+      "sha256": "2e832e2f769c431d44413977bf1adbe3c6265b7e91f178562f553c3f140c35e7",
+      "reason": "factor-order",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": ""
+    },
+    {
+      "name": "factor-count-six",
+      "file": "reject-factor-count-six.ssc",
+      "sha256": "f182b429f16414734afdb876f5cc3726e600fa27b57b08285883b100a5ae9adc",
+      "reason": "factor-count",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": ""
+    },
+    {
+      "name": "argon-params",
+      "file": "reject-argon-params.ssc",
+      "sha256": "2b2491d63e8036f3445be750af33ab96803224ef703fcf4df958cb8ec252824b",
+      "reason": "argon-params",
+      "open_with": {
+        "passwords": [
+          "correct horse battery staple"
+        ]
+      },
+      "note": "m_kib = 32768."
+    },
+    {
+      "name": "grant-count-zero",
+      "file": "reject-grant-count-zero.ssc",
+      "sha256": "ce56d6cbba76527dd5c4cf61a323d9552e61363033f910661a8d6b46b1fc0644",
+      "reason": "grant-count",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": ""
+    },
+    {
+      "name": "grant-count-seventeen",
+      "file": "reject-grant-count-seventeen.ssc",
+      "sha256": "061892487f36925cd5855d00f6672c83a2644ea75c6a5a6d4b015f809454ef98",
+      "reason": "grant-count",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": ""
+    },
+    {
+      "name": "grant-length",
+      "file": "reject-grant-length.ssc",
+      "sha256": "b7196655e7157e18bc75fe4e2a138981d29edb83f5ab2a1ef2877e1dae42f65c",
+      "reason": "grant-length",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": "grant_length one too big, padded so the body length still fits."
+    },
+    {
+      "name": "access-body-trailing",
+      "file": "reject-access-body-trailing.ssc",
+      "sha256": "4cd83970a9ff91b3f19875ba76917f99e6abaa6252972e52e8d313e953ced222",
+      "reason": "access-body-length",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": "One extra byte after the last grant."
+    },
+    {
+      "name": "armor-mixed-line-endings",
+      "file": "reject-armor-mixed-line-endings.ssc",
+      "sha256": "c2fb4a9fe1054bb61b0ebb304ff7a9b6108c8575aa964fd9cd2791ebabd3c25e",
+      "reason": "armor-line-endings",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": ""
+    },
+    {
+      "name": "armor-long-line",
+      "file": "reject-armor-long-line.ssc",
+      "sha256": "9ae071a137bd87a6e4e0ee134d9c8bda7de18d890ee66e5df9f0e1f9c68b9dc7",
+      "reason": "armor-line-length",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": ""
+    },
+    {
+      "name": "armor-after-end",
+      "file": "reject-armor-after-end.ssc",
+      "sha256": "fc119b25c0c54e08b2af573dc7dfc081a4167a67d43b6304f3530538473c61b9",
+      "reason": "armor-frame",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": ""
+    },
+    {
+      "name": "armor-noncanonical-base64",
+      "file": "reject-armor-noncanonical-base64.ssc",
+      "sha256": "140a15b4a3f8e07b5567e406a4e2abf30ba1bb5ef4de785e5c4137053c02c8ca",
+      "reason": "armor-base64",
+      "open_with": {
+        "keys": [
+          "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
+        ]
+      },
+      "note": "The lowest unused bit of the last Base64 character set."
+    }
+  ],
+  "recovery_codes": [
+    {
+      "r": "3aef22aa7a642a3512275029c7653a50d59b",
+      "text": "7BQJ-5AKT-CGN3-A4H7-A0MW-ES9T-A3AS-P7TY",
+      "valid": true
+    },
+    {
+      "text": "7bqj 5akt cgn3 a4h7 a0mw es9t a3as p7ty",
+      "r": "3aef22aa7a642a3512275029c7653a50d59b",
+      "valid": true,
+      "note": "Lowercase, spaces."
+    },
+    {
+      "text": "7BQJ-5AKT-CGN3-A4H7-A0MW-ES9T-A3AS-P7T0",
+      "valid": false,
+      "reason": "recovery-check"
+    }
+  ],
+  "keyfiles": [
+    {
+      "file": "laptop.ssckey",
+      "sha256": "0c275aa39643b29bde46b111d582bbfc0f8082d62c40e70cb24cdaa99009dd61",
+      "key": "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc",
+      "key_id": "3d02033a534af8659a90fdcb53e55327"
+    }
+  ],
+  "vault": {
+    "file": "vault.ssc",
+    "sha256": "a63b50568647242d1733387921b45d44d01dc97cefa9d4a9972d9f0d207d505f",
+    "master_password": "master password",
+    "device_key": "5bc4b3b37aa5dd9a4dd6eeb07671f69a481f1af1b1d9595890bc0180a8df3133",
+    "keychain_account": "vault-unlock:cd48d47be5e866b90bf911d4215fd7e1",
+    "document": {
+      "entries": [
+        {
+          "created": "2026-11-18T09:30:00Z",
+          "id": "RfPUou6ytB4C2dwI_FF1tg",
+          "kind": "password",
+          "label": "work",
+          "secret": "correct horse battery staple",
+          "status": "active"
+        },
+        {
+          "created": "2026-11-18T09:30:00Z",
+          "id": "vN2ivz-LsPnrkku4jwdO7A",
+          "kind": "key",
+          "label": "laptop",
+          "secret": "1LpPijnrIWeM5MdezYypmTcdSuUu0iMZMo0OU7lBAis",
+          "status": "active"
+        },
+        {
+          "created": "2026-11-18T09:30:00Z",
+          "id": "GQR9ACXL-LyrznyWeifRTQ",
+          "kind": "recovery",
+          "label": "paper",
+          "secret": "Ou8iqnpkKjUSJ1Apx2U6UNWb",
+          "status": "archived"
+        }
+      ],
+      "format": 1,
+      "history": {
+        "anchor": "9_OeG73WB381bfqx4w9ynX4Onw5Qfau486M5c_q5SMs",
+        "events": [
+          {
+            "action": "vault-unlock",
+            "at": "2026-11-18T09:30:00Z",
+            "entry": null,
+            "prev": "9_OeG73WB381bfqx4w9ynX4Onw5Qfau486M5c_q5SMs"
+          },
+          {
+            "action": "encrypt",
+            "at": "2026-11-18T09:31:00Z",
+            "entry": "RfPUou6ytB4C2dwI_FF1tg",
+            "prev": "Y-MgcSNvLJ8pSAHNKVgM3OPZKPvUQIQGIugZReQTK10"
+          }
+        ],
+        "trimmed": 0
+      },
+      "profiles": [
+        {
+          "grants": [
+            [
+              {
+                "entry": "vN2ivz-LsPnrkku4jwdO7A"
+              }
+            ],
+            [
+              {
+                "ask": "password"
+              },
+              {
+                "entry": "GQR9ACXL-LyrznyWeifRTQ"
+              }
+            ]
+          ],
+          "name": "backup"
+        }
+      ]
+    },
+    "random": {
+      "file_key": "279456585acd171fffc76093729fbfa9e8cf92458a410bc4e2fdf4852c652a01",
+      "payload_nonce": "4556e0522092a088351d52e9d0168db5",
+      "grant_salt_1": "4f4821f90e00c68637389383c49ac64c",
+      "password_salt": "6159c0ceafc5e42a4318d98ae7a0ed11",
+      "grant_salt_2": "782d5549558e090b53ae60684acad434"
+    }
+  }
+}

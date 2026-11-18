@@ -1,0 +1,2 @@
+# Test vectors are frozen byte for byte; never convert line endings.
+tests/vectors/** -text
