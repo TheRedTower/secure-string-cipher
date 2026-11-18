@@ -4,6 +4,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
+> [!IMPORTANT]
+> **2.x is frozen.** SSC 3.0 is being rebuilt from scratch on the
+> [`v3` branch](https://github.com/TheRedTower/secure-string-cipher/tree/v3),
+> which replaces `main` when it ships. 2.x gets no further fixes or features.
+> 3.0 is a clean break: it does not read 2.x files or vaults.
+
 A **Beta** AES-256-GCM encryption CLI with a passphrase vault, managed keys, and modern
 cryptographic defaults. Beta means the current v5/v2 format is usable and
 compatibility-sensitive, but the project is not yet stable or independently
