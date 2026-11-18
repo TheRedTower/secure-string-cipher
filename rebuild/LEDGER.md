@@ -25,4 +25,5 @@ entry says which one.
 | Before Phase 0 | chore: move every pre-3.0 file under legacy/, unchanged | 180 files renamed into `legacy/`, no content edits |
 | Phase 0, step 1 | docs: write the 3.0 charter | `docs/CHARTER.md`, this ledger |
 | Phase 0, step 2 | build: empty 3.0 package with three-platform CI | `pyproject.toml`, `uv.lock`, `src/secure_string_cipher/`, `tests/test_package.py`, `.github/workflows/ci.yml`, `.pre-commit-config.yaml`, `README.md`. The three-platform CI matrix is the idea carried over from `legacy/.github/workflows/ci.yml`, as section 8 of the brief suggests; the action pins are reused from it |
-| Phase 0, step 3 | Not done on `v3` | The README note freezing 2.x belongs on `main`, outside this branch; it waits for the owner's go-ahead |
+| Phase 0, step 3 | docs: freeze 2.x while 3.0 is rebuilt on the v3 branch | A README note on `main` (PR #161), outside this branch, approved by the owner |
+| Phase 1, step 1 | docs(spec): draft the 3.0 file format | `docs/spec/FORMAT.md`. The payload rules (strict final chunk, no trailing data, limits checked before allocation) are carried over from `legacy/docs/SSC2_PROTOCOL_SPECIFICATION.md` sections 3 and 6. The separation of header and payload follows age, as section 9 of the brief says |
