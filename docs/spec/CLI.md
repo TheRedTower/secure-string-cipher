@@ -84,7 +84,7 @@ These exist for scripts and Docker:
 | `password` | A password typed now, or taken from `--password-file` or `SSC_PASSWORD` |
 | `vault:<label>` | The vault entry `<label>`. It must be a password, key or recovery entry |
 | `keyfile:<path>` | The key in a `.ssckey` file |
-| `recovery` | The vault's default recovery entry, created and printed first if there is none |
+| `recovery` | The vault's recovery entry, chosen by the rule below. Name one with `vault:<label>` instead to pick it explicitly |
 
 Examples: `--grant password`, `--grant "password+vault:laptop"`,
 `--grant vault:usb --grant recovery`. Each `--grant` adds one grant, so
@@ -93,6 +93,18 @@ several of them mean "any of".
 - A grant spec may name a factor only once.
 - It may have at most 5 factors.
 - A file may have at most 16 grants.
+
+**How `recovery` picks an entry** (this also applies to `--recovery-code`).
+SSC looks only at the vault's `active` recovery entries, never at archived
+or revoked ones:
+
+| Active recovery entries | What `recovery` does |
+| --- | --- |
+| Exactly one | Uses it |
+| None | Creates one labelled `recovery`, prints the code once (with the typed-back check from section 4.4), and uses it. Without a TTY, this is an exit 1 error, since the code could not be shown safely |
+| More than one | Exit 1 error, listing their labels and asking for `vault:<label>` |
+
+The vault stores no "default recovery entry".
 
 ## 3. Commands
 
@@ -200,8 +212,9 @@ ssc shred <file>
     `ssc key import <path>` first and then use `vault:<label>`.
   - A `password` token in a profile means the password is asked for at
     encrypt time.
-  - A `recovery` token in a profile refers to the vault's default recovery
-    entry.
+  - A `recovery` token in a profile is resolved when the profile is
+    created, by the rule in section 2. The profile stores that entry's ID,
+    so later recovery entries do not change it.
 - **`generate`** prints a passphrase from the EFF large wordlist: 6 words by
   default, at least 4.
 - **`shred`** first prints that SSDs, copy-on-write filesystems and backups
