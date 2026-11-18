@@ -1,0 +1,586 @@
+# secure-string-cipher
+
+[![CI](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TheRedTower/secure-string-cipher/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/downloads/)
+
+A **Beta** AES-256-GCM encryption CLI with a passphrase vault, managed keys, and modern
+cryptographic defaults. Beta means the current v5/v2 format is usable and
+compatibility-sensitive, but the project is not yet stable or independently
+audited.
+
+## Beta Scope
+
+- File APIs treat regular files as opaque bytes. `MAX_FILE_SIZE` is an inclusive
+  100 MiB plaintext-payload limit; an SSC file may be larger because its magic,
+  metadata, salt, nonce, and authentication tag are framing overhead.
+  Directories and other special files are not supported.
+- Active and candidate vault representations, plus legacy key files, separately
+  use the same 100 MiB value as a raw-input cap. Vault text is counted by UTF-8
+  bytes, and a value that could not be read back within the cap is not written.
+- `original_filename` is bounded metadata, not a path. The current version 5 and version 2
+  readers authenticate it before sanitizing it for automatic output selection;
+  an explicit output remains authoritative. Version 4 names are never used to
+  select an output.
+- Large framed SSC2 objects and a third-party security audit remain future
+  work. Cross-process vault locking is implemented (advisory file locks with a
+  bounded timeout); it has not been tested against real concurrent processes
+  on every supported platform.
+
+CI enforces a minimum 85% test coverage threshold on Python 3.14. The workflow
+also defines focused file and portable vault validation/transaction gates on
+Ubuntu, macOS, and Windows with Python 3.12; real OS keychain services are not
+tested there. The workflows are the current source of truth; dated acceptance
+records are clearly separated in the documentation archive.
+
+## Features
+
+- **AES-256-GCM encryption** for text and files with authenticated encryption
+- **Argon2id key derivation** – memory-hard, GPU/ASIC resistant
+- **Key commitment scheme** – binds each ciphertext to its derived key
+- **Combined authentication** (V2) – encrypt so that a single grant requires both
+  a password and a managed key together (`--with password --with key:ID --require
+  all`); each object still carries exactly one access grant, not independent
+  multi-credential access
+- **Legacy key-file mode** – hashes any file's bytes into a symmetric passphrase
+  (SHA-256 → Argon2id); this is not public-key or recipient encryption
+- **Managed Keys (V2)** – `.ssckey`
+  create/import/export/show/list/rename are functional — see
+  [ROADMAP.md](ROADMAP.md) for the deferred `ssc start` interactive-menu
+  parity item. `archive`/`revoke`/`destroy` change the vault record's
+  status, and encryption/decryption enforce it by default: when a vault
+  exists, a key it records as revoked or destroyed is refused. Pass
+  `--no-enforce-key-status` to skip the check when the vault is
+  unreachable — a key file you hold can always be used offline, which is
+  inherent to a bearer secret
+- **OS Keychain integration** – store vault in macOS Keychain, Windows Credential Vault, or Linux Secret Service
+- **Hidden password input** – passwords hidden in interactive terminals, visible for scripts/tests
+- **Inline passphrase generation** – type `/gen` at an interactive
+  encryption/decryption passphrase prompt
+- **Encrypted passphrase vault** with HMAC-SHA256 integrity verification
+- **Best-effort memory clearing** via mutable buffers and libsodium when available
+- **Timing-aware comparisons** – designated secret equality checks use
+  constant-time primitives
+- **Local CLI rate limiting** – exponential backoff on failed decrypt/vault attempts;
+  it cannot prevent offline password guessing
+- **Best-effort shred** – overwrite then unlink; unreliable on SSDs, COW,
+  snapshots, and journaled filesystems
+- Chunked file streaming for low memory usage (256 KiB for legacy files; V2
+  `.ssc` files currently use 64 KiB chunks, fixed and not CLI-configurable)
+- Automatic file-backend vault backups (last 5 kept)
+
+## Documentation
+
+- [API Reference](docs/API.md) — Complete programmatic API documentation
+- [Documentation Index](docs/README.md) — Current guides and historical archive
+- [Keychain Backend](docs/KEYCHAIN.md) — OS keychain integration guide
+- [Developer Guide](DEVELOPER.md) — Development workflow and tooling
+- [Contributing](CONTRIBUTING.md) — Contribution guidelines
+- [Release Guide](RELEASE.md) — Reusable validation and publication checklist
+- [Security Policy](.github/SECURITY.md) — Supported versions and vulnerability reporting
+- [Cryptographic Design](.github/CRYPTOGRAPHY.md) — Design document for security auditors
+- [Changelog](CHANGELOG.md) — Release history
+- [Historical Evidence](docs/archive/README.md) — Dated plans, audits, and acceptance records
+
+## Quick Start
+
+```bash
+# Install from PyPI
+pip install secure-string-cipher
+
+# Run interactive CLI
+ssc start
+
+# Or use non-interactive CLI
+ssc --help
+```
+
+## Installation
+
+```bash
+# Recommended: install with pipx
+pipx install secure-string-cipher
+
+# Or with pip
+pip install secure-string-cipher
+
+# Or from source (dev/install with uv)
+git clone https://github.com/TheRedTower/secure-string-cipher.git
+cd secure-string-cipher
+uv sync --extra dev --locked
+
+# Run tooling with the locked environment
+uv run --locked ssc --help
+```
+
+> Requires Python 3.12+
+
+PyPI provides the latest published release. The protected `main` branch may
+contain accepted changes that have not yet been included in a release.
+
+## Usage
+
+### Non-Interactive CLI (`ssc`)
+
+For scripting and automation, use the `ssc` command:
+
+#### Supplying credentials without a prompt
+
+Passwords are read interactively by default. For automation, supply them
+from a file or the environment:
+
+```bash
+# The data password
+ssc --password-file /run/secrets/pw encrypt -f document.pdf --with password
+SSC_PASSWORD="..." ssc encrypt -f document.pdf --with password
+
+# The vault master password, for vault and key commands
+ssc --master-password-file /run/secrets/master key list
+SSC_MASTER_PASSWORD="..." ssc key list
+
+# Rotating the master password needs both values, since one of them is
+# being replaced
+ssc --master-password-file /run/secrets/old \
+    --new-master-password-file /run/secrets/new vault change-password
+```
+
+Setting a master password and using one are separate roles, so they have
+separate sources. `vault change-password` refuses to run if only the
+current one was supplied: reusing it would re-encrypt the vault with the
+password it already has and report a successful rotation.
+
+The flag wins over the variable, so a stale exported value cannot quietly
+override what the command line asked for. A password file must be a regular
+file, not reached through a symlink, and on POSIX not readable by group or
+other — it is a bearer secret, so a world-readable one is refused rather
+than used with a warning. One trailing newline is removed, since a file
+written with `echo` has one.
+
+Prefer a file over an environment variable where you can: on some systems a
+process's environment is readable by other processes owned by the same user,
+and variables are easily captured in shell history and CI logs.
+
+#### Managed-key status enforcement
+
+When a vault exists on this machine, `ssc encrypt --with key:...` and
+`ssc decrypt` of a managed-key object check that vault's record for the key
+and refuse one marked `revoked` or `destroyed`. A key the vault does not
+track cannot be checked and is allowed through; `archived` is bookkeeping
+and never blocks use.
+
+The check needs the vault master password, so supply it from a file or the
+environment (above) in automation. Two cases need no password at all: no
+vault on this machine, and `--no-enforce-key-status`.
+
+```bash
+# Skip the check — for an unreachable vault, or a deliberately offline run
+# (a global flag, so it goes before the subcommand, like --password-file)
+ssc --no-enforce-key-status encrypt -f document.pdf --with key:my-key
+```
+
+Skipping is not a way to un-revoke a key: holding a `.ssckey` file is
+holding the key it contains, so an offline copy always works. The check
+raises the cost of a revoked key staying in use where the vault *is*
+reachable; it is not a cryptographic revocation.
+
+```bash
+# Encrypt text
+ssc encrypt -t "Secret message"
+
+# Encrypt a file
+ssc encrypt -f document.pdf
+
+# Encrypt using a key file
+ssc encrypt -f document.pdf --key-file /path/to/key.pem
+
+# Decrypt a file (restores original filename by default)
+ssc decrypt -f document.pdf.enc
+
+# Decrypt with an explicit output path
+ssc decrypt -f document.pdf.enc --output document.pdf
+
+# Decrypt without restoring the stored filename
+ssc decrypt -f document.pdf.enc --no-restore-filename
+
+# Decrypt using a vault password
+ssc decrypt -f document.pdf.enc --vault my-server
+
+# Decrypt using a key file
+ssc decrypt -f document.pdf.enc --key-file /path/to/key.pem
+
+# Encrypt a file requiring both a password and a managed key (single combined grant)
+ssc encrypt -f document.pdf --with password --with key:my-key --require all
+
+# Decrypt a V2 file (no --with/--require on decrypt: the credential type is
+# read from the file's header and the CLI prompts for what it needs)
+ssc decrypt -f document.pdf.ssc
+
+# Store a password in vault
+ssc store my-server
+
+# Auto-generate and store a password
+ssc store backup-key --generate
+
+# Vault management
+ssc vault list
+ssc vault delete old-key
+ssc vault export > backup.txt
+ssc vault import backup.txt  # authenticates before confirmation/replacement
+ssc vault backups             # list exact stable backup identifiers
+ssc vault restore BACKUP_ID   # authenticate and transactionally restore
+```
+
+**Exit codes:** 0=success, 1=input error, 2=auth error, 3=vault error, 4=file error
+
+**Security:** Passwords are never passed via command line arguments (prevents shell history exposure). All passwords are prompted interactively or retrieved from the vault (or from managed keys).
+
+`ssc vault export` writes canonical six-line UTF-8 bytes with no BOM or terminal
+newline. The CLI importer also recovers files created by older redirected
+exports with exactly one terminal LF or CRLF; direct vault APIs remain
+byte-strict and no other whitespace is normalized.
+
+For `-f -`, encryption accepts at most 100 MiB of plaintext from stdin.
+Decryption bounds the encoded token from that maximum frame, accepts at most one
+terminal LF or CRLF added by shell transport, and rechecks the decoded plaintext
+limit before writing stdout.
+
+Oversize and non-regular filesystem inputs use file error code 4; they are not
+reported as wrong-password or corrupted-ciphertext failures.
+
+`--force` permits final atomic replacement only after encryption completes or
+decryption authenticates. It never pre-deletes the existing destination.
+
+### Interactive CLI (`ssc start`)
+
+For interactive use, run:
+
+```bash
+ssc start
+```
+
+You'll see this menu:
+
+```text
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                       AVAILABLE OPERATIONS                       ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+┃                                                                  ┃
+┃  TEXT & FILE ENCRYPTION                                          ┃
+┃                                                                  ┃
+┃    [1] Encrypt Text       ->  Encrypt a message (base64)         ┃
+┃    [2] Decrypt Text       ->  Decrypt an encrypted message       ┃
+┃    [3] Encrypt File       ->  Encrypt a file (creates .enc)      ┃
+┃    [4] Decrypt File       ->  Decrypt an encrypted file          ┃
+┃                                                                  ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+┃  PASSPHRASE VAULT (Optional)                                     ┃
+┃                                                                  ┃
+┃    [5] Generate Passphrase  ->  Create random password           ┃
+┃    [6] Store in Vault       ->  Save passphrase securely         ┃
+┃    [7] Retrieve from Vault  ->  Get stored passphrase            ┃
+┃    [8] List Vault Entries   ->  View all stored labels           ┃
+┃    [9] Manage Vault         ->  Update, delete, export           ┃
+┃                                                                  ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+┃  SECURITY TOOLS                                                  ┃
+┃                                                                  ┃
+┃   [10] Secure Shred       ->  Best-effort overwrite and delete   ┃
+┃   [11] Use Key File       ->  Encrypt/decrypt w/ key file        ┃
+┃                                                                  ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+┃    [0] Exit                ->  Quit application                  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+```
+
+Choose an option and follow the prompts.
+
+### Quick Passphrase Generation
+
+When prompted for a password during encryption, you can type `/gen` (or `/generate` or `/g`) to instantly generate a strong passphrase:
+
+```text
+Enter passphrase: /gen
+
+🔑 Auto-Generating Secure Passphrase...
+
+✅ Generated secure passphrase (hidden)
+
+💾 Save generated passphrase to vault
+Enter a label for this passphrase (e.g., 'project-x'): backup-2025
+Enter master password to encrypt vault: ••••••••••••
+✅ Passphrase stored in vault!
+Vault location: ~/.secure-cipher/passphrase_vault.enc
+
+✅ Using stored passphrase for current operation...
+```
+
+The generated secret is never printed. Inline generation uses the 24-character
+alphanumeric-with-symbols strategy and requires successful vault storage before
+the current operation continues.
+
+### Passphrase Vault
+
+The vault stores passphrases encrypted with your master password at `~/.secure-cipher/passphrase_vault.enc`:
+
+- **Generate & store** – Option 5 or `/gen` during encryption
+- **Manual storage** – Option 6 for existing passphrases
+- **Retrieve/manage** – Options 7-9 for lookup, listing, and deletion
+
+Vault candidates are fully decoded and authenticated before import or restore.
+The transaction service snapshots the active raw vault, safely publishes a
+collision-resistant backup, writes through the configured file/keychain
+backend, reads back and revalidates, and rolls back on post-write failure.
+Filesystem writes use atomic replacement; native credential-store rollback is
+best effort because those stores do not expose a multi-record transaction.
+Vault mutations hold a cooperative, advisory cross-process file lock (bounded
+timeout, re-entrant per thread) to serialize concurrent writers; it has not
+been exercised against real multi-process contention on every supported
+platform, and it does nothing for readers or for non-lock-aware external tools
+touching the same file.
+
+### OS Keychain Integration
+
+Optionally store your vault in the OS keychain for added security:
+
+```bash
+# Existing pipx install: add keychain support to the pipx venv
+pipx inject secure-string-cipher keyring
+
+# New pipx install with keychain support
+pipx install 'secure-string-cipher[keychain]'
+
+# Or for a normal pip/venv install
+python -m pip install 'secure-string-cipher[keychain]'
+
+# Migrate existing vault to keychain
+ssc vault migrate --to keychain
+
+# Migrate back to file if needed
+ssc vault migrate --to file
+```
+
+See [docs/KEYCHAIN.md](docs/KEYCHAIN.md) for full setup instructions per platform.
+
+## Docker
+
+Use the pre-built image (Python 3.14-alpine based):
+
+```bash
+# Pull and run
+docker pull ghcr.io/theredtower/secure-string-cipher:latest
+docker run --rm -it --network none \
+  ghcr.io/theredtower/secure-string-cipher:latest
+
+# Or with Docker Compose
+git clone https://github.com/TheRedTower/secure-string-cipher.git
+cd secure-string-cipher
+docker compose up -d
+docker compose exec cipher ssc start
+```
+
+To encrypt files in your current directory:
+
+```bash
+docker run --rm -it \
+  --network none \
+  -v "$PWD:/data" \
+  ghcr.io/theredtower/secure-string-cipher:latest
+```
+
+With persistent vault and backups:
+
+```bash
+docker run --rm -it \
+  --network none \
+  -v "$PWD/data:/data" \
+  -v "$PWD/vault:/vault" \
+  -v "$PWD/backups:/backups" \
+  ghcr.io/theredtower/secure-string-cipher:latest
+```
+
+**Container details:** The Alpine-based image runs as non-root UID 1000. The
+commands above disable networking with `--network none`, and the supplied
+Compose service applies the equivalent `network_mode: none`. Network isolation
+is a runtime policy; the image does not impose it when started without one of
+those settings.
+
+## Programmatic API
+
+Use secure-string-cipher as a library in your Python projects:
+
+### Text Encryption
+
+```python
+from secure_string_cipher import encrypt_text, decrypt_text
+
+# Encrypt a message
+ciphertext = encrypt_text("Secret message", "MySecurePass123!")
+print(ciphertext)  # Base64-encoded string
+
+# Decrypt it back
+plaintext = decrypt_text(ciphertext, "MySecurePass123!")
+print(plaintext)  # "Secret message"
+```
+
+### File Encryption
+
+```python
+from secure_string_cipher import encrypt_file, decrypt_file
+
+# Encrypt a file (explicit output path)
+encrypt_file("document.pdf", "document.pdf.enc", "MySecurePass123!")
+
+# Replace only after complete encryption and sync
+encrypt_file("document.pdf", "document.pdf.enc", "MySecurePass123!", overwrite=True)
+
+# Decrypt it (explicit output path)
+output_path, metadata = decrypt_file(
+    "document.pdf.enc",
+    "document.pdf",
+    "MySecurePass123!",
+    overwrite=True,
+)
+```
+
+> File operations apply a best-effort symlink preflight (with a narrow
+> system-path allowance such as `/var`). This does not close hostile path races.
+
+### Passphrase Generation
+
+```python
+from secure_string_cipher import generate_passphrase
+
+# Default: six-word passphrase. Keep the returned secret out of logs.
+passphrase, entropy_bits = generate_passphrase()
+
+# Alternative: 24 characters drawn from letters, digits, and symbols.
+token, token_entropy_bits = generate_passphrase(
+    "alphanumeric", length=24, include_symbols=True
+)
+```
+
+### Vault Operations
+
+```python
+from secure_string_cipher import PassphraseVault
+
+# Create or open vault
+vault = PassphraseVault()
+
+# Store a passphrase
+vault.store_passphrase("my-server", "MySecurePass123!", master_password="VaultMaster456!")
+
+# Retrieve it
+password = vault.retrieve_passphrase("my-server", master_password="VaultMaster456!")
+
+# List all labels (requires master password)
+labels = vault.list_labels(master_password="VaultMaster456!")
+
+# Update an entry
+vault.update_passphrase("my-server", "NewPass789!", master_password="VaultMaster456!")
+
+# Delete an entry
+vault.delete_passphrase("my-server", master_password="VaultMaster456!")
+```
+
+### Security Utilities
+
+```python
+from secure_string_cipher import (
+    check_password_strength,
+    constant_time_compare,
+    has_secure_memory,
+)
+
+# Validate password strength
+is_strong, issues = check_password_strength("weak")
+if not is_strong:
+    print(f"Password issues: {issues}")
+
+# Constant-time primitive for a timing-sensitive equality check
+if constant_time_compare(user_input, stored_hash):
+    print("Match!")
+
+# Check if libsodium secure memory is available
+if has_secure_memory():
+    print("Using libsodium for secure memory zeroing")
+```
+
+### V2 Managed-Key Containers
+
+The `.ssc` container format lives in the `v2` submodule, which is public,
+semver-covered API alongside the exports above:
+
+```python
+from pathlib import Path
+
+from secure_string_cipher import v2
+
+credential = v2.PasswordCredential("MySecurePass123!")
+v2.encrypt_v2_file(Path("report.pdf"), Path("report.pdf.ssc"), credential=credential)
+```
+
+A managed-key credential needs the key's 32-byte secret and its fingerprint;
+`v2.load_keyfile` reads both from a `.ssckey` file. `v2.app` is the layer above
+these primitives — it resolves a key reference, reports which credential an
+object requires, and applies lifecycle policy, without prompting or exiting, so
+an interface can use it directly. See [docs/API.md](docs/API.md#v2-encryption)
+for the full surface and where the public/internal boundary sits.
+
+## Security
+
+| Component | Implementation | Details |
+| --------- | -------------- | ------- |
+| **Encryption** | AES-256-GCM | Authenticated encryption, 128-bit tags |
+| **Key Derivation** | Argon2id | 64 MiB memory, 3 iterations, parallelism 4 |
+| **Key Commitment** | HMAC-SHA256 | Prevents partitioning oracle attacks |
+| **Vault Integrity** | HMAC-SHA256 | Detects tampering before decryption |
+| **Memory Clearing** | Best effort | Mutable buffers/libsodium where available; Python may retain copies |
+| **Timing Safety** | Constant-time primitives | Commitment, HMAC, and designated digest equality checks |
+| **Rate Limiting** | Local exponential backoff | CLI throttle only; offline guessing remains possible |
+| **Vault Import/Restore** | Full HMAC, decrypt, JSON-schema, read-back verification | Filesystem atomic publication; credential-store rollback is best effort |
+
+**Additional protections:** best-effort symlink preflight checks, opened-input
+regular-file and size validation, cumulative streaming limits, atomic final
+publication, user-only file permissions (`0o600`), and strength validation for
+passwords created by the interactive encryption menu or manually entered by
+`ssc store`. Atomic publication protects against ordinary operation failures;
+hostile concurrent path replacement still requires descriptor-relative opening
+and is not claimed to be prevented. The temporary file is synced before
+replacement; parent-directory sync after replacement is best effort on
+supported platforms. Other CLI password prompts, including decryption and
+vault-master prompts, accept existing credentials for compatibility; low-level
+programmatic encryption functions accept caller-provided passphrases directly.
+
+**Password input:** When running interactively, passwords are hidden (using `getpass`). When stdin is piped or redirected (scripts, automation, tests), passwords are visible. This allows both secure interactive use and scriptable automation.
+
+**Python memory limitations:** Memory clearing is best-effort. Even with
+libsodium, Python strings are immutable and the runtime may copy objects. Use
+`has_secure_memory()` to check libsodium availability.
+
+**Local records and deletion limitations:** The audit/event log is editable
+local JSON and is not tamper-evident. Overwrite-based deletion cannot reliably
+erase data from SSD wear levelling, copy-on-write storage, snapshots, backups,
+or journaled filesystems.
+
+**Legacy key-file limitation:** Anyone with identical key-file bytes can derive
+the same symmetric passphrase and decrypt. PEM or public-key-shaped input does
+not create RSA, recipient, or public-key encryption. Treat this mode as legacy
+pending the secret `.ssckey` design.
+
+## Development
+
+```bash
+git clone https://github.com/TheRedTower/secure-string-cipher.git
+cd secure-string-cipher
+uv sync --extra dev --locked
+
+# Run the non-mutating local acceptance gate
+make ci
+```
+
+See [DEVELOPER.md](DEVELOPER.md) for detailed development workflow and [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.
