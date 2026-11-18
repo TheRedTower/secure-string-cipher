@@ -57,8 +57,14 @@ The vault's own grants are:
   lost device out, rotate the vault (FORMAT.md section 7.3). Rotation needs
   the master password, and every other device then re-adds its grant.
 - **Changing the master password:** open the vault, remove the old password
-  grant, and add one for the new password. That rewraps one grant. The
-  payload is untouched, and nothing else is re-encrypted.
+  grant, and add one for the new password. That rewraps one grant. The file
+  key and every other grant stay byte for byte the same.
+  - With history off, the payload is untouched too.
+  - With history on, the same write also appends a `vault-access-change`
+    event. That means replacing the payload under the same file key, with a
+    fresh payload nonce (FORMAT.md section 7.4).
+  - Either way, no secret is re-encrypted under a new key. The same applies
+    to adding or removing a device or a recovery code.
 - **Changing what the vault holds:** use FORMAT.md section 7.4, which keeps
   the same file key and grants, with a fresh payload nonce every time.
 
