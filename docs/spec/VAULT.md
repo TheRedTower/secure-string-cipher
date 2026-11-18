@@ -188,9 +188,11 @@ History is off by default. When it's on, `history` is an object:
 
 ```json
 {
+  "anchor": "<b64 of 32 bytes>",
   "events": [
     {"action": "decrypt", "at": "2026-11-18T09:31:02Z", "entry": "<b64 id or null>", "prev": "<b64 of 32 bytes>"}
-  ]
+  ],
+  "trimmed": 0
 }
 ```
 
@@ -202,16 +204,22 @@ History is off by default. When it's on, `history` is an object:
 - **No file names or paths, ever,** and no secrets.
 - **The chain:**
   - `prev` is `SHA-256` of the previous event's canonical JSON.
-  - The first event's `prev` is `SHA-256("ssc3/history-genesis")`.
-  - A reader rejects a broken chain.
-- **The cap:** history keeps the newest 1,000 events. When it trims, the
-  oldest kept event keeps its original `prev`, so the chain stays
-  checkable from there on.
+  - `anchor` is the `prev` that the first kept event must have. When history
+    is turned on, `anchor` is `SHA-256("ssc3/history-genesis")` and
+    `trimmed` is 0.
+  - A reader checks that `events[0].prev` equals `anchor`, and that each
+    later event's `prev` hashes the event before it. It rejects anything
+    else, including an empty `events` list with `trimmed` above 0.
+- **The cap:** history keeps the newest 1,000 events. To trim the oldest
+  event, a writer sets `anchor` to that event's hash (which the next event's
+  `prev` already holds), removes the event, and adds 1 to `trimmed`. So the
+  chain stays checkable after trimming, and `trimmed` says how many events
+  came before the ones kept.
 - **What it protects against:** the whole vault is already authenticated
   by its access MAC. The chain adds tamper evidence against edits made by
   someone who can unlock the vault, such as a script with the device key.
-  It cannot stop that person from rewriting the whole chain. The docs must
-  say so.
+  It cannot stop that person from rewriting the whole chain, or from
+  trimming events and moving `anchor` forward. The docs must say so.
 
 Turning history off sets `history` to `null`, which deletes the events.
 
