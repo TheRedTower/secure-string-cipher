@@ -778,7 +778,12 @@ def main() -> None:
     kf = keyfile_text("laptop", "2026-11-18T09:30:00Z", KEY_A)
     (OUT / "laptop.ssckey").write_text(kf, newline="\n")
     manifest["keyfiles"] = [
-        {"file": "laptop.ssckey", "key": KEY_A.hex(), "key_id": key_id(KEY_A).hex()}
+        {
+            "file": "laptop.ssckey",
+            "sha256": hashlib.sha256(kf.encode()).hexdigest(),
+            "key": KEY_A.hex(),
+            "key_id": key_id(KEY_A).hex(),
+        }
     ]
 
     # A vault: master password grant, device key grant, one entry of each kind,

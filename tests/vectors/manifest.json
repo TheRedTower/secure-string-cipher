@@ -583,6 +583,7 @@
   "keyfiles": [
     {
       "file": "laptop.ssckey",
+      "sha256": "0c275aa39643b29bde46b111d582bbfc0f8082d62c40e70cb24cdaa99009dd61",
       "key": "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc",
       "key_id": "3d02033a534af8659a90fdcb53e55327"
     }

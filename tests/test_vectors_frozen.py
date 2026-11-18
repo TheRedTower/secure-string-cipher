@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 VECTORS = Path(__file__).parent / "vectors"
-MANIFEST_SHA256 = "2cd75385e4d37ebd3a3dbbba35469c53116e3bb95af609dc76d4eda6d66a1788"
+MANIFEST_SHA256 = "1d70c9c7b8c64483f770146f4aa413e7902906bf6c355d23be896f59576163ef"
 
 
 def sha256(path: Path) -> str:
@@ -25,9 +25,10 @@ def test_every_vector_file_matches_the_manifest() -> None:
     manifest = json.loads((VECTORS / "manifest.json").read_text(encoding="utf-8"))
     hashed = {v["file"]: v["sha256"] for v in manifest["valid"] + manifest["reject"]}
     hashed[manifest["vault"]["file"]] = manifest["vault"]["sha256"]
+    hashed |= {k["file"]: k["sha256"] for k in manifest["keyfiles"]}
     for name, digest in hashed.items():
         assert sha256(VECTORS / name) == digest, name
 
-    listed = set(hashed) | {k["file"] for k in manifest["keyfiles"]} | {"manifest.json"}
+    listed = set(hashed) | {"manifest.json"}
     on_disk = {p.name for p in VECTORS.iterdir()}
     assert on_disk == listed
