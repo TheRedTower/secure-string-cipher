@@ -55,12 +55,23 @@ These exist for scripts and Docker:
 | A typed password factor | `--password-file <path>` | `SSC_PASSWORD` |
 | The vault's master password | `--master-password-file <path>` | `SSC_MASTER_PASSWORD` |
 | A recovery code | `--recovery-code-file <path>` | `SSC_RECOVERY_CODE` |
+| Standalone key files | `--key-file <path>`, repeatable | `SSC_KEY_FILES`: paths separated by the OS path separator (`:` or `;`) |
 
 - A flag beats its variable.
 - A credential file must be a regular file, not reached through a symlink,
   and on POSIX not readable by group or others. Otherwise SSC refuses to
   use it.
-- One trailing newline is removed.
+- One trailing newline is removed from a password or recovery-code file.
+- **Key files:**
+  - `--key-file` makes a `.ssckey` available to any command that opens a
+    file: `decrypt` and `access` (`show` excepted).
+  - SSC reads each key file under VAULT.md section 6's rules.
+  - It uses a key only for a grant whose `key_id` matches.
+  - Keys are found only in the vault's key entries and the key files given
+    this way. There is no key folder to search.
+  - Giving `--key-file` with no vault, and nothing else, is how a script or a
+    Docker container decrypts a file that was encrypted with
+    `--grant keyfile:<path>`.
 - Without a TTY, a credential that is needed but not supplied is an exit 1
   error, never a hang.
 
@@ -90,7 +101,7 @@ several of them mean "any of".
 ```text
 ssc encrypt <file> [--profile <name> | --vault <label> | --grant <spec>...]
                    [--recovery-code] [-o <out>] [--armor] [--force]
-ssc decrypt <file> [-o <out>] [--force]
+ssc decrypt <file> [-o <out>] [--force] [--key-file <path>...]
 ```
 
 - **`encrypt`:**
@@ -100,8 +111,8 @@ ssc decrypt <file> [-o <out>] [--force]
     otherwise asks for a password.
   - Without a TTY, that becomes exit 1.
 - **`decrypt`:** reads the grants from the file. It uses whatever the vault,
-  keychain and key folder can supply, and asks only for what is still
-  missing. It never asks for something it can work out.
+  the keychain and any `--key-file` can supply, and asks only for what is
+  still missing. It never asks for something it can work out.
 
 ### 3.2 Access
 
@@ -182,8 +193,15 @@ ssc shred <file>
 - **`key new`** writes a standalone `.ssckey` with no vault involved.
 - **`import` and `export`** move a key between a key file and a vault key
   entry without changing it.
-- **Profile grant specs** use the same syntax as `--grant`. A `password`
-  token in a profile means the password is asked for at encrypt time.
+- **Profile grant specs** use the same syntax as `--grant`, except for
+  `keyfile:`.
+  - A profile can only refer to what the vault holds (VAULT.md section 3.2).
+    So `keyfile:<path>` in a profile is an exit 1 error, which says to run
+    `ssc key import <path>` first and then use `vault:<label>`.
+  - A `password` token in a profile means the password is asked for at
+    encrypt time.
+  - A `recovery` token in a profile refers to the vault's default recovery
+    entry.
 - **`generate`** prints a passphrase from the EFF large wordlist: 6 words by
   default, at least 4.
 - **`shred`** first prints that SSDs, copy-on-write filesystems and backups
