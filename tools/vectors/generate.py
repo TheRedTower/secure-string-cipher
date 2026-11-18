@@ -565,7 +565,7 @@ def main() -> None:
             "access-unknown-grant-skipped",
             [unknown_grant(gs[1]), key_only],
             ka,
-            {"grant_salt_unknown": gs[1]},
+            {"unknown_grant": unknown_grant(gs[1])},
         ),
         (
             "access-password-nfc",
