@@ -62,7 +62,8 @@ These exist for scripts and Docker:
 
 | Credential | Flag | Environment variable |
 | --- | --- | --- |
-| A typed password factor | `--password-file <path>` | `SSC_PASSWORD` |
+| A password that opens a file | `--password-file <path>` | `SSC_PASSWORD` |
+| A new password factor, for `encrypt`, `access add` and `access apply` | `--new-password-file <path>` | `SSC_NEW_PASSWORD` |
 | The vault's current master password | `--master-password-file <path>` | `SSC_MASTER_PASSWORD` |
 | A new master password, for `vault init` and `vault change-password` | `--new-master-password-file <path>` | `SSC_NEW_MASTER_PASSWORD` |
 | A recovery code | `--recovery-code-file <path>` | `SSC_RECOVERY_CODE` |
@@ -85,8 +86,14 @@ These exist for scripts and Docker:
     `--grant keyfile:<path>`.
 - Without a TTY, a credential that is needed but not supplied is an exit 1
   error, never a hang.
-- **Setting a master password and using one are separate roles**, so they
+- **Opening with a password and setting one are separate roles**, so they
   have separate sources.
+  - `access add --grant password` can open a file with password A
+    (`--password-file`) and add password B (`--new-password-file`).
+  - `access rotate` rebuilds a password grant with the password that opened
+    it, so it reads only the opening source.
+- **Setting a master password and using one are separate roles** in the same
+  way.
   - `vault init` reads only the new one.
   - `vault change-password` needs both. It refuses to run when the new one
     is missing, rather than reusing the current one and reporting a
@@ -99,7 +106,7 @@ These exist for scripts and Docker:
 
 | Token | Factor |
 | --- | --- |
-| `password` | A password typed now, or taken from `--password-file` or `SSC_PASSWORD` |
+| `password` | A new password: typed twice now, or taken from `--new-password-file` or `SSC_NEW_PASSWORD` |
 | `vault:<label>` | The vault entry `<label>`. It must be a password, key or recovery entry |
 | `keyfile:<path>` | The key in a `.ssckey` file |
 | `recovery` | The vault's recovery entry, chosen by the rule below. Name one with `vault:<label>` instead to pick it explicitly |
@@ -119,7 +126,7 @@ or revoked ones:
 | Active recovery entries | What `recovery` does |
 | --- | --- |
 | Exactly one | Uses it |
-| None | Creates one labelled `recovery`, prints the code once (with the typed-back check from section 4.4), and uses it. Without a TTY, this is an exit 1 error, since the code could not be shown safely |
+| None | Creates one with the first unused label of `recovery`, `recovery-2`, `recovery-3` and so on, prints the code once (with the typed-back check from section 4.4), and uses it. Without a TTY, this is an exit 1 error, since the code could not be shown safely |
 | More than one | Exit 1 error, listing their labels and asking for `vault:<label>` |
 
 The vault stores no "default recovery entry".
