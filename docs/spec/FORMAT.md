@@ -253,20 +253,20 @@ and whatever the access spec leaves in the clear about grants, such as how
 many there are. The format does not pad lengths and does not store a file
 name.
 
-## 10. Open questions for the owner
+## 10. Decisions
 
-1. **Original file name.** The format does not store one. The CLI would
-   derive the output name by removing `.ssc` (`report.pdf.ssc` becomes
-   `report.pdf`) and ask when that is not possible. Storing an encrypted
-   name is possible, but it adds metadata to authenticate and sanitise.
-   Proposed: do not store it in 3.0.
-2. **Text messages.** 2.x could encrypt a string as well as a file. The
-   brief covers only files. The armoured form (section 8) lets the CLI
-   encrypt text from stdin to an armoured block without any extra format.
-   Proposed: that is the only text support in 3.0.
-3. **Size limit.** 2.x capped files at 100 MiB. Streaming removes the need
-   for a cap. Proposed: none in the format, and none in the CLI unless a
-   test shows one is needed.
+Settled with the owner on 2026-11-18. Outside reviewers may still challenge them in Phase 1, step 6.
+
+1. **No original file name is stored.** The CLI derives the output name by
+   removing `.ssc` (`report.pdf.ssc` becomes `report.pdf`) and asks for one
+   when that is not possible. Storing an encrypted name would add metadata
+   to authenticate and sanitise.
+2. **Text is supported only through the armoured form.** The CLI encrypts
+   text from stdin to an armoured block (section 8), so text needs no extra
+   format.
+3. **No size limit.** The format sets none, and the CLI adds none unless a
+   test shows one is needed. 2.x's 100 MiB cap existed because it did not
+   stream.
 
 ## 11. Test vectors
 

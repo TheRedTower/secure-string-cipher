@@ -360,14 +360,14 @@ This screen offers:
 - History (off/on/show).
 - Back.
 
-## 5. Open questions for the owner
+## 5. Decisions
 
-1. **`-f` or positional.** The brief's examples use both
-   (`ssc encrypt report.pdf` and `ssc encrypt -f report.pdf`). Proposed:
-   positional only.
-2. **Strength estimator.** Proposed: `zxcvbn`, if its Python package is
-   maintained and pure-Python when Phase 4 starts. Otherwise use the
-   minimum length only.
-3. **Finding files a revoked entry opens.** SSC keeps no list of files,
-   since history has no paths. Proposed: `revoke` offers to scan a folder
-   the person names, rather than keeping an index.
+Settled with the owner on 2026-11-18. Outside reviewers may still challenge them in Phase 1, step 6.
+
+1. **Files are positional arguments only**, never `-f`. The brief's examples
+   used both forms.
+2. **Password strength is estimated with `zxcvbn`**, provided its Python
+   package is maintained and pure Python when Phase 4 starts. Otherwise
+   SSC uses the minimum length only.
+3. **`revoke` scans a folder the person names** to find the files a revoked
+   entry opens. SSC keeps no index of files, since history has no paths.

@@ -262,12 +262,13 @@ Key-ID: <key_id as 32 lowercase hex characters>
 adds a key file as a key entry. Both keep the same key, so the key's
 `key_id` and the files it opens do not change.
 
-## 7. Open questions for the owner
+## 7. Decisions
 
-1. **Recovery codes in the vault.** Storing `R` lets one printed code cover
-   many files. The alternative is a new code per file, which is safer if the
-   vault leaks but means one sheet of paper per file. Proposed: store it, as
-   above.
-2. **History cap.** Proposed: 1,000 events.
-3. **Device keys per vault.** Proposed: no limit beyond the 16-grant cap, so
-   up to 14 devices alongside a master password and a recovery code.
+Settled with the owner on 2026-11-18. Outside reviewers may still challenge them in Phase 1, step 6.
+
+1. **Recovery codes are stored in the vault**, so one printed code covers
+   many files. A new code per file would be safer if the vault leaked, but
+   it would mean one sheet of paper per file.
+2. **History keeps at most 1,000 events.**
+3. **Device keys have no limit beyond the 16-grant cap.** That allows up to
+   14 devices alongside a master password and a recovery code.
