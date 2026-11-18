@@ -62,8 +62,8 @@ These exist for scripts and Docker:
 
 | Credential | Flag | Environment variable |
 | --- | --- | --- |
-| A password that opens a file | `--password-file <path>` | `SSC_PASSWORD` |
-| A new password factor, for `encrypt`, `access add` and `access apply` | `--new-password-file <path>` | `SSC_NEW_PASSWORD` |
+| Passwords that open a file | `--password-file <path>`, repeatable up to 5 times | `SSC_PASSWORD`: one more |
+| A new password, for `encrypt`, `access add`, `access apply` and `vault add --password` | `--new-password-file <path>` | `SSC_NEW_PASSWORD` |
 | The vault's current master password | `--master-password-file <path>` | `SSC_MASTER_PASSWORD` |
 | A new master password, for `vault init` and `vault change-password` | `--new-master-password-file <path>` | `SSC_NEW_MASTER_PASSWORD` |
 | A recovery code | `--recovery-code-file <path>` | `SSC_RECOVERY_CODE` |
@@ -92,6 +92,11 @@ These exist for scripts and Docker:
     (`--password-file`) and add password B (`--new-password-file`).
   - `access rotate` rebuilds a password grant with the password that opened
     it, so it reads only the opening source.
+  - Several opening passwords serve an all-of grant with more than one
+    password factor, such as `vault:work+vault:personal` after the vault is
+    lost. SSC tries each supplied password against each password factor the
+    vault cannot fill, and it needs no file-to-factor mapping. That is at
+    most 5 Argon2id runs per factor.
 - **Setting a master password and using one are separate roles** in the same
   way.
   - `vault init` reads only the new one.
