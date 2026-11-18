@@ -240,16 +240,18 @@ specifically:
 - `key_id` and `entry_id`. Two files that use the same key or vault entry
   can therefore be linked to each other, though not to the owner's identity.
 
-## 7. Open questions for the owner and reviewers
+## 7. Decisions
 
-1. **Linkable IDs.** `key_id` and `entry_id` avoid trial decryption, but they
-   make files linkable. The alternative is to store no ID and have the
-   reader try each key it holds, which is cheap for keys but costs one
-   Argon2id run per vault password entry. Proposed: keep the IDs in 3.0.
-2. **Password normalisation.** 2.x used the exact UTF-8 with no
-   normalisation. 3.0 proposes NFC, so that passwords typed on different
-   systems match. NFC never changes plain ASCII.
-3. **Factor limit per grant.** Proposed: 5, the same cap as threshold `n`.
+Settled with the owner on 2026-11-18. Outside reviewers may still challenge them in Phase 1, step 6.
+
+1. **`key_id` and `entry_id` stay in the clear.** They let a reader find a
+   key or entry without trial decryption, which would cost one Argon2id run
+   per vault password entry. The cost is that two files using the same key
+   or entry can be linked to each other (section 6).
+2. **Passwords are normalised to NFC**, unlike 2.x, so that the same
+   password typed on different systems matches. NFC never changes plain
+   ASCII.
+3. **A grant holds at most 5 factors**, the same cap as threshold `n`.
 
 ## 8. Test vectors
 
