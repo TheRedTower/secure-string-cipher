@@ -194,7 +194,11 @@ Given the factors the caller can supply:
    factor was wrong.
 
 An implementation SHOULD derive each password secret once per distinct
-`(salt, parameters)` and reuse it, rather than once per attempt.
+`(password, salt, parameters)` and reuse it within one open attempt, rather
+than rerunning Argon2id when it retries a grant. The cache key MUST include
+the password itself. A cache keyed on `(salt, parameters)` alone would hand back the
+secret from a mistyped password after the person corrects it. The cache is
+discarded when the open attempt ends.
 
 ## 5. Changing access
 
