@@ -78,8 +78,8 @@ key_id = SHA-256("ssc3/key-id" || key)[0..16]
 s      = HKDF(key, "", "ssc3/factor/key")
 ```
 
-`key_id` lets a reader find the key in the vault or key folder without trial
-decryption. A reader recomputes `key_id` from a candidate key and uses only a
+`key_id` lets a reader find the key among the vault's key entries and the
+key files the caller supplies (CLI.md section 1), without trial decryption. A reader recomputes `key_id` from a candidate key and uses only a
 key whose ID matches.
 
 ### 2.3 Recovery code (`0x04`)
@@ -184,7 +184,7 @@ Given the factors the caller can supply:
 1. Parse the whole body strictly (sections 3.4 and 4) before deriving
    anything.
 2. Choose the grants the caller can satisfy. The CLI looks up `key_id` and
-   `entry_id` in the vault and key folder, and asks the person only for
+   `entry_id` in the vault and the key files supplied, and asks only for
    what is still missing, such as a password or a recovery code.
 3. For each chosen grant, derive `kek` and open `wrapped_key`. If the tag
    fails, move on to the next grant.
