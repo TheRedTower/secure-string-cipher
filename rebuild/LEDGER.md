@@ -17,6 +17,13 @@ Nothing under `legacy/` is built, linted, type-checked or run by CI. Code is
 not copied out of `legacy/`; where 3.0 reuses an idea from it, the ledger
 entry says which one.
 
+## Gates
+
+| Gate | Status |
+| --- | --- |
+| Phase 0: CI green on all three platforms for the empty package | Met on 2026-11-18 (#159 and #160) |
+| Phase 1: review comments answered and vectors frozen | Vectors frozen (#166). Waiting on community review in Discussion #168 |
+
 ## Steps
 
 | Brief step | Commit subject | What was added or changed |
@@ -36,3 +43,4 @@ entry says which one.
 | Phase 1, step 5 | test: generate and freeze the 3.0 test vectors | `tools/vectors/generate.py` (throwaway: **delete at the Phase 2 gate**), `tests/vectors/` (14 valid, 23 rejection, a vault and a key file), `tests/test_vectors_frozen.py`, `.gitattributes`. The golden-vector approach and the manifest of hashes are the idea carried over from `legacy/tests/fixtures/`, as section 8 of the brief says |
 | Phase 1, steps 2 to 5 (fixes) | Four commits, one per finding | From Codex's reviews of #164, #165 and #166: drop the undefined key folder (ACCESS.md); record a password change in history (VAULT.md); add `--key-file` and keep key files out of profiles (CLI.md); hash the key-file vector |
 | Phase 1, steps 1 to 4 (decisions) | docs(spec): record the owner's decisions on every open question | Each spec's "Open questions" section becomes "Decisions": the owner accepted all twelve proposals on 2026-11-18 |
+| Phase 1, step 6 | Discussion #168 (not a commit) | The access spec was posted for community review as GitHub Discussion #168, with Discussions turned on for the repository. Forum posts are made by the owner. The Phase 1 gate waits on those review comments being answered |
