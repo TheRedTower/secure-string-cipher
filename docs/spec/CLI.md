@@ -26,6 +26,16 @@ mode never shows those words to the person; it says "unlock with".
   - `--armor` writes the armoured form (FORMAT.md section 8), which is how
     text is encrypted.
   - Decryption detects armour by itself.
+  - **`decrypt -o -` writes nothing to stdout until the whole file has
+    authenticated**, final chunk included (FORMAT.md section 7.2). That way
+    a program reading the output never gets truncated or forged plaintext
+    before SSC reports the failure.
+    - Until then, SSC holds the plaintext in memory, up to 64 MiB.
+    - Beyond 64 MiB, it spools the plaintext to an owner-only temporary file
+      in the OS temp folder. It deletes the file when done, whether or not
+      decryption succeeded.
+    - The docs say that plaintext touches disk in that case. To avoid it,
+      decrypt to a file with `-o <out>` instead.
 - **Secrets never reach output.** No secret is printed, logged or put in an
   error message. There are two exceptions, each shown once, on screen, at
   the person's request:
@@ -53,7 +63,8 @@ These exist for scripts and Docker:
 | Credential | Flag | Environment variable |
 | --- | --- | --- |
 | A typed password factor | `--password-file <path>` | `SSC_PASSWORD` |
-| The vault's master password | `--master-password-file <path>` | `SSC_MASTER_PASSWORD` |
+| The vault's current master password | `--master-password-file <path>` | `SSC_MASTER_PASSWORD` |
+| A new master password, for `vault init` and `vault change-password` | `--new-master-password-file <path>` | `SSC_NEW_MASTER_PASSWORD` |
 | A recovery code | `--recovery-code-file <path>` | `SSC_RECOVERY_CODE` |
 | Standalone key files | `--key-file <path>`, repeatable | `SSC_KEY_FILES`: paths separated by the OS path separator (`:` or `;`) |
 
@@ -74,6 +85,13 @@ These exist for scripts and Docker:
     `--grant keyfile:<path>`.
 - Without a TTY, a credential that is needed but not supplied is an exit 1
   error, never a hang.
+- **Setting a master password and using one are separate roles**, so they
+  have separate sources.
+  - `vault init` reads only the new one.
+  - `vault change-password` needs both. It refuses to run when the new one
+    is missing, rather than reusing the current one and reporting a
+    rotation that did not happen.
+  - This is carried over from 2.x.
 
 ## 2. Grant specs
 
