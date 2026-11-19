@@ -357,17 +357,19 @@ def _combinations(
         yield [derive() for derive in choice]
 
 
-def open_file_key(
+def open_grant(
     grants: Sequence[Grant],
     fixed_header: bytes,
     access_body: bytes,
     mac: bytes,
     credentials: Credentials,
-) -> bytes:
+) -> tuple[bytes, int]:
     """Recover the file key from the first grant that the credentials open
-    and that the access MAC confirms (ACCESS.md section 4)."""
+    and that the access MAC confirms (ACCESS.md section 4), and that grant's
+    index. The index is for the caller's own bookkeeping, such as history;
+    a failure still says nothing about which grant or factor was wrong."""
     cache = _SecretCache()
-    for grant in grants:
+    for index, grant in enumerate(grants):
         if grant.factors is None:
             continue
         for factor_secrets in _combinations(grant.factors, credentials, cache):
@@ -378,5 +380,16 @@ def open_file_key(
                 continue
             expected = access_mac(candidate, fixed_header, access_body)
             if hmac.compare_digest(expected, mac):
-                return candidate
+                return candidate, index
     raise CannotOpen()
+
+
+def open_file_key(
+    grants: Sequence[Grant],
+    fixed_header: bytes,
+    access_body: bytes,
+    mac: bytes,
+    credentials: Credentials,
+) -> bytes:
+    """`open_grant`, for callers that need only the file key."""
+    return open_grant(grants, fixed_header, access_body, mac, credentials)[0]
