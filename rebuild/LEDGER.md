@@ -104,3 +104,5 @@ entry says which one.
 | #177 | Step 1, Codex fix | `86917a4` fix: treat the rename as the commit point of a safe write | `fs.py`: a failed folder sync after the rename raises `fs.NotDurable` instead of looking like an aborted write, and a folder that cannot be synced is skipped. `tests/test_fs.py` |
 | #177 | Step 1, Codex fix | `c592b0b` fix(vault): bound the vault file before reading it | `vault/store.py`: `max_file_size()`, the largest armoured CRLF file a 16 MiB document can make |
 | #177 | Step 1, Codex fix | `22777f1` fix(vault): report an over-long JSON integer as a FormatError | `vault/document.py` |
+| #178 | Step 2 | `3a58826` feat(vault): password and key entries, and the vault-entry factor | `vault/entries.py`: adding password and key entries (passwords stored NFC-normalised), importing and exporting key files with the key unchanged, archiving and revoking, `factor()` for `vault:<label>` (active entries only), and `credentials()` for opening (every entry not revoked). `tests/vault/test_entries.py` opens the vault-password and key vectors through vault entries |
+| #178 | Housekeeping | docs: record Phase 3, step 2 in the ledger | This ledger |
