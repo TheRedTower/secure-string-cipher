@@ -239,3 +239,23 @@ def test_read_refuses_a_fifo_without_blocking(tmp_path: Path) -> None:
     os.mkfifo(fifo, 0o600)
     with pytest.raises(PermissionError):
         keyfile.read(fifo)
+
+
+def test_read_refuses_a_symlink_hidden_by_dot_dot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "other" / "child").mkdir(parents=True)
+    keyfile.write(tmp_path / "other" / "laptop.ssckey", GOOD)
+    keyfile.write(tmp_path / "laptop.ssckey", GOOD)
+    try:
+        (tmp_path / "alias").symlink_to(
+            tmp_path / "other" / "child", target_is_directory=True
+        )
+    except OSError:
+        pytest.skip("symlinks are not available here")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(PermissionError):
+        keyfile.read(Path("alias") / ".." / "laptop.ssckey")
+    with pytest.raises(PermissionError):
+        keyfile.read(tmp_path / "alias" / ".." / "laptop.ssckey")
+    assert keyfile.read(Path("other") / "child" / ".." / "laptop.ssckey") == GOOD
