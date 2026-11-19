@@ -326,3 +326,79 @@ def test_an_existing_folder_is_left_as_it_is(tmp_path: Path) -> None:
     folder.chmod(0o755)
     store.create("pw", folder / "vault.ssc")
     assert folder.stat().st_mode & 0o777 == 0o755
+
+
+# --- owner-only on Windows (VAULT.md section 1) ----------------------------------
+
+# Well-known SIDs that would make a file readable beyond its owner.
+_BROAD_SIDS = {
+    "S-1-1-0": "Everyone",
+    "S-1-5-11": "Authenticated Users",
+    "S-1-5-32-545": "Users",
+    "S-1-5-32-546": "Guests",
+}
+
+
+if sys.platform == "win32":
+    import ctypes
+    from ctypes import wintypes
+
+    _advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    _kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+
+    class _ACL(ctypes.Structure):
+        _fields_ = [
+            ("AclRevision", ctypes.c_ubyte),
+            ("Sbz1", ctypes.c_ubyte),
+            ("AclSize", wintypes.WORD),
+            ("AceCount", wintypes.WORD),
+            ("Sbz2", wintypes.WORD),
+        ]
+
+    def _acl_sids(path: Path) -> set[str]:
+        """The SIDs that an allow entry in a path's ACL names, read with the
+        Win32 API, as strings so the check does not depend on the language
+        Windows is set to."""
+        dacl, descriptor = ctypes.c_void_p(), ctypes.c_void_p()
+        status = _advapi.GetNamedSecurityInfoW(
+            ctypes.c_wchar_p(str(path)),
+            1,  # SE_FILE_OBJECT
+            4,  # DACL_SECURITY_INFORMATION
+            None,
+            None,
+            ctypes.byref(dacl),
+            None,
+            ctypes.byref(descriptor),
+        )
+        assert status == 0, f"GetNamedSecurityInfoW failed with {status}"
+        try:
+            assert dacl.value, f"{path} has no ACL, so everyone has access"
+            sids = set()
+            for index in range(_ACL.from_address(dacl.value).AceCount):
+                ace = ctypes.c_void_p()
+                assert _advapi.GetAce(dacl, index, ctypes.byref(ace))
+                assert ace.value is not None
+                if ctypes.c_ubyte.from_address(ace.value).value != 0:
+                    continue  # only ACCESS_ALLOWED_ACE_TYPE grants access
+                # The SID follows the 4-byte header and the 4-byte mask.
+                text = ctypes.c_wchar_p()
+                assert _advapi.ConvertSidToStringSidW(
+                    ctypes.c_void_p(ace.value + 8), ctypes.byref(text)
+                )
+                assert text.value is not None
+                sids.add(text.value)
+                _kernel.LocalFree(text)
+            return sids
+        finally:
+            _kernel.LocalFree(descriptor)
+
+    def test_the_vault_is_owner_only_on_windows(tmp_path: Path) -> None:
+        """SSC sets no ACLs itself: the vault inherits its folder's, and the
+        folder it lives in by default is under the user's own profile."""
+        path = tmp_path / "ssc" / "vault.ssc"
+        store.create("pw", path)
+        for target in (path, store.lock_path(path), store.default_path().parent.parent):
+            sids = _acl_sids(target)
+            assert sids, target
+            broad = sorted(_BROAD_SIDS[s] for s in sids & _BROAD_SIDS.keys())
+            assert broad == [], f"{target} is readable by {broad}"

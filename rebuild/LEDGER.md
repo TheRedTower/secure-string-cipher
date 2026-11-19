@@ -26,6 +26,7 @@ entry says which one.
 | Phase 0: CI green on all three platforms for the empty package | Met on 2026-11-18 (#159) |
 | Phase 1: review comments answered and vectors frozen | Vectors frozen (#166). Community review (Discussion #168) is still open. On 2026-11-19 the owner chose to start Phase 2 without waiting for it, and to answer those comments afterwards. Any spec change they cause is made through a PR that regenerates the vectors, restoring the generator from history (`git show becaf73~1:tools/vectors/generate.py`) |
 | Phase 2: every vector passes and fuzzing is clean | Met with #176. Every valid vector opens and is reproduced byte for byte, every rejection vector fails for its named reason, the vault vector opens, and `test_vector_coverage.py` allows no exceptions. The fuzz suite is clean in CI and in a 140,000-example local run. The throwaway generator is deleted |
+| Phase 3: changing the master password rewraps one grant, and the vault works on all three platforms | Met with #182. `test_changing_the_master_password_rewraps_one_grant` runs on the frozen vault with history off (payload untouched) and on (one appended `vault-access-change` event). `test_the_real_os_keychain` unlocks a vault through macOS Keychain, Windows Credential Manager and Secret Service in CI, and `test_the_vault_is_owner_only_on_windows` checks the Windows ACLs by SID |
 
 ## Steps
 
@@ -120,3 +121,7 @@ entry says which one.
 | #181 | Step 5 | `87d7272` feat(vault): check the history chain when reading the vault | `vault/document.py`: `GENESIS`, `event_hash`, and the chain checks of VAULT.md section 5 in `History`, so `parse` rejects a broken chain, and an empty history that was trimmed or has a moved anchor |
 | #181 | Step 5 | `c96e777` feat(vault): opt-in history | `vault/history.py` (`turn_on`, `turn_off`, `record`, trimming to the newest 1,000 events by moving the anchor). Entries record `entry-create`, `entry-archive` and `entry-revoke`; profiles record `profile-change`; `Session.record` is there for `vault-unlock`, `encrypt` and `decrypt`; a write that changes the grants records `vault-access-change`, which with history on replaces the payload. `tests/vault/test_history.py`, and the gate test now covers history both off and on |
 | #181 | Housekeeping | docs: record Phase 3, step 5 in the ledger | This ledger |
+| #182 | Gate | `ec859b2` test: check the vault is owner-only on Windows by its ACL | `tests/vault/test_store.py`: no Everyone, Authenticated Users, Users or Guests entry on the vault, its lock file or the default data folder |
+| #182 | Gate | `a7fe356` docs(spec): record how SSC keeps files owner-only on Windows | `docs/spec/VAULT.md` section 1, which left this to Phase 3 |
+| #182 | Housekeeping | docs: record the Phase 3 gate in the ledger | This ledger |
+| #182 | Gate, CI fix | `a348917` test: read Windows ACLs through the Win32 API, not PowerShell | `tests/vault/test_store.py`: Windows PowerShell on the runners could not load `Get-Acl` |
