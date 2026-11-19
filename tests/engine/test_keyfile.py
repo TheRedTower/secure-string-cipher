@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import secrets
 import sys
@@ -272,3 +273,38 @@ def test_read_through_a_search_only_parent(tmp_path: Path) -> None:
         assert keyfile.read(parent / "laptop.ssckey") == GOOD
     finally:
         parent.chmod(0o700)
+
+
+def test_a_failed_write_leaves_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "laptop.ssckey"
+
+    def full(fd: int) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(os, "fsync", full)
+    with pytest.raises(OSError):
+        keyfile.write(path, GOOD)
+    assert list(tmp_path.iterdir()) == []
+    monkeypatch.undo()
+    keyfile.write(path, GOOD)  # a retry works
+    assert keyfile.read(path) == GOOD
+
+
+def test_write_never_replaces_even_in_a_race(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A file that appears after the first check is still not replaced."""
+    path = tmp_path / "laptop.ssckey"
+    real = keyfile._publish
+
+    def racing(temp: Path, target: Path) -> None:
+        target.write_bytes(b"theirs")
+        real(temp, target)
+
+    monkeypatch.setattr(keyfile, "_publish", racing)
+    with pytest.raises(FileExistsError):
+        keyfile.write(path, GOOD)
+    assert path.read_bytes() == b"theirs"
+    assert [p.name for p in tmp_path.iterdir()] == ["laptop.ssckey"]
