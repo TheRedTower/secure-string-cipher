@@ -158,11 +158,12 @@ def _output(sink: Writable, armored: bool) -> tuple[Writable, armor.ArmorWriter 
     return writer, writer
 
 
-def _rewrite_access(
+def rewrite_access(
     opened: Opened, grants: Sequence[access.Grant], sink: Writable
 ) -> None:
     """Write the file with a new access block and the payload bytes as they
-    were. The output keeps the input's form, binary or armoured."""
+    were (FORMAT.md section 7.3). The output keeps the input's form, binary
+    or armoured."""
     out, writer = _output(sink, opened.armored)
     header = opened.header.fixed.to_bytes()
     body = access.encode_access_body(grants)
@@ -172,6 +173,27 @@ def _rewrite_access(
         write_all(out, part)
     if writer:
         writer.close()
+
+
+def replace_payload(
+    opened: Opened,
+    source: Readable,
+    sink: Writable,
+    grants: Sequence[access.Grant] | None = None,
+) -> int:
+    """Write new contents under the same file key (FORMAT.md section 7.4),
+    always with a fresh payload nonce, and recompute the access MAC. The
+    grants are kept byte for byte unless `grants` replaces them. The output
+    keeps the input's form. Returns the plaintext size.
+
+    The old payload is not read; whatever is left of it is ignored.
+    """
+    kept = opened.header.grants if grants is None else grants
+    out, writer = _output(sink, opened.armored)
+    size = seal(opened.file_key, FixedHeader.new(), kept, source, out)
+    if writer:
+        writer.close()
+    return size
 
 
 def add_grant(
@@ -184,7 +206,7 @@ def add_grant(
     included, are kept byte for byte (ACCESS.md section 5)."""
     opened = unlock(source, credentials)
     grant = access.new_grant(opened.file_key, factors)
-    _rewrite_access(opened, [*opened.header.grants, grant], sink)
+    rewrite_access(opened, [*opened.header.grants, grant], sink)
 
 
 def remove_grant(
@@ -202,7 +224,7 @@ def remove_grant(
     if len(grants) == 1:
         raise ValueError("A file must keep at least one grant.")
     del grants[index]
-    _rewrite_access(opened, grants, sink)
+    rewrite_access(opened, grants, sink)
 
 
 def rotate(

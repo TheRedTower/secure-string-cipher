@@ -180,3 +180,29 @@ def test_rotate_fails_on_a_damaged_payload() -> None:
     with pytest.raises(FormatError) as caught:
         rotate(bytes(data), A, KEY_A)
     assert caught.value.reason == Reason.CHUNK_AUTH
+
+
+# --- replace the payload (FORMAT.md section 7.4) ------------------------------------
+
+
+def replace(data: bytes, creds: access.Credentials, contents: bytes) -> bytes:
+    out = io.BytesIO()
+    opened = unlock(data, creds)
+    assert container.replace_payload(opened, io.BytesIO(contents), out) == len(contents)
+    return out.getvalue()
+
+
+def test_replace_keeps_the_file_key_and_grants_with_a_fresh_nonce() -> None:
+    before = add(sealed(), A, KEY_B)
+    after = replace(before, A, b"new contents")
+    assert plaintext(after, B) == b"new contents"
+    old, new = vectorkit.split(before), vectorkit.split(after)
+    assert new.access_body == old.access_body
+    assert new.fixed_header != old.fixed_header
+    assert unlock(after, A).file_key == unlock(before, A).file_key
+
+
+def test_replace_keeps_the_armoured_form() -> None:
+    after = replace(sealed(armored=True), A, b"text")
+    assert after.startswith(armor.BEGIN)
+    assert plaintext(after, A) == b"text"
