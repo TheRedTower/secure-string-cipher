@@ -43,6 +43,7 @@ SALT_SIZE = 16
 ENTRY_ID_SIZE = 16
 KEY_SIZE = 32
 KEY_ID_SIZE = 16
+RECOVERY_SIZE = 18
 SECRET_SIZE = 32
 WRAPPED_SIZE = 48
 MAX_FACTORS = 5
@@ -145,6 +146,18 @@ def new_key(key: bytes) -> NewFactor:
     if len(key) != KEY_SIZE:
         raise ValueError(f"A key must be {KEY_SIZE} bytes.")
     return NewFactor(Factor(KEY, key_id(key)), key_secret(key))
+
+
+def recovery_secret(r: bytes) -> bytes:
+    return _hkdf(r, b"", b"ssc3/factor/recovery-code")
+
+
+def new_recovery(r: bytes) -> NewFactor:
+    """A recovery code factor (ACCESS.md section 2.3) from its 18 random
+    bytes. Its printed form belongs to the vault (Phase 3, step 4)."""
+    if len(r) != RECOVERY_SIZE:
+        raise ValueError(f"A recovery code is {RECOVERY_SIZE} bytes.")
+    return NewFactor(Factor(RECOVERY, b""), recovery_secret(r))
 
 
 # --- grants ----------------------------------------------------------------
@@ -281,11 +294,14 @@ class Credentials:
     `entry_passwords` maps a vault entry ID to its stored password.
     `keys` are 32-byte keys, from the vault or from key files; each is used
     only for a factor whose `key_id` matches it.
+    `recovery_codes` are the 18 random bytes of each recovery code; a
+    recovery factor names no code, so each is tried (ACCESS.md section 2.3).
     """
 
     passwords: Sequence[str] = ()
     entry_passwords: Mapping[bytes, str] = field(default_factory=dict)
     keys: Sequence[bytes] = ()
+    recovery_codes: Sequence[bytes] = ()
 
 
 class _SecretCache:
@@ -325,6 +341,9 @@ def _options(
             k for k in credentials.keys if key_id(k) == factor.body
         )
         return [partial(key_secret, k) for k in matching]
+    if factor.kind == RECOVERY:
+        codes = dict.fromkeys(credentials.recovery_codes)
+        return [partial(recovery_secret, r) for r in codes]
     return []
 
 
