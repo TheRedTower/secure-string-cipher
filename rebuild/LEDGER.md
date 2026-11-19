@@ -64,3 +64,10 @@ entry says which one.
 | Discussion #168 | Step 6 | (not a commit) | The access spec was posted for community review, and Discussions were turned on for the repository. Forum posts are left to the owner |
 | #169 | Step 6 | `3827694` docs: record Phase 1, step 6 and the gate status in the ledger | This ledger |
 | This PR | Housekeeping | docs: rebuild the ledger from git history | This ledger, now listing every commit grouped by PR |
+
+### Phase 2: the engine
+
+| PR | Brief step | Commit | What it added or changed |
+| --- | --- | --- | --- |
+| #171 | Step 1 | `5635852` feat(engine): the payload layer, passing its vectors | `src/secure_string_cipher/errors.py`, `engine/header.py` (the fixed header), `engine/payload.py` (64 KiB AES-256-GCM chunks with counter-and-flag nonces), `tests/vectorkit.py`, `tests/engine/`, and the `cryptography==50.0.2` dependency. The manifest now records `file_key` and `payload_nonce` for the rejection vectors too, with every vector file unchanged |
+

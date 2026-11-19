@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 VECTORS = Path(__file__).parent / "vectors"
-MANIFEST_SHA256 = "cd992a90d42e74eef8cf08a7f3b83fb533ac65ef9ee06113428b07f6a172f465"
+MANIFEST_SHA256 = "fe06debdcc4faef21ffbb7660ce586d83f129726d24a4182cf502fb35875ebca"
 
 
 def sha256(path: Path) -> str:
