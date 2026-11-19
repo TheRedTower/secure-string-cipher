@@ -76,4 +76,10 @@ entry says which one.
 | #172 | Housekeeping | docs: record Phase 2, step 2 in the ledger | This ledger, and the #170 row now names its commit |
 | #173 | Step 3 | `4c8c44b` feat(engine): the managed-key factor and .ssckey files | The key factor in `engine/access.py` (`key_id`, `new_key`, keys in `Credentials`, matched by ID), `engine/keyfile.py` (VAULT.md section 6), `armor.split_lines` shared with key files, and new reasons `keyfile` and `keyfile-key-id`. Every vector passes except the three that need a recovery code |
 | #173 | Housekeeping | docs: record Phase 2, step 3 in the ledger | This ledger |
+| #173 | Step 3, Codex fix | `d5939fc` fix(engine): refuse symlinked parents and FIFOs when reading a key file | `engine/keyfile.py`: a no-follow walk from the root, and `O_NONBLOCK` |
+| #173 | Step 3, Codex fix | `750948f` fix(engine): check every path component of a key file, ".." included | `engine/keyfile.py`: the path is made absolute without being normalised |
+| #173 | Step 3, Codex fix | `7b793d9` fix(engine): walk a key file's parents with search-only descriptors | `engine/keyfile.py`: `O_PATH` or `O_SEARCH` for directories |
+| #173 | Step 3, Codex fix | `2a3efb9` fix(engine): publish a new key file only once it is fully written | `engine/keyfile.py`: temporary file, fsync, then a no-replace link or rename |
+| #174 | Step 4 | `7b1aed6` feat(engine): change access: add, remove and rotate | `engine/container.py` (`unlock`, `add_grant`, `remove_grant`, `rotate`), and `payload.chunks` and `payload.ChunkReader` so a payload streams straight into re-encryption, plus `tests/engine/test_change.py` |
+| #174 | Housekeeping | docs: record Phase 2, step 4 in the ledger | This ledger, and the review fixes to #173 |
 
