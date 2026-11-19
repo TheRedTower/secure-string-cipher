@@ -31,6 +31,7 @@ class Reason(StrEnum):
     VAULT = "vault"
     RECOVERY_CODE = "recovery-code"
     RECOVERY_CHECK = "recovery-check"
+    INPUT = "input"
 
 
 class SSCError(Exception):
@@ -48,6 +49,13 @@ class FormatError(SSCError):
     def __init__(self, reason: Reason, message: str) -> None:
         super().__init__(message)
         self.reason = reason
+
+
+class InputError(SSCError):
+    """Bad arguments, a missing option, an invalid grant spec, or a needed
+    credential with no way to ask for it (CLI.md section 1, exit code 1)."""
+
+    reason = Reason.INPUT
 
 
 class RecoveryCodeError(SSCError):
