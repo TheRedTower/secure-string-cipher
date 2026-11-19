@@ -200,3 +200,106 @@ def test_recovery_codes_are_read_in_any_case(vault: Context) -> None:
     assert isinstance(entry.secret, bytes)
     assert recovery.decode(recovery.encode(entry.secret).lower()) == entry.secret
     assert os.path.exists(vault.vault_path)
+
+
+# --- review fixes --------------------------------------------------------------
+
+
+def test_no_recovery_code_is_made_where_it_cannot_be_shown(
+    vault: Context, prompter: Prompter, tmp_path: Path
+) -> None:
+    """Without a TTY, creating a recovery code is an error before anything
+    is made (CLI.md section 2); an existing one is still used."""
+    prompter.tty = False
+    out = tmp_path / "f.ssc"
+    with pytest.raises(InputError):
+        files.encrypt(vault, io.BytesIO(b"x"), out, Choice(grant_specs=["recovery"]))
+    with pytest.raises(InputError):
+        vaults.add_recovery(vault, "paper")
+    with pytest.raises(InputError):
+        profile_ops.create(vault, "daily", ["recovery"])
+    vaults.add_key(vault, "laptop")  # the recovery offer is not made
+    assert not out.exists()
+    assert [e.kind for e in vaults.list_entries(vault)] == ["key"]
+    prompter.tty = True
+    vaults.add_recovery(vault, "paper")
+    prompter.tty = False
+    files.encrypt(vault, io.BytesIO(b"x"), out, Choice(grant_specs=["recovery"]))
+    assert len(prompter.shown) == 1  # only the one made with a TTY
+
+
+def test_backup_waits_on_the_vault_lock_as_a_vault_error(
+    vault: Context, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(store, "LOCK_TIMEOUT", 0.1)
+    with store.locked(vault.vault_path), pytest.raises(VaultError, match="in use"):
+        vaults.backup(vault, tmp_path / "backup.ssc")
+
+
+def test_labels_are_checked_and_recovery_labels_fit(
+    vault: Context, prompter: Prompter, tmp_path: Path
+) -> None:
+    with pytest.raises(InputError):
+        vaults.add_password(vault, "Not A Label", PASSWORD)
+    with pytest.raises(InputError):
+        keys.new(tmp_path / "k.ssckey", "UPPER")
+    with pytest.raises(InputError):
+        profile_ops.create(vault, "Daily", ["password"])
+    long = "k" * 64
+    prompter.confirms.append(True)
+    vaults.add_recovery(vault, f"{long[:45]}-recovery")  # take the first choice
+    vaults.add_key(vault, long)
+    labels = [e.label for e in vaults.list_entries(vault)]
+    assert labels[-1] == f"{long[:45]}-recovery-2"
+
+
+def test_a_vault_entry_password_is_checked(vault: Context, prompter: Prompter) -> None:
+    prompter.new_passwords.append("short")
+    with pytest.raises(InputError):
+        vaults.add_password(vault, "work")
+    prompter.new_passwords.append("password")
+    vaults.add_password(vault, "weak")
+    assert "weak" in prompter.notices[-1]
+
+
+def test_remove_device_leaves_the_keychain_alone_when_it_is_off(
+    vault: Context, prompter: Prompter, chain: Keychain
+) -> None:
+    before = dict(chain.items)
+    vault.use_keychain = False
+    prompter.secrets.append(MASTER)
+    vaults.remove_device(vault, "g2")
+    assert chain.items == before
+
+
+def test_revoke_finds_files_where_the_entry_is_one_factor(
+    vault: Context, prompter: Prompter, tmp_path: Path
+) -> None:
+    prompter.confirms.append(False)
+    vaults.add_key(vault, "laptop")
+    prompter.tty = True
+    vaults.add_recovery(vault, "paper")
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    prompter.new_passwords.append(PASSWORD)
+    files.encrypt(
+        vault,
+        io.BytesIO(b"x"),
+        folder / "keyed.ssc",
+        Choice(grant_specs=["vault:laptop+password"]),
+    )
+    files.encrypt(
+        vault,
+        io.BytesIO(b"x"),
+        folder / "recovered.ssc",
+        Choice(grant_specs=["vault:paper+vault:laptop"]),
+    )
+    files.encrypt(
+        vault, io.BytesIO(b"x"), folder / "other.ssc", Choice(vault_label="laptop")
+    )
+    assert vaults.revoke(vault, "paper", scan=folder) == [folder / "recovered.ssc"]
+    assert vaults.revoke(vault, "laptop", scan=folder) == [
+        folder / "keyed.ssc",
+        folder / "other.ssc",
+        folder / "recovered.ssc",
+    ]

@@ -13,6 +13,8 @@ from secure_string_cipher.vault import entries
 
 def new(path: Path, label: str | None = None) -> keyfile.KeyFile:
     """A standalone `.ssckey`, with no vault involved."""
+    if label is not None:
+        vaults.check_label(label)
     made = keyfile.KeyFile(
         label or _label_from(path), keyfile.timestamp(), secrets.token_bytes(32)
     )
@@ -28,6 +30,8 @@ def _label_from(path: Path) -> str:
 
 def import_(ctx: Context, path: Path, label: str | None = None) -> str:
     """Add a key file as a vault key entry, with the key unchanged."""
+    if label is not None:
+        vaults.check_label(label)
     read = keyfile.read(path)
     with vaults.edit(ctx) as session:
         session.document, entry = entries.import_keyfile(session.document, read, label)

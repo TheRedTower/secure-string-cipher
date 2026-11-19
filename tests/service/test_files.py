@@ -4,6 +4,7 @@ and 3.1), asking only for what is missing."""
 from __future__ import annotations
 
 import io
+from collections.abc import Buffer
 from pathlib import Path
 
 import pytest
@@ -347,3 +348,58 @@ def test_an_unused_recovery_entry_is_kept_if_the_output_fails(
     assert not report.with_name("report.txt.ssc").exists()
     assert [e.kind for e in vaults.list_entries(ctx)] == ["recovery"]
     assert len(prompter.shown) == 1
+
+
+def test_a_failed_supplied_master_password_lets_the_person_type_one(
+    ctx: Context, prompter: Prompter, report: Path
+) -> None:
+    with_vault(ctx, prompter)
+    prompter.confirms.append(False)
+    vaults.add_key(ctx, "laptop")
+    out = encrypt(ctx, report, Choice(vault_label="laptop"))
+    ctx.use_keychain = False
+    ctx.master_password = "a stale master password"
+    prompter.asked.clear()
+    prompter.secrets.append(MASTER)
+    assert decrypt(ctx, out) == PLAIN
+    assert prompter.asked == ["Vault master password"]
+    assert "did not open the vault" in prompter.notices[-1]
+
+
+def test_a_damaged_vault_does_not_block_another_way_in(
+    ctx: Context, prompter: Prompter, report: Path, tmp_path: Path
+) -> None:
+    with_vault(ctx, prompter)
+    key = tmp_path / "usb.ssckey"
+    keys.new(key)
+    out = encrypt(ctx, report, Choice(grant_specs=[f"keyfile:{key}"]))
+    ctx.vault_path.write_bytes(b"\x89SSC damaged")
+    ctx.key_files = [key]
+    assert decrypt(ctx, out) == PLAIN
+    assert "Trying without the vault" in prompter.notices[-1]
+
+
+def test_the_vault_is_not_locked_while_the_payload_streams(
+    ctx: Context, prompter: Prompter, report: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from secure_string_cipher.vault import store
+
+    with_vault(ctx, prompter)
+    vaults.history_on(ctx)
+    vaults.add_password(ctx, "work", PASSWORD)
+    out = encrypt(ctx, report, Choice(vault_label="work"))
+    monkeypatch.setattr(store, "LOCK_TIMEOUT", 0.1)
+
+    class Probe(io.BytesIO):
+        def write(self, data: Buffer, /) -> int:
+            with store.locked(ctx.vault_path):  # another ssc could use the vault
+                pass
+            return super().write(data)
+
+    sink = Probe()
+    with out.open("rb") as handle:
+        files.decrypt(ctx, handle, sink)
+    assert sink.getvalue() == PLAIN
+    shown = vaults.history_show(ctx)
+    assert shown is not None
+    assert [e.action for e in shown.events][-2:] == ["decrypt", "vault-unlock"]

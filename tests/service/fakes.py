@@ -21,6 +21,7 @@ class Prompter:
     shown: list[tuple[str, str]] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
     asked: list[str] = field(default_factory=list)
+    tty: bool = True
 
     def _next[T](self, answers: list[T], question: str) -> T:
         self.asked.append(question)
@@ -45,6 +46,9 @@ class Prompter:
 
     def confirm(self, question: str, *, default: bool) -> bool:
         return self._next(self.confirms, question)
+
+    def can_show(self) -> bool:
+        return self.tty
 
     def show_once(self, title: str, secret: str) -> None:
         self.shown.append((title, secret))

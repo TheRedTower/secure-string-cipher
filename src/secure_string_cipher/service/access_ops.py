@@ -16,7 +16,7 @@ from typing import BinaryIO
 
 from secure_string_cipher import fs
 from secure_string_cipher.engine import access, container, payload
-from secure_string_cipher.errors import CannotOpen, InputError, VaultError
+from secure_string_cipher.errors import CannotOpen, InputError, SSCError
 from secure_string_cipher.service import files, vaults
 from secure_string_cipher.service import grants as specs
 from secure_string_cipher.service.context import Context
@@ -39,7 +39,7 @@ def _vault_document(ctx: Context) -> doc.Document | None:
     try:
         with vaults.edit(ctx, ask=False) as session:
             return session.document
-    except (VaultError, CannotOpen):
+    except SSCError:  # locked, damaged or in use: show what the file says
         return None
 
 
@@ -84,12 +84,10 @@ def show(ctx: Context, path: Path) -> list[str]:
 # --- changes that keep the file key ------------------------------------------------
 
 
-def _open(
-    ctx: Context, handle: BinaryIO, stack: ExitStack
-) -> tuple[container.Opened, files.Opener]:
+def _open(ctx: Context, handle: BinaryIO) -> tuple[container.Opened, files.Opener]:
     stream, armored = container.binary_stream(handle)
     header = container.read_header(stream)
-    opener = files.Opener(ctx, header, stack)
+    opener = files.Opener(ctx, header)
     file_key, index = opener.open()
     opener.record(index)
     return container.Opened(header, file_key, stream, armored), opener
@@ -108,15 +106,13 @@ def add(ctx: Context, path: Path, spec: str) -> None:
 
         def write(out: BinaryIO) -> None:
             with path.open("rb") as handle:
-                opened, opener = _open(ctx, handle, stack)
+                opened, opener = _open(ctx, handle)
                 grants = list(opened.header.grants)
                 if len(grants) >= access.MAX_GRANTS:
                     raise InputError(f"A file has at most {access.MAX_GRANTS} grants.")
-                build = files.Builder(ctx, stack, opener.session)
+                build = opener.builder(stack)
                 factors = build.policy([tokens])[0]
                 files.check_policy([factors])
-                nonlocal saved
-                saved = build.save_new_entries()  # before the file is published
                 new = access.new_grant(opened.file_key, factors)
                 assert new.factors is not None
                 if _only_passwords(new.factors) and any(
@@ -126,6 +122,8 @@ def add(ctx: Context, path: Path, spec: str) -> None:
                         "Adding a password-only way in makes this file only as "
                         "strong as that password."
                     )
+                nonlocal saved
+                saved = build.save()  # before the file is published
                 container.rewrite_access(opened, [*grants, new], out)
 
         late = files.durably(lambda: fs.write_atomic(path, write, replace=True))
@@ -137,20 +135,19 @@ def add(ctx: Context, path: Path, spec: str) -> None:
 def remove(ctx: Context, path: Path, grant: str) -> None:
     """`ssc access remove <file> --grant <gN>`. Removal, not revocation."""
     index = vaults.grant_index(grant)
-    with ExitStack() as stack:
 
-        def write(out: BinaryIO) -> None:
-            with path.open("rb") as handle:
-                opened, _ = _open(ctx, handle, stack)
-                grants = list(opened.header.grants)
-                if index >= len(grants):
-                    raise InputError(f"This file has no grant {grant}.")
-                if len(grants) == 1:
-                    raise InputError("A file must keep at least one grant.")
-                del grants[index]
-                container.rewrite_access(opened, grants, out)
+    def write(out: BinaryIO) -> None:
+        with path.open("rb") as handle:
+            opened, _ = _open(ctx, handle)
+            grants = list(opened.header.grants)
+            if index >= len(grants):
+                raise InputError(f"This file has no grant {grant}.")
+            if len(grants) == 1:
+                raise InputError("A file must keep at least one grant.")
+            del grants[index]
+            container.rewrite_access(opened, grants, out)
 
-        late = files.durably(lambda: fs.write_atomic(path, write, replace=True))
+    late = files.durably(lambda: fs.write_atomic(path, write, replace=True))
     ctx.prompter.notice(
         f"Removed {grant}. Anyone who already opened this file, or has an old "
         "copy, can still open that copy. To lock them out of this file's future "
@@ -163,19 +160,24 @@ def remove(ctx: Context, path: Path, grant: str) -> None:
 def apply(ctx: Context, path: Path, profile: str) -> None:
     """`ssc access apply <file> --profile <name>`: replace the file's grants
     with the profile's, under the same file key."""
+    saved: fs.NotDurable | None = None
     with ExitStack() as stack:
 
         def write(out: BinaryIO) -> None:
             with path.open("rb") as handle:
-                opened, opener = _open(ctx, handle, stack)
-                policy = files.Builder(ctx, stack, opener.session).profile(profile)
+                opened, opener = _open(ctx, handle)
+                build = opener.builder(stack)
+                policy = build.profile(profile)
                 files.check_policy(policy)
                 grants = [access.new_grant(opened.file_key, f) for f in policy]
+                nonlocal saved
+                saved = build.save()  # before the file is published
                 container.rewrite_access(opened, grants, out)
 
         late = files.durably(lambda: fs.write_atomic(path, write, replace=True))
-    if late is not None:
-        raise late
+    failure = late or saved
+    if failure is not None:
+        raise failure
 
 
 # --- rotate ------------------------------------------------------------------------
@@ -251,36 +253,35 @@ def rotate(ctx: Context, path: Path, *, force: bool = False) -> None:
     """`ssc access rotate <file>`: a new file key and payload nonce, with
     every grant rebuilt that can be. A grant that cannot is listed, and
     dropped only after asking, or with `force`."""
-    with ExitStack() as stack:
 
-        def write(out: BinaryIO) -> None:
-            with path.open("rb") as handle:
-                opened, opener = _open(ctx, handle, stack)
-                creds = opener.credentials()
-                policy, dropped = [], []
-                for i, grant in enumerate(opened.header.grants, 1):
-                    rebuilt = _rebuild(opened, grant, creds)
-                    if rebuilt is None:
-                        dropped.append(f"g{i}")
-                    else:
-                        policy.append(rebuilt)
-                if (
-                    dropped
-                    and not force
-                    and not ctx.prompter.confirm(
-                        f"SSC cannot rebuild {', '.join(dropped)}, so rotating "
-                        "drops it. Continue?",
-                        default=False,
-                    )
-                ):
-                    raise InputError("Not rotated.")
-                if not policy:
-                    raise CannotOpen()
-                old = payload.payload_key(opened.file_key, opened.header.fixed)
-                plaintext = payload.ChunkReader(payload.chunks(old, opened.payload))
-                container.encrypt(plaintext, out, policy, armored=opened.armored)
+    def write(out: BinaryIO) -> None:
+        with path.open("rb") as handle:
+            opened, opener = _open(ctx, handle)
+            creds = opener.credentials()
+            policy, dropped = [], []
+            for i, grant in enumerate(opened.header.grants, 1):
+                rebuilt = _rebuild(opened, grant, creds)
+                if rebuilt is None:
+                    dropped.append(f"g{i}")
+                else:
+                    policy.append(rebuilt)
+            if (
+                dropped
+                and not force
+                and not ctx.prompter.confirm(
+                    f"SSC cannot rebuild {', '.join(dropped)}, so rotating "
+                    "drops it. Continue?",
+                    default=False,
+                )
+            ):
+                raise InputError("Not rotated.")
+            if not policy:
+                raise CannotOpen()
+            old = payload.payload_key(opened.file_key, opened.header.fixed)
+            plaintext = payload.ChunkReader(payload.chunks(old, opened.payload))
+            container.encrypt(plaintext, out, policy, armored=opened.armored)
 
-        late = files.durably(lambda: fs.write_atomic(path, write, replace=True))
+    late = files.durably(lambda: fs.write_atomic(path, write, replace=True))
     ctx.prompter.notice("Rotated. Old copies of this file still open as they did.")
     if late is not None:
         raise late

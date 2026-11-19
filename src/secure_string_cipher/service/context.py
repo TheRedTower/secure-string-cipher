@@ -38,6 +38,11 @@ class Prompter(Protocol):
 
     def confirm(self, question: str, *, default: bool) -> bool: ...
 
+    def can_show(self) -> bool:
+        """Whether `show_once` can reach a person (a TTY). Asked before a
+        recovery code is created, since one nobody saw is no way back."""
+        ...
+
     def show_once(self, title: str, secret: str) -> None:
         """Show a new recovery code or generated password, once, on screen.
         The interactive mode asks for the last group to be typed back."""

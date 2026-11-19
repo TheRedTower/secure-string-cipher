@@ -26,10 +26,7 @@ def _refs(
             refs.append(doc.Ref(entries.find(session.document, token.value).id))
         elif token.kind == "recovery":
             # Resolved now, so later recovery entries do not change it.
-            session.document, entry, created = entries.choose_recovery(session.document)
-            if created:
-                vaults.show_recovery_after_write(ctx, session, entry)
-            refs.append(doc.Ref(entry.id))
+            refs.append(doc.Ref(vaults.choose_recovery(ctx, session)[0].id))
         else:
             raise InputError(
                 "A profile can only refer to what the vault holds: run "
@@ -39,6 +36,7 @@ def _refs(
 
 
 def create(ctx: Context, name: str, grant_specs: Sequence[str]) -> None:
+    vaults.check_label(name, "profile name")
     parsed = specs.parse_grants(grant_specs)
     with vaults.edit(ctx) as session:
         refs = [_refs(ctx, session, g) for g in parsed]

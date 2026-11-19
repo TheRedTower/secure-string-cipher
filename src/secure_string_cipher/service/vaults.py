@@ -14,11 +14,36 @@ from enum import StrEnum
 from pathlib import Path
 
 from secure_string_cipher import fs
-from secure_string_cipher.engine import access, container, recovery
+from secure_string_cipher.engine import access, container, keyfile, recovery
 from secure_string_cipher.errors import CannotOpen, InputError, SSCError, VaultError
+from secure_string_cipher.service import passwords
 from secure_string_cipher.service.context import Context
 from secure_string_cipher.vault import document as doc
 from secure_string_cipher.vault import entries, history, keychain, store
+
+
+class Locked(VaultError):
+    """This device cannot unlock the vault without asking."""
+
+
+def check_label(label: str, what: str = "label") -> str:
+    """Labels and profile names: a lowercase letter, then up to 63 of
+    lowercase letters, digits, `.`, `_` and `-` (VAULT.md section 3)."""
+    if not keyfile.LABEL.fullmatch(label):
+        raise InputError(
+            f'"{label}" is not a valid {what}: use a lowercase letter, then up '
+            "to 63 lowercase letters, digits, dots, underscores or hyphens."
+        )
+    return label
+
+
+def require_show(ctx: Context) -> None:
+    """A new recovery code must be shown to someone (CLI.md section 2)."""
+    if not ctx.prompter.can_show():
+        raise InputError(
+            "A new recovery code can only be shown on a terminal, so it cannot "
+            "be created here."
+        )
 
 
 def exists(ctx: Context) -> bool:
@@ -61,7 +86,7 @@ def edit(ctx: Context, *, ask: bool = True) -> Iterator[store.Session]:
                 session = None  # a stale keychain item; fall back
         if session is None:
             if not ask and ctx.master_password is None:
-                raise VaultError("The vault is locked.")
+                raise Locked("The vault is locked.")
             creds = access.Credentials(passwords=[_master(ctx)])
             session = stack.enter_context(store.edit(creds, ctx.vault_path))
         session.record("vault-unlock")
@@ -77,6 +102,8 @@ def init(ctx: Context, *, device_key: bool = True, recovery_code: bool = False) 
     optionally a recovery code for the vault itself, shown once."""
     if exists(ctx):
         raise VaultError(f"There is already a vault at {ctx.vault_path}.")
+    if recovery_code:
+        require_show(ctx)
     master = ctx.prompter.new_master_password()
     store.create(master, ctx.vault_path)
     chain = ctx.chain() if device_key else None
@@ -138,9 +165,11 @@ def status(ctx: Context) -> Status:
 
 def add_password(ctx: Context, label: str, password: str | None = None) -> doc.Entry:
     """`ssc vault add <label> --password`. `password` is given when it was
-    generated; otherwise the person sets one."""
+    generated; otherwise the person sets one, and it is checked like any
+    password set for encryption (CLI.md section 3.4)."""
+    check_label(label)
     if password is None:
-        password = ctx.prompter.new_password(f'Password for vault entry "{label}"')
+        password = passwords.new_password(ctx, f'Password for vault entry "{label}"')
     with edit(ctx) as session:
         session.document, entry = entries.add_password(
             session.document, label, password
@@ -150,20 +179,24 @@ def add_password(ctx: Context, label: str, password: str | None = None) -> doc.E
 
 def add_key(ctx: Context, label: str) -> doc.Entry:
     """`ssc vault add <label> --key`. A key entry has no other way back if
-    the vault is lost, so a recovery code is offered in the same step."""
+    the vault is lost, so a recovery code is offered in the same step, where
+    one can be shown."""
+    check_label(label)
     with edit(ctx) as session:
         session.document, entry = entries.add_key(session.document, label)
-        if ctx.prompter.confirm(
+        if ctx.prompter.can_show() and ctx.prompter.confirm(
             "This key has no other way back if the vault is lost. "
             "Add a recovery code now?",
             default=True,
         ):
             taken = {e.label for e in session.document.entries}
-            _add_recovery(ctx, session, _free(f"{label[:55]}-recovery", taken))
+            _add_recovery(ctx, session, _free(f"{label[:45]}-recovery", taken))
     return entry
 
 
 def _free(base: str, taken: set[str]) -> str:
+    """`base`, or `base-2` and so on: `base` is at most 54 characters, so a
+    suffix of up to 9 digits keeps the label within 64."""
     label, n = base, 2
     while label in taken:
         label, n = f"{base}-{n}", n + 1
@@ -182,7 +215,22 @@ def show_recovery_after_write(
     )
 
 
+def choose_recovery(ctx: Context, session: store.Session) -> tuple[doc.Entry, bool]:
+    """The entry the `recovery` token means (CLI.md section 2), and whether
+    it was just created. A new one is refused where its code cannot be
+    shown, and is shown once the vault holding it is written."""
+    if not any(
+        e.kind == "recovery" and e.status == "active" for e in session.document.entries
+    ):
+        require_show(ctx)
+    session.document, entry, created = entries.choose_recovery(session.document)
+    if created:
+        show_recovery_after_write(ctx, session, entry)
+    return entry, created
+
+
 def _add_recovery(ctx: Context, session: store.Session, label: str) -> doc.Entry:
+    require_show(ctx)
     session.document, entry = entries.add_recovery(session.document, label)
     show_recovery_after_write(ctx, session, entry)
     return entry
@@ -191,6 +239,8 @@ def _add_recovery(ctx: Context, session: store.Session, label: str) -> doc.Entry
 def add_recovery(ctx: Context, label: str) -> doc.Entry:
     """`ssc vault add <label> --recovery-code`: shown once, once the vault
     has been written."""
+    check_label(label)
+    require_show(ctx)
     with edit(ctx) as session:
         return _add_recovery(ctx, session, label)
 
@@ -211,27 +261,66 @@ def revoke(ctx: Context, label: str, scan: Path | None = None) -> list[Path]:
     copy of the secret still opens them until they are rotated."""
     with edit(ctx) as session:
         entry = entries.find(session.document, label)
-        creds = entries.credentials(doc.Document(entries=(entry,)))
+        others = entries.credentials(session.document)
         session.document = entries.revoke(session.document, label)
     ctx.prompter.notice(
         f'Revoked "{label}". SSC will refuse it, but anyone with a copy of the '
         "secret can still open the files it opens until they are rotated."
     )
-    return [] if scan is None else _opens(scan, creds)
+    return [] if scan is None else _uses(scan, entry, others)
 
 
-def _opens(folder: Path, creds: access.Credentials) -> list[Path]:
+def _uses(folder: Path, entry: doc.Entry, others: access.Credentials) -> list[Path]:
+    """The SSC files under `folder` with a grant that uses `entry`, alone or
+    with other factors, since each of them needs rotating."""
     found = []
     for path in sorted(folder.rglob("*")):
         if not path.is_file() or path.is_symlink():
             continue
         try:
             with path.open("rb") as handle:
-                container.unlock(handle, creds)
+                stream, _ = container.binary_stream(handle)
+                header = container.read_header(stream)
+            if any(_grant_uses(header, g, entry, others) for g in header.grants):
+                found.append(path)
         except (OSError, SSCError, ValueError):
-            continue  # unreadable, not an SSC file, damaged, or not this entry's
-        found.append(path)
+            continue  # unreadable, not an SSC file, or damaged
     return found
+
+
+def _grant_uses(
+    header: container.Header,
+    grant: access.Grant,
+    entry: doc.Entry,
+    others: access.Credentials,
+) -> bool:
+    """Password and key entries are named in the grant itself. A recovery
+    factor names nothing, so the grant is opened with this entry's code and
+    whatever the vault holds for its other factors; a grant that also needs
+    a typed password cannot be told apart, and is not listed."""
+    factors = grant.factors or ()
+    if entry.kind == "password":
+        return any(
+            f.kind == access.VAULT_PASSWORD and f.entry_id == entry.id for f in factors
+        )
+    assert isinstance(entry.secret, bytes)
+    if entry.kind == "key":
+        mine = access.key_id(entry.secret)
+        return any(f.kind == access.KEY and f.body == mine for f in factors)
+    if not any(f.kind == access.RECOVERY for f in factors):
+        return False
+    code = [access.Credentials(recovery_codes=[entry.secret])]
+    try:
+        access.find_assignment(
+            grant,
+            [code if f.kind == access.RECOVERY else [others] for f in factors],
+            header.fixed.to_bytes(),
+            header.access_body,
+            header.access_mac,
+        )
+    except CannotOpen:
+        return False
+    return True
 
 
 # --- access to the vault itself --------------------------------------------------
@@ -268,8 +357,9 @@ def add_device(ctx: Context) -> int:
 def remove_device(ctx: Context, grant: str) -> None:
     """`ssc vault remove-device <gN>`."""
     index = grant_index(grant)
+    chain = ctx.chain()
     with edit(ctx) as session:
-        keychain.remove_device(session, index, ctx.chain())
+        keychain.remove_device(session, index, chain, forget=chain is not None)
     ctx.prompter.notice(
         f"Removed {grant}. That device has already seen the vault's key; to "
         "lock a lost device out, rotate the vault."
@@ -288,7 +378,7 @@ def backup(ctx: Context, path: Path) -> None:
     _require(ctx)
     if path.exists():
         raise FileExistsError(f"{path} already exists.")
-    with fs.locked(store.lock_path(ctx.vault_path)):
+    with store.locked(ctx.vault_path):
         data = store.read_file(ctx.vault_path)
     fs.write_atomic(path, lambda out: out.write(data), replace=False)
     ctx.prompter.notice(

@@ -170,11 +170,16 @@ def add_device(session: store.Session, chain: Keychain | None = None) -> int:
 
 
 def remove_device(
-    session: store.Session, index: int, chain: Keychain | None = None
+    session: store.Session,
+    index: int,
+    chain: Keychain | None = None,
+    *,
+    forget: bool = True,
 ) -> None:
     """Remove the device grant at `index` (0-based). This is removal, not
     revocation: to lock a lost device out, rotate the vault. Once the vault
-    is written, this keychain's item for that key is deleted if it has one."""
+    is written, this keychain's item for that key is deleted if it has one,
+    unless `forget` is False (the keychain is turned off)."""
     key_id = (
         device_key_id(session.grants[index])
         if 0 <= index < len(session.grants)
@@ -183,14 +188,16 @@ def remove_device(
     if key_id is None:
         raise VaultError(f"g{index + 1} is not a device key grant.")
     session.remove_grant(index)
+    if not forget:
+        return
     name = account(key_id)
     chain = os_keychain() if chain is None else chain
     if chain is None:
         return
     keychain = chain
 
-    def forget() -> None:
+    def delete() -> None:
         with contextlib.suppress(*_BACKEND_ERRORS):
             keychain.delete_password(SERVICE, name)
 
-    session.after_write.append(forget)
+    session.after_write.append(delete)

@@ -8,6 +8,7 @@ holds the plaintext until the whole file has authenticated: in memory up to
 
 from __future__ import annotations
 
+import dataclasses
 import tempfile
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import ExitStack, contextmanager
@@ -18,7 +19,7 @@ from typing import BinaryIO
 from secure_string_cipher import fs
 from secure_string_cipher.engine import access, container, keyfile, payload, recovery
 from secure_string_cipher.engine.payload import Readable
-from secure_string_cipher.errors import CannotOpen, InputError, VaultError
+from secure_string_cipher.errors import CannotOpen, InputError, SSCError
 from secure_string_cipher.service import grants as specs
 from secure_string_cipher.service import passwords, settings, vaults
 from secure_string_cipher.service.context import Context
@@ -75,13 +76,13 @@ def _release(held: tempfile.SpooledTemporaryFile[bytes], sink: BinaryIO) -> None
 @dataclass
 class Builder:
     """Turns grant specs into factors, opening the vault only if a spec
-    needs it, and once: a session already open in this operation is reused,
-    since a second one would wait on the first's lock."""
+    needs it, and once. `save` writes and releases it before any output is
+    published, so no output depends on a vault entry that was then lost,
+    and the vault's lock is not held while a payload streams."""
 
     ctx: Context
     stack: ExitStack
     session: store.Session | None = None
-    created: bool = False  # a new vault entry the output will depend on
 
     def vault(self) -> store.Session:
         if self.session is None:
@@ -97,20 +98,18 @@ class Builder:
             return access.new_key(keyfile.read(Path(token.value)).key)
         session = self.vault()
         if token.kind == "recovery":
-            session.document, entry, created = entries.choose_recovery(session.document)
-            if created:
-                self.created = True
-                vaults.show_recovery_after_write(self.ctx, session, entry)
+            entry, _ = vaults.choose_recovery(self.ctx, session)
         else:
             entry = entries.find(session.document, token.value)
         session.record("encrypt", entry.id)
         return entries.factor(session.document, entry.label)
 
-    def save_new_entries(self) -> fs.NotDurable | None:
-        """Write the vault now if it holds a new entry the output depends
-        on, so no output is published that only a lost entry could open.
-        This ends the vault session; nothing more is recorded in it."""
-        if not self.created:
+    def save(self) -> fs.NotDurable | None:
+        """Write the vault, if it was opened, and release it. Called before
+        the output is published: an unused entry, or an `encrypt` event for
+        an output that then failed, is safe, but an output that only a lost
+        entry opens is not. Nothing more is recorded after this."""
+        if self.session is None:
             return None
         return durably(self.stack.close)
 
@@ -149,11 +148,8 @@ class Choice:
 def policy(
     ctx: Context, choice: Choice, settings_path: Path | None = None
 ) -> Iterator[list[list[access.NewFactor]]]:
-    """The grants a new file gets. The vault, if used, stays open and locked
-    until the block ends, so a history event is saved only if the block
-    succeeds. A new recovery entry is the exception: the vault is saved, and
-    its code shown, before the block runs, since an output that only a lost
-    entry could open is worse than an unused entry."""
+    """The grants a new file gets. The vault, if used, is written, and a new
+    recovery code shown, before the block runs (see `Builder.save`)."""
     picked = [x for x in (choice.grant_specs, choice.vault_label, choice.profile) if x]
     if len(picked) > 1:
         raise InputError("Use only one of --profile, --vault and --grant.")
@@ -177,7 +173,7 @@ def policy(
             raise InputError(f"A file has at most {access.MAX_GRANTS} grants.")
         result += build.policy(tokens)
         check_policy(result)
-        late = build.save_new_entries()
+        late = build.save()
         yield result
         if late is not None:
             raise late
@@ -240,12 +236,16 @@ def _max_passwords(header: container.Header) -> int:
 @dataclass
 class Opener:
     """Gathers what can open a file, asking only for what is still missing
-    (CLI.md section 3.1)."""
+    (CLI.md section 3.1).
+
+    The vault is read and released at once, so its lock is not held while
+    a payload streams; `record` opens it again briefly, the same way, to
+    record history."""
 
     ctx: Context
     header: container.Header
-    stack: ExitStack
-    session: store.Session | None = None
+    document: doc.Document | None = None  # what the vault held when read
+    vault_ctx: Context | None = None  # how it was unlocked, to open it again
     asked_master: bool = False
     asked_recovery: bool = False
     asked_passwords: int = 0
@@ -259,19 +259,28 @@ class Opener:
             kinds & {access.VAULT_PASSWORD, access.KEY, access.RECOVERY}
         )
         if self.vault_may_help:
-            try:
-                self.session = self.stack.enter_context(
-                    vaults.edit(self.ctx, ask=False)
-                )
-            except (VaultError, CannotOpen):
-                # Locked, or a supplied master password is wrong: the file
-                # may open another way, and asking stays an option.
-                self.session = None
+            self._read_vault(self.ctx)
+
+    def _read_vault(self, ctx: Context) -> None:
+        """Read the vault without asking. If it cannot be read, say why and
+        go on: the file may open another way."""
+        try:
+            with vaults.edit(ctx, ask=False) as session:
+                self.document = session.document
+        except vaults.Locked:
+            return  # the master password stays an option
+        except CannotOpen:
+            self.ctx.prompter.notice("That master password did not open the vault.")
+            return
+        except SSCError as error:  # damaged, or in use by another ssc
+            self.ctx.prompter.notice(f"{error} Trying without the vault.")
+            return
+        self.vault_ctx = ctx
 
     def credentials(self) -> access.Credentials:
         vault = (
-            entries.credentials(self.session.document)
-            if self.session
+            entries.credentials(self.document)
+            if self.document
             else access.Credentials()
         )
         return access.Credentials(
@@ -297,7 +306,7 @@ class Opener:
     def options(self) -> list[tuple[str, Callable[[], None]]]:
         kinds = _kinds(self.header)
         found: list[tuple[str, Callable[[], None]]] = []
-        if self.vault_may_help and self.session is None and not self.asked_master:
+        if self.vault_may_help and self.document is None and not self.asked_master:
             found.append(("your vault's master password", self.unlock_vault))
         if kinds & {
             access.PASSWORD,
@@ -309,11 +318,10 @@ class Opener:
         return found
 
     def unlock_vault(self) -> None:
+        """Always asks: a supplied master password has already failed."""
         self.asked_master = True
-        try:
-            self.session = self.stack.enter_context(vaults.edit(self.ctx))
-        except CannotOpen:
-            self.ctx.prompter.notice("That master password did not open the vault.")
+        typed = self.ctx.prompter.secret("Vault master password")
+        self._read_vault(dataclasses.replace(self.ctx, master_password=typed))
 
     def ask_password(self) -> None:
         self.asked_passwords += 1
@@ -338,48 +346,54 @@ class Opener:
             options[pick][1]()
         return opened
 
+    def builder(self, stack: ExitStack) -> Builder:
+        """A Builder that unlocks the vault the way this opener did."""
+        return Builder(self.vault_ctx or self.ctx, stack)
+
     def record(self, index: int) -> None:
-        """Record `decrypt` with the vault entry the opening grant used."""
-        if self.session is None:
+        """Record `decrypt` with the vault entry the opening grant used, in
+        a short session of its own. Only with history on."""
+        if self.document is None or self.document.history is None:
             return
+        assert self.vault_ctx is not None
         grant = self.header.grants[index]
-        entry = _entry_in(self.session.document, grant) or self._recovery_in(grant)
+        entry = _entry_in(self.document, grant) or self._recovery_in(grant)
         if entry is not None:
-            self.session.record("decrypt", entry.id)
+            with vaults.edit(self.vault_ctx, ask=False) as session:
+                session.record("decrypt", entry.id)
 
     def _recovery_in(self, grant: access.Grant) -> doc.Entry | None:
-        """The vault recovery entry that filled `grant`'s recovery factor,
-        found by opening the grant again with only that entry's code."""
-        assert self.session is not None
-        if not any(f.kind == access.RECOVERY for f in grant.factors or ()):
+        """The vault recovery entry that filled `grant`'s recovery factor:
+        one search, sharing Argon2id work, with each entry's code tried for
+        that factor alone."""
+        assert self.document is not None
+        factors = grant.factors or ()
+        held = [
+            (e, e.secret)
+            for e in self.document.entries
+            if e.kind == "recovery"
+            and e.status != "revoked"
+            and isinstance(e.secret, bytes)
+        ]
+        if not held or not any(f.kind == access.RECOVERY for f in factors):
             return None
-        creds = self.credentials()
+        each = [access.Credentials(recovery_codes=[r]) for _, r in held]
+        rest = [self.credentials()]
         header = self.header
-        for entry in self.session.document.entries:
-            if (
-                entry.kind != "recovery"
-                or entry.status == "revoked"
-                or not isinstance(entry.secret, bytes)
-            ):
-                continue
-            only = access.Credentials(
-                passwords=creds.passwords,
-                entry_passwords=creds.entry_passwords,
-                keys=creds.keys,
-                recovery_codes=[entry.secret],
+        try:
+            picked = access.find_assignment(
+                grant,
+                [each if f.kind == access.RECOVERY else rest for f in factors],
+                header.fixed.to_bytes(),
+                header.access_body,
+                header.access_mac,
             )
-            try:
-                access.open_grant(
-                    [grant],
-                    header.fixed.to_bytes(),
-                    header.access_body,
-                    header.access_mac,
-                    only,
-                )
-            except CannotOpen:
-                continue
-            return entry
-        return None
+        except CannotOpen:
+            return None
+        first = next(
+            k for f, k in zip(factors, picked, strict=True) if f.kind == access.RECOVERY
+        )
+        return held[first][0]
 
 
 def _entry_in(document: doc.Document, grant: access.Grant) -> doc.Entry | None:
@@ -408,26 +422,25 @@ def decrypt(
     _refuse_existing(output, force)
     stream, _ = container.binary_stream(source)
     header = container.read_header(stream)
-    with ExitStack() as stack:
-        opener = Opener(ctx, header, stack)
-        file_key, index = opener.open()
-        key = payload.payload_key(file_key, header.fixed)
-        size = 0
-        late = None
-        if isinstance(output, Path):
+    opener = Opener(ctx, header)
+    file_key, index = opener.open()
+    key = payload.payload_key(file_key, header.fixed)
+    size = 0
+    late = None
+    if isinstance(output, Path):
 
-            def write(out: BinaryIO) -> None:
-                nonlocal size
-                size = payload.decrypt(key, stream, out)
+        def write(out: BinaryIO) -> None:
+            nonlocal size
+            size = payload.decrypt(key, stream, out)
 
-            late = _write(output, force, write)
-        else:
-            # Held back until authenticated: in memory up to 64 MiB, then in
-            # an owner-only temporary file the OS deletes when it is closed.
-            with tempfile.SpooledTemporaryFile(max_size=HOLD_IN_MEMORY) as held:
-                size = payload.decrypt(key, stream, held)
-                _release(held, output)
-        opener.record(index)
+        late = _write(output, force, write)
+    else:
+        # Held back until authenticated: in memory up to 64 MiB, then in an
+        # owner-only temporary file the OS deletes when it is closed.
+        with tempfile.SpooledTemporaryFile(max_size=HOLD_IN_MEMORY) as held:
+            size = payload.decrypt(key, stream, held)
+            _release(held, output)
+    opener.record(index)
     if late is not None:
         raise late
     return size
