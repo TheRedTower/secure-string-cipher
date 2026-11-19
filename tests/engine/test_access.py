@@ -137,6 +137,24 @@ def test_two_factor_grant_needs_both(
         open_with([grant], passwords=["hunter2"])
 
 
+def test_open_assigned_holds_each_secret_to_its_factor(
+    pw: access.NewFactor, pw2: access.NewFactor
+) -> None:
+    grant = access.new_grant(FILE_KEY, [pw, pw2])
+    body, mac = body_and_mac(grant)
+    (parsed,) = access.parse_access_body(body)
+    assert parsed.factors is not None
+    first = [f.encoding for f in parsed.factors].index(pw.factor.encoding)
+    right = [access.Credentials(), access.Credentials()]
+    right[first] = access.Credentials(passwords=["hunter2"])
+    right[1 - first] = access.Credentials(passwords=["second"])
+    assert access.open_assigned(parsed, right, HEADER, body, mac) == FILE_KEY
+    with pytest.raises(CannotOpen):  # the same secrets, swapped
+        access.open_assigned(parsed, right[::-1], HEADER, body, mac)
+    with pytest.raises(CannotOpen):  # one per factor, or nothing
+        access.open_assigned(parsed, right[:1], HEADER, body, mac)
+
+
 def test_mistyped_then_correct_password(pw: access.NewFactor) -> None:
     grant = access.new_grant(FILE_KEY, [pw])
     assert open_with([grant], passwords=["hunter3", "hunter2"]) == FILE_KEY

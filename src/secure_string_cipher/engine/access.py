@@ -384,6 +384,37 @@ def open_grant(
     raise CannotOpen()
 
 
+def open_assigned(
+    grant: Grant,
+    assignment: Sequence[Credentials],
+    fixed_header: bytes,
+    access_body: bytes,
+    mac: bytes,
+) -> bytes:
+    """Open one grant with `assignment[i]` supplying only factor `i`, and
+    confirm the result against the access MAC.
+
+    Unlike `open_grant`, which tries every supplied password against every
+    password factor, this proves which secret fills which factor, so a
+    caller can rebuild the grant faithfully (rotation).
+    """
+    if grant.factors is None or len(assignment) != len(grant.factors):
+        raise CannotOpen()
+    cache = _SecretCache()
+    options = [
+        _options(f, c, cache) for f, c in zip(grant.factors, assignment, strict=True)
+    ]
+    for choice in itertools.product(*options):
+        kek = _kek([derive() for derive in choice], grant.salt, grant.descriptor)
+        try:
+            candidate = AESGCM(kek).decrypt(_ZERO_NONCE, grant.wrapped_key, None)
+        except InvalidTag:
+            continue
+        if hmac.compare_digest(access_mac(candidate, fixed_header, access_body), mac):
+            return candidate
+    raise CannotOpen()
+
+
 def open_file_key(
     grants: Sequence[Grant],
     fixed_header: bytes,
