@@ -170,23 +170,53 @@ class Session:
             raise VaultError("The master password grant cannot be removed.")
         return self.grants.pop(index)
 
-    def change_master_password(self, current: str, new: str) -> None:
-        """Rewrap the master-password grant for `new` (VAULT.md section 2).
-        The file key and every other grant stay byte for byte the same.
-        `current` must open the master grant itself, even when the vault was
-        unlocked some other way, such as with this device's key."""
+    def add_recovery_grant(self, r: bytes) -> int:
+        """Add a recovery-code grant to the vault itself, which covers a
+        forgotten master password (VAULT.md section 2). The caller prints
+        `recovery.encode(r)` once; the vault does not keep it."""
+        return self.add_grant([access.new_recovery(r)])
+
+    def _rewrap_master(
+        self, opening: access.Credentials, grants: list[int], new: str
+    ) -> None:
         if not new:
             raise ValueError("A master password cannot be empty.")
         index = self._master_index()
         header = self._opened.header
         access.open_file_key(
-            [self.grants[index]],
+            [self.grants[i] for i in grants],
             header.fixed.to_bytes(),
             header.access_body,
             header.access_mac,
-            access.Credentials(passwords=[current]),
+            opening,
         )
         self.grants[index] = _master_grant(self._opened.file_key, new)
+
+    def reset_master_password(self, r: bytes, new: str) -> None:
+        """Set a new master password with the vault's recovery code, for
+        when the old one is forgotten. `r` must open one of the vault's own
+        recovery grants, however the vault was unlocked."""
+        recovery_grants = [
+            i
+            for i, g in enumerate(self.grants)
+            if g.factors is not None
+            and len(g.factors) == 1
+            and g.factors[0].kind == access.RECOVERY
+        ]
+        if not recovery_grants:
+            raise VaultError("This vault has no recovery code.")
+        self._rewrap_master(
+            access.Credentials(recovery_codes=[r]), recovery_grants, new
+        )
+
+    def change_master_password(self, current: str, new: str) -> None:
+        """Rewrap the master-password grant for `new` (VAULT.md section 2).
+        The file key and every other grant stay byte for byte the same.
+        `current` must open the master grant itself, even when the vault was
+        unlocked some other way, such as with this device's key."""
+        self._rewrap_master(
+            access.Credentials(passwords=[current]), [self._master_index()], new
+        )
 
     def _write(self) -> None:
         document_changed = self.document != self._old_document

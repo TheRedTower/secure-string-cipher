@@ -12,7 +12,7 @@ import secrets
 import unicodedata
 from datetime import datetime
 
-from secure_string_cipher.engine import access, keyfile
+from secure_string_cipher.engine import access, keyfile, recovery
 from secure_string_cipher.errors import VaultError
 from secure_string_cipher.vault.document import Document, Entry
 
@@ -75,6 +75,53 @@ def add_key(
         created=keyfile.timestamp(created),
     )
     return _add(document, entry), entry
+
+
+def add_recovery(
+    document: Document,
+    label: str,
+    r: bytes | None = None,
+    *,
+    created: datetime | None = None,
+) -> tuple[Document, Entry]:
+    """Add a recovery entry. Its printed form, `recovery.encode(secret)`, is
+    shown once when it is created; the vault keeps `R` so the same code can
+    be added to new files (VAULT.md section 3.1)."""
+    entry = Entry(
+        id=_new_id(document),
+        label=label,
+        kind="recovery",
+        secret=recovery.new() if r is None else r,
+        created=keyfile.timestamp(created),
+    )
+    return _add(document, entry), entry
+
+
+def choose_recovery(document: Document) -> tuple[Document, Entry, bool]:
+    """The entry the `recovery` token means (CLI.md section 2), and whether
+    it was just created. Only active recovery entries count: with exactly
+    one, it is used; with none, one is created under the first unused label
+    of `recovery`, `recovery-2` and so on; with more, the caller must name
+    one."""
+    active = [
+        e for e in document.entries if e.kind == "recovery" and e.status == "active"
+    ]
+    if len(active) == 1:
+        return document, active[0], False
+    if active:
+        labels = ", ".join(e.label for e in active)
+        raise VaultError(
+            f"The vault has several recovery codes ({labels}); name one with "
+            "vault:<label>."
+        )
+    taken = {e.label for e in document.entries}
+    label = next(
+        name
+        for n in range(1, len(taken) + 2)
+        if (name := "recovery" if n == 1 else f"recovery-{n}") not in taken
+    )
+    document, entry = add_recovery(document, label)
+    return document, entry, True
 
 
 def import_keyfile(
