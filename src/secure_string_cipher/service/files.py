@@ -443,18 +443,43 @@ def _entries_in(document: doc.Document, grant: access.Grant) -> list[doc.Entry]:
     return found
 
 
-def decrypt(
-    ctx: Context, source: Readable, output: Output, *, force: bool = False
-) -> int:
-    """`ssc decrypt`. Returns the plaintext size. To a path, the output
-    appears only once the file has fully authenticated; to a stream, nothing
-    is written until then."""
-    _refuse_existing(output, force)
+@dataclass
+class Opening:
+    """A file whose key has been found, before any plaintext is written:
+    the interactive mode says how it opened, then asks where to write."""
+
+    header: container.Header
+    stream: Readable
+    file_key: bytes
+    index: int
+    opener: Opener
+
+    @property
+    def grant(self) -> access.Grant:
+        return self.header.grants[self.index]
+
+    def asked(self) -> bool:
+        """Whether anything was typed to open it."""
+        o = self.opener
+        return o.asked_master or o.asked_recovery or o.asked_passwords > 0
+
+
+def open_file(ctx: Context, source: Readable) -> Opening:
+    """Find the file key, asking only for what is missing."""
     stream, _ = container.binary_stream(source)
     header = container.read_header(stream)
     opener = Opener(ctx, header)
     file_key, index = opener.open()
-    key = payload.payload_key(file_key, header.fixed)
+    return Opening(header, stream, file_key, index, opener)
+
+
+def write_plaintext(opening: Opening, output: Output, *, force: bool = False) -> int:
+    """Decrypt an opened file. Returns the plaintext size. To a path, the
+    output appears only once the file has fully authenticated; to a stream,
+    nothing is written until then."""
+    _refuse_existing(output, force)
+    key = payload.payload_key(opening.file_key, opening.header.fixed)
+    stream = opening.stream
     size = 0
     late = None
     if isinstance(output, Path):
@@ -470,7 +495,16 @@ def decrypt(
         with tempfile.SpooledTemporaryFile(max_size=HOLD_IN_MEMORY) as held:
             size = payload.decrypt(key, stream, held)
             _release(held, output)
-    opener.record(index)
+    opening.opener.record(opening.index)
     if late is not None:
         raise late
     return size
+
+
+def decrypt(
+    ctx: Context, source: Readable, output: Output, *, force: bool = False
+) -> int:
+    """`ssc decrypt`: `open_file`, then `write_plaintext`. An existing output
+    is refused before anything is asked."""
+    _refuse_existing(output, force)
+    return write_plaintext(open_file(ctx, source), output, force=force)

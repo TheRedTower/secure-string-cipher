@@ -354,6 +354,31 @@ def add_device(ctx: Context) -> int:
         return keychain.add_device(session, chain)
 
 
+def peek(ctx: Context) -> doc.Document | None:
+    """The vault, if this device can read it without asking; None if there
+    is none, or it is locked, damaged, in use or unreadable."""
+    if not exists(ctx):
+        return None
+    try:
+        with edit(ctx, ask=False) as session:
+            return session.document
+    except (SSCError, OSError):
+        return None
+
+
+def this_device(ctx: Context) -> int | None:
+    """The index of this device's grant, without asking for anything: None
+    if the vault is locked here or there is no keychain."""
+    chain = ctx.chain()
+    if chain is None or not exists(ctx):
+        return None
+    try:
+        with edit(ctx, ask=False) as session:
+            return keychain.this_device(session, chain)
+    except (Locked, CannotOpen):
+        return None
+
+
 def remove_device(ctx: Context, grant: str) -> None:
     """`ssc vault remove-device <gN>`."""
     index = grant_index(grant)
