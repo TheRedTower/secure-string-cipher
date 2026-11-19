@@ -334,6 +334,7 @@ def change_password(ctx: Context) -> None:
     with store.edit(access.Credentials(passwords=[current]), ctx.vault_path) as session:
         session.record("vault-unlock")
         session.change_master_password(current, new)
+    _remember(ctx, new)
 
 
 def reset_password(ctx: Context, code: str) -> None:
@@ -344,6 +345,15 @@ def reset_password(ctx: Context, code: str) -> None:
     with store.edit(access.Credentials(recovery_codes=[r]), ctx.vault_path) as session:
         session.record("vault-unlock")
         session.reset_master_password(r, new)
+    _remember(ctx, new)
+
+
+def _remember(ctx: Context, new: str) -> None:
+    """A session that holds the master password, such as the guided flow
+    after an unlock, holds the new one from now on, not the one that no
+    longer opens the vault."""
+    if ctx.master_password is not None:
+        ctx.master_password = new
 
 
 def add_device(ctx: Context) -> int:

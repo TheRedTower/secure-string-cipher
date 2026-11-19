@@ -322,3 +322,40 @@ def test_the_cli_never_asks_for_a_key_file(
         )
     with pytest.raises(CannotOpen):
         opens(ctx, tmp_path / "f.ssc")
+
+
+def test_the_vault_still_opens_after_its_master_password_changes(
+    ctx: Context, ui: ScriptedUi, report: Path
+) -> None:
+    """Codex on #185: an unlocked session keeps the new master password."""
+    with_vault(ctx, ui)
+    vaults.add_password(ctx, "work", PASSWORD)
+    profile_ops.create(ctx, "daily", ["vault:work"])
+    ctx.use_keychain = False
+    new = "a new master password"
+    run(
+        ctx, ui,
+        "Encrypt", "report.txt", "Unlock the vault", MASTER, "daily", True,
+        "Vault", "Change master password", new, new,
+        "Show entries",
+        "Back",
+    )  # fmt: skip
+    assert "✓ Changed the master password" in ui.said
+    assert '  "work"  password, active' in "\n".join(ui.said)
+    assert ctx.master_password == new
+
+
+def test_resetting_with_the_recovery_code_updates_the_held_password(
+    ctx: Context, ui: ScriptedUi
+) -> None:
+    ui.answers += [MASTER, MASTER, last_group(ui)]
+    vaults.init(ctx, recovery_code=True)
+    code = re.findall(r"[0-9A-Z]{4}(?:-[0-9A-Z]{4}){7}", "\n".join(ui.said))[-1]
+    ctx.use_keychain = False
+    ctx.master_password = MASTER
+    new = "a new master password"
+    ui.answers += [new, new]
+    vaults.reset_password(ctx, code)
+    assert ctx.master_password == new
+    vaults.add_password(ctx, "after", PASSWORD)  # opens with what it holds
+    assert [e.label for e in vaults.list_entries(ctx)] == ["after"]
