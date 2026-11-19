@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from secure_string_cipher import fs
 from secure_string_cipher.engine import access, keyfile
 from secure_string_cipher.errors import CannotOpen, FormatError, Reason
 
@@ -297,13 +298,13 @@ def test_write_never_replaces_even_in_a_race(
 ) -> None:
     """A file that appears after the first check is still not replaced."""
     path = tmp_path / "laptop.ssckey"
-    real = keyfile._publish
+    real = fs._publish_new
 
     def racing(temp: Path, target: Path) -> None:
         target.write_bytes(b"theirs")
         real(temp, target)
 
-    monkeypatch.setattr(keyfile, "_publish", racing)
+    monkeypatch.setattr(fs, "_publish_new", racing)
     with pytest.raises(FileExistsError):
         keyfile.write(path, GOOD)
     assert path.read_bytes() == b"theirs"
