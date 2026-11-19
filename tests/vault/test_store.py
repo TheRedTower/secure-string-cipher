@@ -4,6 +4,7 @@ FORMAT.md sections 7.3 to 7.5)."""
 from __future__ import annotations
 
 import errno
+import io
 import os
 import shutil
 import sys
@@ -13,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from secure_string_cipher import fs
-from secure_string_cipher.engine import access
+from secure_string_cipher.engine import access, armor, container
 from secure_string_cipher.errors import CannotOpen, FormatError, Reason, VaultError
 from secure_string_cipher.vault import document as doc
 from secure_string_cipher.vault import store
@@ -232,6 +233,30 @@ def test_a_payload_over_16_mib_is_refused(
     with pytest.raises(FormatError) as caught:
         store.load(access.Credentials(passwords=["pw"]), path)
     assert caught.value.reason == Reason.VAULT_DOCUMENT
+
+
+def test_an_oversized_file_is_refused_without_reading_it_all(
+    vector_vault: Path,
+) -> None:
+    with vector_vault.open("r+b") as handle:
+        handle.truncate(store.max_file_size() + 1)  # sparse where supported
+    with pytest.raises(FormatError) as caught:
+        store.load(MASTER, vector_vault)
+    assert caught.value.reason == Reason.VAULT_DOCUMENT
+
+
+def test_the_largest_vault_fits_the_file_limit() -> None:
+    """An armoured vault holding the largest document is still accepted."""
+    out = io.BytesIO()
+    writer = armor.ArmorWriter(out)
+    container.encrypt(
+        io.BytesIO(bytes(doc.MAX_SIZE)),
+        writer,
+        [[access.new_key(bytes(32))]],
+    )
+    writer.close()
+    crlf = out.getvalue().replace(b"\n", b"\r\n")
+    assert len(crlf) <= store.max_file_size()
 
 
 # --- the lock ------------------------------------------------------------------

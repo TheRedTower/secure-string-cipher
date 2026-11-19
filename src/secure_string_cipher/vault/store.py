@@ -19,13 +19,31 @@ from pathlib import Path
 import platformdirs
 
 from secure_string_cipher import fs
-from secure_string_cipher.engine import access, container, payload
+from secure_string_cipher.engine import access, armor, container, payload
+from secure_string_cipher.engine.header import SIZE as FIXED_HEADER_SIZE
 from secure_string_cipher.engine.header import FixedHeader
 from secure_string_cipher.errors import FormatError, Reason, VaultError
 from secure_string_cipher.vault import document as doc
 
 NAME = "vault.ssc"
 LOCK_TIMEOUT = 10.0
+
+
+def max_file_size() -> int:
+    """The largest file a vault document of at most MAX_SIZE can be: the
+    header, the largest access block and the sealed chunks, then the same in
+    armoured form with CRLF line endings."""
+    chunks = doc.MAX_SIZE // payload.CHUNK_SIZE + 1
+    binary = (
+        FIXED_HEADER_SIZE
+        + 4
+        + access.MAX_ACCESS_BODY
+        + container.MAC_SIZE
+        + doc.MAX_SIZE
+        + chunks * payload.TAG_SIZE
+    )
+    lines = -(-binary // 48)
+    return (lines + 2) * (armor.LINE + 2) + len(armor.BEGIN) + len(armor.END)
 
 
 def default_path() -> Path:
@@ -175,10 +193,16 @@ class Session:
 
 
 def _read(path: Path, credentials: access.Credentials) -> Session:
+    limit = max_file_size()
     try:
-        data = path.read_bytes()
+        with path.open("rb") as handle:
+            data = handle.read(limit + 1)
     except FileNotFoundError:
         raise VaultError(f"There is no vault at {path}.") from None
+    if len(data) > limit:
+        raise FormatError(
+            Reason.VAULT_DOCUMENT, "The vault file is larger than any vault can be."
+        )
     opened = container.unlock(io.BytesIO(data), credentials)
     old_payload = b"".join(iter(lambda: opened.payload.read(1 << 16), b""))
     sink = _Bounded()
