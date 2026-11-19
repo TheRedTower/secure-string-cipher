@@ -27,6 +27,8 @@ class Reason(StrEnum):
     KEYFILE = "keyfile"
     KEYFILE_KEY_ID = "keyfile-key-id"
     CANNOT_OPEN = "cannot-open"
+    VAULT_DOCUMENT = "vault-document"
+    VAULT = "vault"
 
 
 class SSCError(Exception):
@@ -44,6 +46,13 @@ class FormatError(SSCError):
     def __init__(self, reason: Reason, message: str) -> None:
         super().__init__(message)
         self.reason = reason
+
+
+class VaultError(SSCError):
+    """The vault is missing, already exists, or is in use by another `ssc`
+    process. The CLI reports this as exit code 3 (CLI.md section 1)."""
+
+    reason = Reason.VAULT
 
 
 class CannotOpen(SSCError):
