@@ -12,7 +12,7 @@ import pytest
 from secure_string_cipher import fs
 from secure_string_cipher.engine import armor, recovery
 from secure_string_cipher.errors import CannotOpen, FormatError, InputError
-from secure_string_cipher.service import files, keys, profile_ops, vaults
+from secure_string_cipher.service import access_ops, files, keys, profile_ops, vaults
 from secure_string_cipher.service.context import Context
 from secure_string_cipher.service.files import Choice
 from tests.service.fakes import Prompter
@@ -403,3 +403,27 @@ def test_the_vault_is_not_locked_while_the_payload_streams(
     shown = vaults.history_show(ctx)
     assert shown is not None
     assert [e.action for e in shown.events][-2:] == ["decrypt", "vault-unlock"]
+
+
+def test_an_unreadable_vault_does_not_block_another_way_in(
+    ctx: Context,
+    prompter: Prompter,
+    report: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from secure_string_cipher.vault import store
+
+    with_vault(ctx, prompter)
+    key = tmp_path / "usb.ssckey"
+    keys.new(key)
+    out = encrypt(ctx, report, Choice(grant_specs=[f"keyfile:{key}"]))
+
+    def denied(path: Path) -> bytes:
+        raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(store, "read_file", denied)
+    ctx.key_files = [key]
+    assert decrypt(ctx, out) == PLAIN
+    assert "(Permission denied)" in prompter.notices[-1]
+    assert access_ops.show(ctx, out)[0].startswith("g1: key ")

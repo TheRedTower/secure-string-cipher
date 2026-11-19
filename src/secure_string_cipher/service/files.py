@@ -275,6 +275,12 @@ class Opener:
         except SSCError as error:  # damaged, or in use by another ssc
             self.ctx.prompter.notice(f"{error} Trying without the vault.")
             return
+        except OSError as error:  # unreadable vault, keychain or lock file
+            reason = error.strerror or type(error).__name__
+            self.ctx.prompter.notice(
+                f"The vault could not be read ({reason}). Trying without it."
+            )
+            return
         self.vault_ctx = ctx
 
     def credentials(self) -> access.Credentials:

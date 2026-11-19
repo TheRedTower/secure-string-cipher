@@ -39,7 +39,7 @@ def _vault_document(ctx: Context) -> doc.Document | None:
     try:
         with vaults.edit(ctx, ask=False) as session:
             return session.document
-    except SSCError:  # locked, damaged or in use: show what the file says
+    except (SSCError, OSError):  # locked, damaged, in use or unreadable
         return None
 
 
