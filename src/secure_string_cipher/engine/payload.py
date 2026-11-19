@@ -9,6 +9,7 @@ access (FORMAT.md section 3).
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Protocol
 
 from cryptography.exceptions import InvalidTag
@@ -101,17 +102,15 @@ def encrypt(key: bytes, source: Readable, sink: Writable) -> int:
         current, index = following, index + 1
 
 
-def decrypt(key: bytes, source: Readable, sink: Writable) -> int:
-    """Decrypt the payload in `source` to `sink`. Returns the plaintext size.
+def chunks(key: bytes, source: Readable) -> Iterator[bytes]:
+    """Yield each plaintext chunk of the payload as it authenticates.
 
-    Each chunk is written as soon as it authenticates. Until this returns,
-    though, the payload as a whole is not yet authenticated: a missing final
-    chunk is only detected at the end. Callers MUST discard what was written
-    if this raises (FORMAT.md section 7.2).
+    The payload as a whole is authenticated only when this finishes without
+    raising: a missing final chunk is only detected at the end.
     """
     aead = AESGCM(key)
     current = read_exactly(source, SEALED_CHUNK_SIZE)
-    index, total = 0, 0
+    index = 0
     while True:
         following = (
             read_exactly(source, SEALED_CHUNK_SIZE)
@@ -128,14 +127,44 @@ def decrypt(key: bytes, source: Readable, sink: Writable) -> int:
         if index >= MAX_CHUNKS:
             raise FormatError(Reason.TOO_MANY_CHUNKS, "This SSC file is too large.")
         try:
-            plaintext = aead.decrypt(_nonce(index, final), current, None)
+            yield aead.decrypt(_nonce(index, final), current, None)
         except InvalidTag:
             raise FormatError(
                 Reason.CHUNK_AUTH,
                 "This SSC file is damaged, truncated or has been changed.",
             ) from None
+        if final:
+            return
+        current, index = following, index + 1
+
+
+def decrypt(key: bytes, source: Readable, sink: Writable) -> int:
+    """Decrypt the payload in `source` to `sink`. Returns the plaintext size.
+
+    Each chunk is written as soon as it authenticates. Until this returns,
+    though, the payload as a whole is not yet authenticated. Callers MUST
+    discard what was written if this raises (FORMAT.md section 7.2).
+    """
+    total = 0
+    for plaintext in chunks(key, source):
         write_all(sink, plaintext)
         total += len(plaintext)
-        if final:
-            return total
-        current, index = following, index + 1
+    return total
+
+
+class ChunkReader:
+    """A `Readable` over an iterator of byte strings, such as `chunks`, so
+    one payload can be decrypted straight into the encryption of another."""
+
+    def __init__(self, parts: Iterator[bytes]) -> None:
+        self._parts = parts
+        self._buffer = b""
+
+    def read(self, size: int, /) -> bytes:
+        while len(self._buffer) < size:
+            part = next(self._parts, None)
+            if part is None:
+                break
+            self._buffer += part
+        out, self._buffer = self._buffer[:size], self._buffer[size:]
+        return out
