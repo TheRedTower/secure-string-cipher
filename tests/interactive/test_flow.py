@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from secure_string_cipher.cli import main
+from secure_string_cipher.errors import CannotOpen
 from secure_string_cipher.interactive import flow
 from secure_string_cipher.service import (
     access_ops,
@@ -287,3 +288,37 @@ def test_an_archived_entry_can_still_be_revoked(ctx: Context, ui: ScriptedUi) ->
         "Back",
     )
     assert [e.status for e in vaults.list_entries(ctx)] == ["revoked"]
+
+
+def test_a_standalone_key_file_is_asked_for_when_decrypting(
+    ctx: Context, ui: ScriptedUi, report: Path, tmp_path: Path
+) -> None:
+    """Codex on #185: a file made with "A key file…" opens in the flow."""
+    from secure_string_cipher.service import keys
+
+    keys.new(tmp_path / "usb.ssckey")
+    run(
+        ctx, ui,
+        "Encrypt", "report.txt", "A key file", "usb.ssckey", True,
+        "Decrypt", "report.txt.ssc", "usb.ssckey", True, True,
+    )  # fmt: skip
+    assert "Which key file?" in ui.asked
+    assert report.read_bytes() == PLAIN
+
+
+def test_the_cli_never_asks_for_a_key_file(
+    ctx: Context, ui: ScriptedUi, report: Path, tmp_path: Path
+) -> None:
+    from secure_string_cipher.service import keys
+
+    keys.new(tmp_path / "usb.ssckey")
+    ctx.ask_key_file = None
+    with report.open("rb") as handle:
+        files.encrypt(
+            ctx,
+            handle,
+            tmp_path / "f.ssc",
+            files.Choice(grant_specs=["keyfile:usb.ssckey"]),
+        )
+    with pytest.raises(CannotOpen):
+        opens(ctx, tmp_path / "f.ssc")

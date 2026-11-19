@@ -9,7 +9,7 @@ interactive mode asks.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -65,6 +65,10 @@ class Context:
     master_password: str | None = None
     use_keychain: bool = True
     keychain: kc.Keychain | None = None  # None: the OS keychain
+    # How to ask for a key file a file needs, or None to never ask: the CLI
+    # takes key files only from --key-file (CLI.md section 1), while the
+    # interactive mode can ask for a path.
+    ask_key_file: Callable[[], Path] | None = None
 
     def chain(self) -> kc.Keychain | None:
         """The keychain to use, or None when there is none or it is off."""

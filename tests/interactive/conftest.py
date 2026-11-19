@@ -94,8 +94,13 @@ def chain() -> Keychain:
 
 @pytest.fixture
 def ctx(tmp_path: Path, ui: ScriptedUi, chain: Keychain) -> Context:
+    from secure_string_cipher.interactive import flow
+
     return Context(
-        UiPrompter(ui), vault_path=tmp_path / "data" / "vault.ssc", keychain=chain
+        UiPrompter(ui),
+        vault_path=tmp_path / "data" / "vault.ssc",
+        keychain=chain,
+        ask_key_file=lambda: flow.ask_path(ui, "Which key file?"),  # as main does
     )
 
 

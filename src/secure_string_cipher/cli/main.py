@@ -105,6 +105,7 @@ def _guided(ui: Ui) -> int:
     ctx = Context(
         UiPrompter(ui),
         vault_path=store.default_path(),
+        ask_key_file=lambda: flow.ask_path(ui, "Which key file?"),
         passwords=given.passwords,
         recovery_codes=[given.recovery_code] if given.recovery_code else [],
         key_files=given.key_files,

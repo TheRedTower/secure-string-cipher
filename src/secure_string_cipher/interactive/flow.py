@@ -39,6 +39,10 @@ def _path(answer: str) -> Path:
     return Path(text).expanduser()
 
 
+def ask_path(ui: Ui, question: str, default: str = "") -> Path:
+    return _path(ui.path(question, default))
+
+
 def _plural(n: int, word: str, words: str | None = None) -> str:
     return f"{n} {word}" if n == 1 else f"{n} {words or word + 's'}"
 

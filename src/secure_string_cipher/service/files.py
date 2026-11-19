@@ -249,6 +249,7 @@ class Opener:
     asked_master: bool = False
     asked_recovery: bool = False
     asked_passwords: int = 0
+    asked_keys: int = 0
 
     def __post_init__(self) -> None:
         self.passwords = list(self.ctx.passwords)
@@ -323,7 +324,27 @@ class Opener:
             found.append(("your password", self.ask_password))
         if access.RECOVERY in kinds and not self.asked_recovery:
             found.append(("a recovery code", self.ask_recovery))
+        if self.ctx.ask_key_file is not None and self.asked_keys < len(
+            self.missing_keys()
+        ):
+            found.append(("a key file", self.ask_key))
         return found
+
+    def missing_keys(self) -> set[bytes]:
+        """The key_ids the file names that nothing supplied has."""
+        have = {access.key_id(k) for k in self.credentials().keys}
+        named = {
+            f.body
+            for g in self.header.grants
+            for f in g.factors or ()
+            if f.kind == access.KEY
+        }
+        return named - have
+
+    def ask_key(self) -> None:
+        assert self.ctx.ask_key_file is not None
+        self.asked_keys += 1
+        self.keys.append(keyfile.read(self.ctx.ask_key_file()).key)
 
     def unlock_vault(self) -> None:
         """Always asks: a supplied master password has already failed."""
@@ -461,7 +482,9 @@ class Opening:
     def asked(self) -> bool:
         """Whether anything was typed to open it."""
         o = self.opener
-        return o.asked_master or o.asked_recovery or o.asked_passwords > 0
+        return bool(
+            o.asked_master or o.asked_recovery or o.asked_passwords or o.asked_keys
+        )
 
 
 def open_file(ctx: Context, source: Readable) -> Opening:
