@@ -359,16 +359,20 @@ class Opener:
         return Builder(self.vault_ctx or self.ctx, stack)
 
     def record(self, index: int) -> None:
-        """Record `decrypt` with the vault entry the opening grant used, in
-        a short session of its own. Only with history on."""
+        """Record `decrypt` with each vault entry the opening grant used,
+        as encrypting does, in a short session of its own. Only with
+        history on."""
         if self.document is None or self.document.history is None:
             return
         assert self.vault_ctx is not None
         grant = self.header.grants[index]
-        entry = _entry_in(self.document, grant) or self._recovery_in(grant)
-        if entry is not None:
+        used = _entries_in(self.document, grant)
+        if (code := self._recovery_in(grant)) is not None:
+            used.append(code)
+        if used:
             with vaults.edit(self.vault_ctx, ask=False) as session:
-                session.record("decrypt", entry.id)
+                for entry in used:
+                    session.record("decrypt", entry.id)
 
     def _recovery_in(self, grant: access.Grant) -> doc.Entry | None:
         """The vault recovery entry that filled `grant`'s recovery factor:
@@ -404,21 +408,25 @@ class Opener:
         return held[first][0]
 
 
-def _entry_in(document: doc.Document, grant: access.Grant) -> doc.Entry | None:
+def _entries_in(document: doc.Document, grant: access.Grant) -> list[doc.Entry]:
+    """The vault password and key entries `grant` names, in factor order.
+    Recovery entries name nothing, so `Opener._recovery_in` finds those."""
+    found: list[doc.Entry] = []
     for factor in grant.factors or ():
         for entry in document.entries:
-            if entry.status == "revoked":
+            if entry.status == "revoked" or entry in found:
                 continue
-            if factor.kind == access.VAULT_PASSWORD and entry.id == factor.entry_id:
-                return entry
             if (
+                factor.kind == access.VAULT_PASSWORD and entry.id == factor.entry_id
+            ) or (
                 factor.kind == access.KEY
                 and isinstance(entry.secret, bytes)
                 and entry.kind == "key"
                 and access.key_id(entry.secret) == factor.body
             ):
-                return entry
-    return None
+                found.append(entry)
+                break
+    return found
 
 
 def decrypt(

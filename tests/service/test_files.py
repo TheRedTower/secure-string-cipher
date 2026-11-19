@@ -455,3 +455,19 @@ def test_a_failed_vault_unlock_write_leaves_no_snapshot(
     ctx.key_files = [key]
     assert decrypt(ctx, out) == PLAIN
     assert "(No space left on device)" in prompter.notices[-1]
+
+
+def test_history_records_every_entry_an_all_of_grant_used(
+    ctx: Context, prompter: Prompter, report: Path
+) -> None:
+    with_vault(ctx, prompter)
+    vaults.history_on(ctx)
+    work = vaults.add_password(ctx, "work", PASSWORD)
+    prompter.confirms.append(False)
+    laptop = vaults.add_key(ctx, "laptop")
+    out = encrypt(ctx, report, Choice(grant_specs=["vault:work+vault:laptop"]))
+    assert decrypt(ctx, out) == PLAIN
+    shown = vaults.history_show(ctx)
+    assert shown is not None
+    used = [e.entry for e in shown.events if e.action == "decrypt"]
+    assert sorted(used) == sorted([work.id, laptop.id])  # type: ignore[type-var]
