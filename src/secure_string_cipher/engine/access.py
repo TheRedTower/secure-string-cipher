@@ -384,34 +384,38 @@ def open_grant(
     raise CannotOpen()
 
 
-def open_assigned(
+def find_assignment(
     grant: Grant,
-    assignment: Sequence[Credentials],
+    candidates: Sequence[Sequence[Credentials]],
     fixed_header: bytes,
     access_body: bytes,
     mac: bytes,
-) -> bytes:
-    """Open one grant with `assignment[i]` supplying only factor `i`, and
-    confirm the result against the access MAC.
+) -> tuple[int, ...]:
+    """Which of `candidates[i]` fills factor `i` of `grant`: the index of
+    each, for the first assignment that opens the grant and passes the
+    access MAC.
 
     Unlike `open_grant`, which tries every supplied password against every
     password factor, this proves which secret fills which factor, so a
-    caller can rebuild the grant faithfully (rotation).
+    caller can rebuild the grant faithfully (rotation). One cache serves
+    the whole search, so each password and salt pair costs one Argon2id
+    run however many assignments are tried.
     """
-    if grant.factors is None or len(assignment) != len(grant.factors):
+    if grant.factors is None or len(candidates) != len(grant.factors):
         raise CannotOpen()
     cache = _SecretCache()
     options = [
-        _options(f, c, cache) for f, c in zip(grant.factors, assignment, strict=True)
+        [(j, derive) for j, c in enumerate(cs) for derive in _options(f, c, cache)]
+        for f, cs in zip(grant.factors, candidates, strict=True)
     ]
     for choice in itertools.product(*options):
-        kek = _kek([derive() for derive in choice], grant.salt, grant.descriptor)
+        kek = _kek([derive() for _, derive in choice], grant.salt, grant.descriptor)
         try:
             candidate = AESGCM(kek).decrypt(_ZERO_NONCE, grant.wrapped_key, None)
         except InvalidTag:
             continue
         if hmac.compare_digest(access_mac(candidate, fixed_header, access_body), mac):
-            return candidate
+            return tuple(j for j, _ in choice)
     raise CannotOpen()
 
 

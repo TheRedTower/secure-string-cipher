@@ -8,7 +8,6 @@ Windows needs.
 
 from __future__ import annotations
 
-import itertools
 from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 from functools import partial
@@ -231,20 +230,17 @@ def _rebuild(
         return None
     header = opened.header
     options = [_candidates(f, creds) for f in grant.factors]
-    for choice in itertools.product(*options):
-        try:
-            access.open_assigned(
-                grant,
-                [c[0] for c in choice],
-                header.fixed.to_bytes(),
-                header.access_body,
-                header.access_mac,
-            )
-        except CannotOpen:
-            continue
-        rebuilt = [rebuild() for _, rebuild in choice]
-        return rebuilt
-    return None
+    try:
+        picked = access.find_assignment(
+            grant,
+            [[source for source, _ in o] for o in options],
+            header.fixed.to_bytes(),
+            header.access_body,
+            header.access_mac,
+        )
+    except CannotOpen:
+        return None
+    return [o[k][1]() for o, k in zip(options, picked, strict=True)]
 
 
 def rotate(ctx: Context, path: Path, *, force: bool = False) -> None:
