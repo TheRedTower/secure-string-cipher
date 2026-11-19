@@ -8,11 +8,12 @@ temporary file renamed into place (FORMAT.md section 7.5).
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import io
 import os
 import secrets
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -142,12 +143,32 @@ class Session:
         self._old_payload = old_payload
         self._old_document = document
         self.grants: list[access.Grant] = list(opened.header.grants)
+        # Actions outside the vault file, such as keychain changes, run once
+        # the outcome of the write is known.
+        self.after_write: list[Callable[[], None]] = []
+        self.on_abort: list[Callable[[], None]] = []
 
     def _master_index(self) -> int:
         found = [i for i, g in enumerate(self.grants) if _is_master(g)]
         if len(found) != 1:
             raise VaultError("This vault does not have exactly one master password.")
         return found[0]
+
+    def add_grant(self, factors: Sequence[access.NewFactor]) -> int:
+        """Add a grant needing all of `factors`; returns its index."""
+        if len(self.grants) >= access.MAX_GRANTS:
+            raise VaultError(f"A vault holds at most {access.MAX_GRANTS} grants.")
+        self.grants.append(access.new_grant(self._opened.file_key, factors))
+        return len(self.grants) - 1
+
+    def remove_grant(self, index: int) -> access.Grant:
+        """Remove the grant at `index` (0-based). The master password grant
+        always stays. This is removal, not revocation (VAULT.md section 2)."""
+        if not 0 <= index < len(self.grants):
+            raise VaultError(f"The vault has no grant g{index + 1}.")
+        if index == self._master_index():
+            raise VaultError("The master password grant cannot be removed.")
+        return self.grants.pop(index)
 
     def change_master_password(self, current: str, new: str) -> None:
         """Rewrap the master-password grant for `new` (VAULT.md section 2).
@@ -192,7 +213,9 @@ class Session:
         fs.write_atomic(self.path, write, replace=True)
 
 
-def _read(path: Path, credentials: access.Credentials) -> Session:
+def read_file(path: Path) -> bytes:
+    """The vault file's bytes, refusing a file larger than any vault can be
+    before reading it all."""
     limit = max_file_size()
     try:
         with path.open("rb") as handle:
@@ -203,6 +226,11 @@ def _read(path: Path, credentials: access.Credentials) -> Session:
         raise FormatError(
             Reason.VAULT_DOCUMENT, "The vault file is larger than any vault can be."
         )
+    return data
+
+
+def _read(path: Path, credentials: access.Credentials) -> Session:
+    data = read_file(path)
     opened = container.unlock(io.BytesIO(data), credentials)
     old_payload = b"".join(iter(lambda: opened.payload.read(1 << 16), b""))
     sink = _Bounded()
@@ -229,5 +257,26 @@ def edit(
     _require(path)
     with _locked(path):
         session = _read(path, credentials)
-        yield session
-        session._write()
+        try:
+            yield session
+            session._write()
+        except fs.NotDurable:
+            _run(session.after_write)  # the write did happen
+            raise
+        except BaseException:
+            with contextlib.suppress(Exception):  # keep the original error
+                _run(session.on_abort)
+            raise
+        _run(session.after_write)
+
+
+def _run(actions: list[Callable[[], None]]) -> None:
+    """Run every action, even if one fails, then raise the first failure."""
+    failure: Exception | None = None
+    for action in actions:
+        try:
+            action()
+        except Exception as error:
+            failure = failure or error
+    if failure is not None:
+        raise failure
