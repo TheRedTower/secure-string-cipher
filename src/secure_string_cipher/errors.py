@@ -29,6 +29,8 @@ class Reason(StrEnum):
     CANNOT_OPEN = "cannot-open"
     VAULT_DOCUMENT = "vault-document"
     VAULT = "vault"
+    RECOVERY_CODE = "recovery-code"
+    RECOVERY_CHECK = "recovery-check"
 
 
 class SSCError(Exception):
@@ -42,6 +44,15 @@ class FormatError(SSCError):
 
     The CLI reports this as a file error (CLI.md section 1, exit code 4).
     """
+
+    def __init__(self, reason: Reason, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+class RecoveryCodeError(SSCError):
+    """A typed recovery code is malformed or fails its check: an input
+    error (CLI.md section 1, exit code 1), found before any cryptography."""
 
     def __init__(self, reason: Reason, message: str) -> None:
         super().__init__(message)
