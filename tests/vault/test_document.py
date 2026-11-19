@@ -82,6 +82,13 @@ def test_rejects_escapes_json_does_not_require() -> None:
     rejects(data)
 
 
+def test_rejects_an_integer_too_long_to_convert() -> None:
+    """Python refuses ints over 4,300 digits with a plain ValueError."""
+    rejects(
+        b'{"entries":[],"format":' + b"1" * 5000 + b',"history":null,"profiles":[]}'
+    )
+
+
 def test_rejects_a_document_over_16_mib() -> None:
     rejects(b" " * (doc.MAX_SIZE + 1))
 

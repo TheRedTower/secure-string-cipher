@@ -373,7 +373,9 @@ def parse(data: bytes) -> Document:
             parse_float=_no_floats,
             parse_constant=_no_floats,
         )
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+    except (ValueError, RecursionError):
+        # ValueError covers bad UTF-8, bad JSON, and an integer too long for
+        # Python's int conversion limit.
         _bad("The vault document is not valid UTF-8 JSON.")
     obj = _object(value, ("entries", "format", "history", "profiles"), "The vault")
     if _int(obj["format"], "The vault's format") != FORMAT:
