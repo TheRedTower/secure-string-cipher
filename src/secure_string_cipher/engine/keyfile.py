@@ -165,7 +165,9 @@ def _open_at(name: str, flags: int, dir_fd: int, path: Path) -> int:
 def _open_no_symlinks(path: Path) -> int:
     """Open `path` for reading without following a symlink anywhere on the
     way to it (CLI.md section 1), and without blocking on a FIFO."""
-    path = Path(os.path.abspath(path))
+    # Absolute, but not normalised: collapsing "alias/.." here would skip
+    # checking `alias`, and could name a different file than the kernel would.
+    path = path if path.is_absolute() else Path.cwd() / path
     if os.open in os.supports_dir_fd and _NOFOLLOW and _DIRECTORY:
         # Walk one component at a time from the root, so no component can
         # be swapped for a link between the check and the open.
