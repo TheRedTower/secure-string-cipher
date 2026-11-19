@@ -154,3 +154,4 @@ entry says which one.
 | #185 | Step 3 | `bcac053` test(interactive): every screen end to end, and questionary's Ui | `tests/interactive/`: every screen with a scripted Ui, and `QuestionaryUi` through a prompt_toolkit pipe |
 | #185 | Step 3 | `8306ae2` docs(spec): confirm questionary for the interactive mode | `docs/spec/CLI.md` section 4: questionary confirmed |
 | #185 | Housekeeping | docs: record Phase 4, step 3 in the ledger | This ledger |
+| #185 | Review fix | `c4a62c3` fix(interactive): unlock for saved profiles; revoke archived entries | `interactive/flow.py`, for Codex's two findings: profiles hidden behind a locked vault, and archived entries missing from the revoke picker |
