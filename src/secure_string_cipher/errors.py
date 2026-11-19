@@ -24,11 +24,15 @@ class Reason(StrEnum):
     ARMOR_LINE_ENDINGS = "armor-line-endings"
     ARMOR_LINE_LENGTH = "armor-line-length"
     ARMOR_BASE64 = "armor-base64"
+    KEYFILE = "keyfile"
+    KEYFILE_KEY_ID = "keyfile-key-id"
     CANNOT_OPEN = "cannot-open"
 
 
 class SSCError(Exception):
     """Base class for every error SSC raises on purpose."""
+
+    reason: Reason
 
 
 class FormatError(SSCError):

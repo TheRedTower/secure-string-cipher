@@ -8,13 +8,15 @@ this file's key, before any payload is decrypted.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import itertools
 import secrets
 import struct
 import unicodedata
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import partial
 
 from argon2.low_level import Type, hash_secret_raw
 from cryptography.exceptions import InvalidTag
@@ -39,6 +41,8 @@ ARGON2_PARAMS = struct.pack(">II", ARGON2_MEMORY_KIB, ARGON2_TIME_COST) + bytes(
 
 SALT_SIZE = 16
 ENTRY_ID_SIZE = 16
+KEY_SIZE = 32
+KEY_ID_SIZE = 16
 SECRET_SIZE = 32
 WRAPPED_SIZE = 48
 MAX_FACTORS = 5
@@ -125,6 +129,22 @@ def new_vault_password(
     salt = secrets.token_bytes(SALT_SIZE) if salt is None else salt
     factor = Factor(VAULT_PASSWORD, entry_id + salt + ARGON2_PARAMS)
     return NewFactor(factor, password_secret(password, salt))
+
+
+def key_id(key: bytes) -> bytes:
+    """SHA-256("ssc3/key-id" || key)[0..16] (ACCESS.md section 2.2)."""
+    return hashlib.sha256(b"ssc3/key-id" + key).digest()[:KEY_ID_SIZE]
+
+
+def key_secret(key: bytes) -> bytes:
+    return _hkdf(key, b"", b"ssc3/factor/key")
+
+
+def new_key(key: bytes) -> NewFactor:
+    """A key factor (ACCESS.md section 2.2)."""
+    if len(key) != KEY_SIZE:
+        raise ValueError(f"A key must be {KEY_SIZE} bytes.")
+    return NewFactor(Factor(KEY, key_id(key)), key_secret(key))
 
 
 # --- grants ----------------------------------------------------------------
@@ -259,10 +279,13 @@ class Credentials:
     `passwords` are typed or supplied passwords. Each is tried against every
     password factor the vault cannot fill (CLI.md section 1).
     `entry_passwords` maps a vault entry ID to its stored password.
+    `keys` are 32-byte keys, from the vault or from key files; each is used
+    only for a factor whose `key_id` matches it.
     """
 
     passwords: Sequence[str] = ()
     entry_passwords: Mapping[bytes, str] = field(default_factory=dict)
+    keys: Sequence[bytes] = ()
 
 
 class _SecretCache:
@@ -283,23 +306,36 @@ class _SecretCache:
 def _candidate_passwords(factor: Factor, credentials: Credentials) -> list[str]:
     if factor.kind == PASSWORD:
         return list(dict.fromkeys(credentials.passwords))
-    if factor.kind == VAULT_PASSWORD:
-        stored = credentials.entry_passwords.get(factor.entry_id)
-        first = [stored] if stored else []
-        return list(dict.fromkeys([*first, *credentials.passwords]))
+    stored = credentials.entry_passwords.get(factor.entry_id)
+    first = [stored] if stored else []
+    return list(dict.fromkeys([*first, *credentials.passwords]))
+
+
+def _options(
+    factor: Factor, credentials: Credentials, cache: _SecretCache
+) -> list[Callable[[], bytes]]:
+    """Ways to supply one factor's secret, each derived only when tried."""
+    if factor.kind in (PASSWORD, VAULT_PASSWORD):
+        return [
+            partial(cache.password, pw, factor.salt)
+            for pw in _candidate_passwords(factor, credentials)
+        ]
+    if factor.kind == KEY:
+        matching = dict.fromkeys(
+            k for k in credentials.keys if key_id(k) == factor.body
+        )
+        return [partial(key_secret, k) for k in matching]
     return []
 
 
 def _combinations(
     factors: Sequence[Factor], credentials: Credentials, cache: _SecretCache
 ) -> Iterator[list[bytes]]:
-    options = [_candidate_passwords(f, credentials) for f in factors]
+    options = [_options(f, credentials, cache) for f in factors]
     if not all(options):
         return  # some factor cannot be supplied: no work at all
     for choice in itertools.product(*options):
-        yield [
-            cache.password(pw, f.salt) for pw, f in zip(choice, factors, strict=True)
-        ]
+        yield [derive() for derive in choice]
 
 
 def open_file_key(
