@@ -82,4 +82,7 @@ entry says which one.
 | #173 | Step 3, Codex fix | `2a3efb9` fix(engine): publish a new key file only once it is fully written | `engine/keyfile.py`: temporary file, fsync, then a no-replace link or rename |
 | #174 | Step 4 | `7b1aed6` feat(engine): change access: add, remove and rotate | `engine/container.py` (`unlock`, `add_grant`, `remove_grant`, `rotate`), and `payload.chunks` and `payload.ChunkReader` so a payload streams straight into re-encryption, plus `tests/engine/test_change.py` |
 | #174 | Housekeeping | docs: record Phase 2, step 4 in the ledger | This ledger, and the review fixes to #173 |
+| #175 | Step 5 | `70decd4` build: add hypothesis 6.170.14 for fuzzing | `pyproject.toml` and `uv.lock` (dev group). 6.170.15 was under two weeks old |
+| #175 | Step 5 | `7f93828` test: fuzz the header, access-block, armour and key-file parsers | `tests/fuzz/test_parsers.py`: 400 derandomised examples per property in CI. `SSC_FUZZ_EXAMPLES` runs a deeper random pass, and 20,000 per property ran clean |
+| #175 | Housekeeping | docs: record Phase 2, step 5 in the ledger | This ledger |
 
