@@ -156,3 +156,4 @@ entry says which one.
 | #185 | Housekeeping | docs: record Phase 4, step 3 in the ledger | This ledger |
 | #185 | Review fix | `c4a62c3` fix(interactive): unlock for saved profiles; revoke archived entries | `interactive/flow.py`, for Codex's two findings: profiles hidden behind a locked vault, and archived entries missing from the revoke picker |
 | #185 | Review fix | `dfa4704` fix(interactive): ask for a key file a file needs when decrypting | `service/context.py` (`ask_key_file`), `service/files.py` (`Opener.missing_keys`, `ask_key`) and the guided flow, for Codex's finding that a standalone-key file could not be opened in the flow |
+| #185 | Review fix | `2d65a66` fix(service): hold the new master password after changing it | `service/vaults.py` (`_remember`, used by `change_password` and `reset_password`), for Codex's finding that the guided flow kept the old password after changing it |
