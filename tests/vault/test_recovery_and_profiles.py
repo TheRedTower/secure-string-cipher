@@ -153,6 +153,21 @@ def test_a_profile_must_name_active_entries_when_created() -> None:
         profiles.create(d, "p", [[doc.ASK_PASSWORD]])
 
 
+def test_a_grant_cannot_hold_the_same_wire_factor_twice() -> None:
+    """Recovery factors all encode as 0x04, and a key is named by its key_id,
+    so new_grant would refuse these; the profile is refused up front."""
+    d, key, code = _vault_with_entries()
+    d, code_2 = entries.add_recovery(d, "paper-2")
+    assert isinstance(key.secret, bytes)
+    d, same_key = entries.add_key(d, "same", key.secret)
+    for grant in ([code, code_2], [key, same_key]):
+        refs = [doc.Ref(e.id) for e in grant]
+        with pytest.raises(VaultError, match="same factor twice"):
+            profiles.create(d, "p", [refs])
+    d, _ = profiles.create(d, "split", [[doc.Ref(code.id)], [doc.Ref(code_2.id)]])
+    assert len(profiles.apply(d, "split", lambda: "x")) == 2
+
+
 def test_a_profile_naming_a_revoked_entry_cannot_be_applied() -> None:
     d, key, _ = _vault_with_entries()
     d, _ = profiles.create(d, "p", [[doc.Ref(key.id)]])

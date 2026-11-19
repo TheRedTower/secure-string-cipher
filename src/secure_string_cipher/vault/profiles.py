@@ -13,7 +13,7 @@ from collections.abc import Callable, Sequence
 from secure_string_cipher.engine import access
 from secure_string_cipher.errors import VaultError
 from secure_string_cipher.vault import entries
-from secure_string_cipher.vault.document import Document, Profile, Ref
+from secure_string_cipher.vault.document import Document, Entry, Profile, Ref
 
 
 def find(document: Document, name: str) -> Profile:
@@ -23,10 +23,24 @@ def find(document: Document, name: str) -> Profile:
     raise VaultError(f'There is no profile "{name}".')
 
 
+def _wire_identity(entry: Entry) -> bytes:
+    """What the entry's factor looks like in a grant, minus random salts.
+    Two factors that look the same cannot share a grant (ACCESS.md section
+    3.4): every recovery factor has an empty body, and keys are named by
+    their `key_id`."""
+    if entry.kind == "recovery":
+        return bytes([access.RECOVERY])
+    if isinstance(entry.secret, bytes):
+        return bytes([access.KEY]) + access.key_id(entry.secret)
+    return bytes([access.VAULT_PASSWORD]) + entry.id
+
+
 def _check_entries(document: Document, profile: Profile) -> None:
-    """A profile can only refer to what the vault holds, and only to entries
-    that would be offered for new files."""
+    """A profile can only refer to what the vault holds, only to entries
+    that would be offered for new files, and only to grants a file can
+    hold."""
     for grant in profile.grants:
+        seen: set[bytes] = set()
         for ref in grant:
             if ref.entry is None:
                 continue
@@ -38,6 +52,14 @@ def _check_entries(document: Document, profile: Profile) -> None:
                     f'The profile "{profile.name}" names the {entry.status} entry '
                     f'"{entry.label}"; edit the profile first.'
                 )
+            identity = _wire_identity(entry)
+            if identity in seen:
+                raise VaultError(
+                    f'A grant in the profile "{profile.name}" holds the same factor '
+                    "twice: a grant can have only one recovery code, and only "
+                    "one use of each key."
+                )
+            seen.add(identity)
 
 
 def create(
