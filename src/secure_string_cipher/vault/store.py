@@ -25,6 +25,7 @@ from secure_string_cipher.engine.header import SIZE as FIXED_HEADER_SIZE
 from secure_string_cipher.engine.header import FixedHeader
 from secure_string_cipher.errors import FormatError, Reason, VaultError
 from secure_string_cipher.vault import document as doc
+from secure_string_cipher.vault import history
 
 NAME = "vault.ssc"
 LOCK_TIMEOUT = 10.0
@@ -218,9 +219,19 @@ class Session:
             access.Credentials(passwords=[current]), [self._master_index()], new
         )
 
+    def record(self, action: str, entry: bytes | None = None) -> None:
+        """Record an event if history is on (VAULT.md section 5), such as
+        `vault-unlock`, or `encrypt` or `decrypt` with an entry."""
+        self.document = history.record(self.document, action, entry)
+
     def _write(self) -> None:
+        grants_changed = self.grants != list(self._opened.header.grants)
+        if grants_changed:
+            # With history on, an access change also replaces the payload
+            # (VAULT.md section 2); with it off, the payload is untouched.
+            self.record("vault-access-change")
         document_changed = self.document != self._old_document
-        if not document_changed and self.grants == list(self._opened.header.grants):
+        if not document_changed and not grants_changed:
             return
         if document_changed:
             # FORMAT.md section 7.4: same file key, fresh payload nonce.

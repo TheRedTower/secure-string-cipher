@@ -17,7 +17,7 @@ from secure_string_cipher import fs
 from secure_string_cipher.engine import access, armor, container
 from secure_string_cipher.errors import CannotOpen, FormatError, Reason, VaultError
 from secure_string_cipher.vault import document as doc
-from secure_string_cipher.vault import store
+from secure_string_cipher.vault import history, store
 from tests import vectorkit
 
 VAULT = vectorkit.manifest()["vault"]
@@ -100,34 +100,58 @@ def test_create_refuses_an_empty_master_password(tmp_path: Path) -> None:
 # --- changing the master password (the Phase 3 gate) -----------------------------
 
 
-def test_changing_the_master_password_rewraps_one_grant(vector_vault: Path) -> None:
-    before = vectorkit.split(vector_vault.read_bytes())
+def without_history(path: Path) -> Path:
+    with store.edit(MASTER, path) as session:
+        session.document = history.turn_off(session.document)
+    return path
+
+
+def other_grants_unchanged(before: bytes, after: bytes) -> list[access.Grant]:
+    """Only grant 0, the master grant, differs."""
+    old = access.parse_access_body(vectorkit.split(before).access_body)
+    new = access.parse_access_body(vectorkit.split(after).access_body)
+    assert len(new) == len(old)
+    changed = [i for i, (a, b) in enumerate(zip(old, new, strict=True)) if a != b]
+    assert changed == [0]
+    assert store._is_master(new[0])
+    return new
+
+
+@pytest.mark.parametrize("history_on", [False, True], ids=["history-off", "history-on"])
+def test_changing_the_master_password_rewraps_one_grant(
+    vector_vault: Path, history_on: bool
+) -> None:
+    """The Phase 3 gate's first half (VAULT.md section 2)."""
+    if not history_on:
+        without_history(vector_vault)
+    before = vector_vault.read_bytes()
+    expected = store.load(DEVICE, vector_vault)
     with store.edit(DEVICE, vector_vault) as session:
         old_key = session._opened.file_key
         session.change_master_password(VAULT["master_password"], "a new one")
-    after_bytes = vector_vault.read_bytes()
-    after = vectorkit.split(after_bytes)
+    after = vector_vault.read_bytes()
 
-    # History is not recorded yet (Phase 3, step 5), so the payload and the
-    # fixed header are untouched; only the master grant is new.
-    assert after.fixed_header == before.fixed_header
-    assert after.payload == before.payload
-    old = store._read(vector_vault, DEVICE)
-    assert old._opened.file_key == old_key
-    old_grants = access.parse_access_body(before.access_body)
-    new_grants = access.parse_access_body(after.access_body)
-    assert len(new_grants) == len(old_grants)
-    changed = [
-        i for i, (a, b) in enumerate(zip(old_grants, new_grants, strict=True)) if a != b
-    ]
-    assert changed == [0]
-    assert store._is_master(new_grants[0])
+    other_grants_unchanged(before, after)
+    assert store._read(vector_vault, DEVICE)._opened.file_key == old_key
+    old_parts, new_parts = vectorkit.split(before), vectorkit.split(after)
+    loaded = store.load(DEVICE, vector_vault)
+    if history_on:
+        # The same write appends a vault-access-change event, which means
+        # replacing the payload with a fresh nonce (FORMAT.md section 7.4).
+        assert new_parts.fixed_header != old_parts.fixed_header
+        assert loaded.history is not None and expected.history is not None
+        assert loaded.history.events[:-1] == expected.history.events
+        assert loaded.history.events[-1].action == "vault-access-change"
+        assert loaded.entries == expected.entries
+    else:
+        assert new_parts.fixed_header == old_parts.fixed_header
+        assert new_parts.payload == old_parts.payload
+        assert loaded == expected
 
     with pytest.raises(CannotOpen):
         store.load(MASTER, vector_vault)
     new = access.Credentials(passwords=["a new one"])
-    assert store.load(new, vector_vault).to_json() == VAULT["document"]
-    assert store.load(DEVICE, vector_vault).to_json() == VAULT["document"]
+    assert store.load(new, vector_vault) == loaded
 
 
 def test_changing_needs_the_current_master_password(vector_vault: Path) -> None:
