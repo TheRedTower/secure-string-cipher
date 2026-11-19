@@ -167,7 +167,7 @@ def _revoke(args: argparse.Namespace, ctx: Context) -> None:
         return
     for path in found:
         try:
-            access_ops.rotate(ctx, path)
+            access_ops.rotate(ctx, path, without=args.label)
         except SSCError as error:
             ctx.prompter.notice(f"{path}: {error}")
 

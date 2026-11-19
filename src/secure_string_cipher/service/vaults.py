@@ -281,14 +281,14 @@ def _uses(folder: Path, entry: doc.Entry, others: access.Credentials) -> list[Pa
             with path.open("rb") as handle:
                 stream, _ = container.binary_stream(handle)
                 header = container.read_header(stream)
-            if any(_grant_uses(header, g, entry, others) for g in header.grants):
+            if any(grant_uses(header, g, entry, others) for g in header.grants):
                 found.append(path)
         except (OSError, SSCError, ValueError):
             continue  # unreadable, not an SSC file, or damaged
     return found
 
 
-def _grant_uses(
+def grant_uses(
     header: container.Header,
     grant: access.Grant,
     entry: doc.Entry,

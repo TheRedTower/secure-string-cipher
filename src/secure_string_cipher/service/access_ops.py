@@ -16,11 +16,12 @@ from typing import BinaryIO
 
 from secure_string_cipher import fs
 from secure_string_cipher.engine import access, container, payload
-from secure_string_cipher.errors import CannotOpen, InputError, SSCError
+from secure_string_cipher.errors import CannotOpen, InputError, SSCError, VaultError
 from secure_string_cipher.service import files, vaults
 from secure_string_cipher.service import grants as specs
 from secure_string_cipher.service.context import Context
 from secure_string_cipher.vault import document as doc
+from secure_string_cipher.vault import entries
 
 
 def _read_header(path: Path) -> container.Header:
@@ -183,6 +184,16 @@ def apply(ctx: Context, path: Path, profile: str) -> None:
 # --- rotate ------------------------------------------------------------------------
 
 
+def _revoked(opener: files.Opener, label: str | None) -> doc.Entry | None:
+    if label is None:
+        return None
+    if opener.document is None:
+        raise VaultError(
+            "The vault is needed to tell which ways in use the revoked entry."
+        )
+    return entries.find(opener.document, label)
+
+
 Rebuild = Callable[[], access.NewFactor]
 
 
@@ -249,17 +260,30 @@ def _rebuild(
     return [o[k][1]() for o, k in zip(options, picked, strict=True)]
 
 
-def rotate(ctx: Context, path: Path, *, force: bool = False) -> None:
+def rotate(
+    ctx: Context, path: Path, *, force: bool = False, without: str | None = None
+) -> None:
     """`ssc access rotate <file>`: a new file key and payload nonce, with
     every grant rebuilt that can be. A grant that cannot is listed, and
-    dropped only after asking, or with `force`."""
+    dropped only after asking, or with `force`.
+
+    `without` names a revoked vault entry: every grant that uses it is
+    dropped, even where its secret was also supplied another way, such as
+    a key file holding the same key, so it opens none of the new contents.
+    """
 
     def write(out: BinaryIO) -> None:
         with path.open("rb") as handle:
             opened, opener = _open(ctx, handle)
             creds = opener.credentials()
-            policy, dropped = [], []
+            revoked = _revoked(opener, without)
+            policy, dropped, removed = [], [], []
             for i, grant in enumerate(opened.header.grants, 1):
+                if revoked is not None and vaults.grant_uses(
+                    opened.header, grant, revoked, creds
+                ):
+                    removed.append(f"g{i}")
+                    continue
                 rebuilt = _rebuild(opened, grant, creds)
                 if rebuilt is None:
                     dropped.append(f"g{i}")
@@ -276,7 +300,17 @@ def rotate(ctx: Context, path: Path, *, force: bool = False) -> None:
             ):
                 raise InputError("Not rotated.")
             if not policy:
+                if removed:
+                    raise InputError(
+                        f"Every way into {path} that SSC can rebuild uses "
+                        f'"{without}", so rotating would leave none. Add '
+                        "another way in first."
+                    )
                 raise CannotOpen()
+            if removed:
+                ctx.prompter.notice(
+                    f'Dropping {", ".join(removed)}, which used "{without}".'
+                )
             old = payload.payload_key(opened.file_key, opened.header.fixed)
             plaintext = payload.ChunkReader(payload.chunks(old, opened.payload))
             container.encrypt(plaintext, out, policy, armored=opened.armored)

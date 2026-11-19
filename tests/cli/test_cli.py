@@ -436,3 +436,24 @@ def test_python_m_runs_the_cli(tmp_path: Path) -> None:
         check=False,
     )
     assert usage.returncode == 1 and "usage: ssc" in usage.stderr
+
+
+def test_revoke_rotation_cuts_out_a_copy_of_the_revoked_key(
+    ssc: Run, terminal: Terminal, vault: None, report: Path
+) -> None:
+    """Codex on #184: a supplied copy of the revoked key must not survive
+    the offered rotation."""
+    assert ssc("vault", "add", "laptop", "--key").code == 0
+    assert ssc("vault", "add", "usb", "--key").code == 0
+    assert ssc("key", "export", "laptop", "laptop.ssckey").code == 0
+    flags = ["--grant", "vault:laptop", "--grant", "vault:usb"]
+    assert ssc("encrypt", "report.txt", "-o", "docs.ssc", *flags).code == 0
+    terminal.tty = True
+    terminal.lines.append("y")
+    done = ssc(
+        "vault", "revoke", "laptop", "--scan", ".", "--key-file", "laptop.ssckey"
+    )
+    assert done.code == 0, done.err
+    assert 'which used "laptop"' in done.said
+    terminal.tty = False
+    assert ssc("access", "show", "docs.ssc").out == 'g1: key "usb"\n'
