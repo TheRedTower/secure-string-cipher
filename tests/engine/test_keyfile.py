@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -207,3 +208,34 @@ def test_read_stops_at_1_kib(tmp_path: Path) -> None:
         handle.write(b"\n" * 2000)
     with pytest.raises(FormatError):
         keyfile.read(path)
+
+
+def test_read_refuses_a_symlinked_parent(tmp_path: Path) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    keyfile.write(real / "laptop.ssckey", GOOD)
+    alias = tmp_path / "alias"
+    try:
+        alias.symlink_to(real, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are not available here")
+    assert keyfile.read(real / "laptop.ssckey") == GOOD
+    with pytest.raises(PermissionError):
+        keyfile.read(alias / "laptop.ssckey")
+
+
+def test_read_reaches_a_relative_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    keyfile.write(tmp_path / "laptop.ssckey", GOOD)
+    monkeypatch.chdir(tmp_path)
+    assert keyfile.read("laptop.ssckey") == GOOD
+
+
+def test_read_refuses_a_fifo_without_blocking(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        pytest.skip("POSIX FIFOs")
+    fifo = tmp_path / "key.ssckey"
+    os.mkfifo(fifo, 0o600)
+    with pytest.raises(PermissionError):
+        keyfile.read(fifo)

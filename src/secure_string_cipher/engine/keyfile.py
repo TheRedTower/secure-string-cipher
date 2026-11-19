@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import errno
 import os
 import re
 import stat
@@ -136,15 +137,60 @@ def parse(data: bytes) -> KeyFile:
     return KeyFile(label, created, key)
 
 
+# POSIX-only open flags; 0 where the platform lacks them.
+_NOFOLLOW: int = getattr(os, "O_NOFOLLOW", 0)
+_DIRECTORY: int = getattr(os, "O_DIRECTORY", 0)
+_NONBLOCK: int = getattr(os, "O_NONBLOCK", 0)
+_BINARY: int = getattr(os, "O_BINARY", 0)
+
+
+def _refuse_symlink(path: Path) -> PermissionError:
+    return PermissionError(f"Refusing a key file reached through a symlink: {path}")
+
+
+def _open_at(name: str, flags: int, dir_fd: int, path: Path) -> int:
+    """Open one component under `dir_fd`, refusing a symlink. O_NOFOLLOW
+    makes the open itself fail on a link swapped in after the check, and the
+    check turns the platform's error for that into one clear refusal."""
+    if stat.S_ISLNK(os.stat(name, dir_fd=dir_fd, follow_symlinks=False).st_mode):
+        raise _refuse_symlink(path)
+    try:
+        return os.open(name, flags | _NOFOLLOW, dir_fd=dir_fd)
+    except OSError as error:
+        if error.errno in (errno.ELOOP, getattr(errno, "EMLINK", errno.ELOOP)):
+            raise _refuse_symlink(path) from None
+        raise
+
+
+def _open_no_symlinks(path: Path) -> int:
+    """Open `path` for reading without following a symlink anywhere on the
+    way to it (CLI.md section 1), and without blocking on a FIFO."""
+    path = Path(os.path.abspath(path))
+    if os.open in os.supports_dir_fd and _NOFOLLOW and _DIRECTORY:
+        # Walk one component at a time from the root, so no component can
+        # be swapped for a link between the check and the open.
+        fd = os.open(path.anchor, os.O_RDONLY | _DIRECTORY)
+        try:
+            for part in path.parts[1:-1]:
+                following = _open_at(part, os.O_RDONLY | _DIRECTORY, fd, path)
+                os.close(fd)
+                fd = following
+            return _open_at(path.name, os.O_RDONLY | _NONBLOCK, fd, path)
+        finally:
+            os.close(fd)
+    # Windows has no dir_fd: check each component, then open.
+    for component in (path, *path.parents):
+        if component.is_symlink() or component.is_junction():
+            raise _refuse_symlink(path)
+    return os.open(path, os.O_RDONLY | _BINARY)
+
+
 def read(path: str | os.PathLike[str]) -> KeyFile:
     """Read a key file under the credential-file rules (CLI.md section 1):
-    a regular file, not a symlink, and on POSIX not readable by group or
-    others."""
+    a regular file, not reached through a symlink, and on POSIX not readable
+    by group or others."""
     path = Path(path)
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
-    if path.is_symlink():
-        raise PermissionError(f"Refusing a symlinked key file: {path}")
-    fd = os.open(path, flags)
+    fd = _open_no_symlinks(path)
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
@@ -163,7 +209,7 @@ def read(path: str | os.PathLike[str]) -> KeyFile:
 
 def write(path: str | os.PathLike[str], keyfile: KeyFile) -> None:
     """Write a new key file, owner-only. It never replaces an existing file."""
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | _BINARY
     fd = os.open(Path(path), flags, 0o600)
     with os.fdopen(fd, "wb") as handle:
         handle.write(keyfile.to_bytes())
