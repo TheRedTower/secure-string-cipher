@@ -326,3 +326,47 @@ def test_an_existing_folder_is_left_as_it_is(tmp_path: Path) -> None:
     folder.chmod(0o755)
     store.create("pw", folder / "vault.ssc")
     assert folder.stat().st_mode & 0o777 == 0o755
+
+
+# --- owner-only on Windows (VAULT.md section 1) ----------------------------------
+
+# Well-known SIDs that would make a file readable beyond its owner.
+_BROAD_SIDS = {
+    "S-1-1-0": "Everyone",
+    "S-1-5-11": "Authenticated Users",
+    "S-1-5-32-545": "Users",
+    "S-1-5-32-546": "Guests",
+}
+
+
+def _acl_sids(path: Path) -> set[str]:
+    """The SIDs in a path's ACL, by number so the check does not depend on
+    the language Windows is set to."""
+    import subprocess
+
+    script = (
+        "(Get-Acl -LiteralPath $env:SSC_ACL_PATH).Access | ForEach-Object "
+        "{ $_.IdentityReference.Translate("
+        "[System.Security.Principal.SecurityIdentifier]).Value }"
+    )
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**os.environ, "SSC_ACL_PATH": str(path)},
+    )
+    return set(result.stdout.split())
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows ACLs")
+def test_the_vault_is_owner_only_on_windows(tmp_path: Path) -> None:
+    """SSC sets no ACLs itself: the vault inherits its folder's, and the
+    folder it lives in by default is under the user's own profile."""
+    path = tmp_path / "ssc" / "vault.ssc"
+    store.create("pw", path)
+    for target in (path, store.lock_path(path), store.default_path().parent.parent):
+        sids = _acl_sids(target)
+        assert sids, target
+        broad = sorted(_BROAD_SIDS[s] for s in sids & _BROAD_SIDS.keys())
+        assert broad == [], f"{target} is readable by {broad}"
