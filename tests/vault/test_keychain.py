@@ -12,8 +12,8 @@ import keyring.errors
 import pytest
 from keyring.backends import fail
 
-from secure_string_cipher.engine import access
-from secure_string_cipher.errors import CannotOpen, VaultError
+from secure_string_cipher.engine import access, armor
+from secure_string_cipher.errors import CannotOpen, FormatError, Reason, VaultError
 from secure_string_cipher.vault import keychain, store
 from secure_string_cipher.vault.document import b64
 from tests import vectorkit
@@ -77,6 +77,40 @@ def test_a_wrong_or_damaged_keychain_item_is_ignored(vector_vault: Path) -> None
     for text in ("not base64!", b64(bytes(32)), b64(bytes(16))):
         chain.set_password("ssc", VAULT["keychain_account"], text)
         assert keychain.credentials(vector_vault, chain).keys == []
+
+
+class Broken(Memory):
+    """A backend failing with its own exception type, as Secret Service's
+    SecretStorageException does, rather than a KeyringError."""
+
+    def get_password(self, service: str, username: str) -> str | None:
+        raise RuntimeError("org.freedesktop.Secret.Error.IsLocked")
+
+    def set_password(self, service: str, username: str, password: str) -> None:
+        raise RuntimeError("org.freedesktop.Secret.Error.IsLocked")
+
+
+def test_a_failing_backend_falls_back_to_the_master_password(
+    vector_vault: Path,
+) -> None:
+    assert keychain.credentials(vector_vault, Broken()).keys == []
+    before = vector_vault.read_bytes()
+    with store.edit(MASTER, vector_vault) as session:
+        with pytest.raises(VaultError):
+            keychain.add_device(session, Broken())
+        assert len(session.grants) == 2
+    assert vector_vault.read_bytes() == before
+
+
+def test_an_oversized_armoured_vault_is_refused_before_decoding(
+    vector_vault: Path,
+) -> None:
+    with vector_vault.open("wb") as handle:
+        handle.write(armor.BEGIN + b"\n")
+        handle.truncate(store.max_file_size() + 1)
+    with pytest.raises(FormatError) as caught:
+        keychain.credentials(vector_vault, Memory())
+    assert caught.value.reason == Reason.VAULT_DOCUMENT
 
 
 def test_add_device_then_unlock_with_it(vector_vault: Path) -> None:

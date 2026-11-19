@@ -213,7 +213,9 @@ class Session:
         fs.write_atomic(self.path, write, replace=True)
 
 
-def _read(path: Path, credentials: access.Credentials) -> Session:
+def read_file(path: Path) -> bytes:
+    """The vault file's bytes, refusing a file larger than any vault can be
+    before reading it all."""
     limit = max_file_size()
     try:
         with path.open("rb") as handle:
@@ -224,6 +226,11 @@ def _read(path: Path, credentials: access.Credentials) -> Session:
         raise FormatError(
             Reason.VAULT_DOCUMENT, "The vault file is larger than any vault can be."
         )
+    return data
+
+
+def _read(path: Path, credentials: access.Credentials) -> Session:
+    data = read_file(path)
     opened = container.unlock(io.BytesIO(data), credentials)
     old_payload = b"".join(iter(lambda: opened.payload.read(1 << 16), b""))
     sink = _Bounded()

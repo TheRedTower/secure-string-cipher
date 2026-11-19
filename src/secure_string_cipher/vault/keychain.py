@@ -13,13 +13,13 @@ from __future__ import annotations
 import base64
 import binascii
 import contextlib
+import io
 import secrets
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Protocol
 
 import keyring
-import keyring.errors
 from keyring.backend import KeyringBackend
 from keyring.backends.chainer import ChainerBackend
 
@@ -37,6 +37,13 @@ OS_BACKENDS = (
     "keyring.backends.Windows",
     "keyring.backends.SecretService",
 )
+
+
+# Keychain backends do not always wrap their own failures in KeyringError:
+# Secret Service can raise SecretStorageException or a D-Bus error directly.
+# At this boundary, any failure from the backend counts as the keychain
+# being unavailable for that operation.
+_BACKEND_ERRORS = (Exception,)
 
 
 class Keychain(Protocol):
@@ -84,7 +91,7 @@ def _lookup(chain: Keychain, key_id: bytes) -> bytes | None:
     """The device key stored for `key_id`, if this keychain has a sound one."""
     try:
         text = chain.get_password(SERVICE, account(key_id))
-    except keyring.errors.KeyringError:
+    except _BACKEND_ERRORS:
         return None
     if text is None:
         return None
@@ -121,12 +128,8 @@ def credentials(
     """Credentials that unlock the vault at `path` with this device, read
     from the grants in its header. Reading the header needs no secret."""
     path = store.default_path() if path is None else path
-    try:
-        with path.open("rb") as handle:
-            stream, _ = container.binary_stream(handle)
-            grants = container.read_header(stream).grants
-    except FileNotFoundError:
-        raise VaultError(f"There is no vault at {path}.") from None
+    stream, _ = container.binary_stream(io.BytesIO(store.read_file(path)))
+    grants = container.read_header(stream).grants
     return access.Credentials(keys=device_keys(grants, chain))
 
 
@@ -154,12 +157,12 @@ def add_device(session: store.Session, chain: Keychain | None = None) -> int:
     index = session.add_grant([access.new_key(key)])
     try:
         chain.set_password(SERVICE, name, b64(key))
-    except keyring.errors.KeyringError as error:
+    except _BACKEND_ERRORS as error:
         session.grants.pop(index)
         raise VaultError(f"The keychain refused the vault key: {error}") from None
 
     def forget() -> None:
-        with contextlib.suppress(keyring.errors.KeyringError):
+        with contextlib.suppress(*_BACKEND_ERRORS):
             chain.delete_password(SERVICE, name)
 
     session.on_abort.append(forget)
@@ -187,7 +190,7 @@ def remove_device(
     keychain = chain
 
     def forget() -> None:
-        with contextlib.suppress(keyring.errors.KeyringError):
+        with contextlib.suppress(*_BACKEND_ERRORS):
             keychain.delete_password(SERVICE, name)
 
     session.after_write.append(forget)
