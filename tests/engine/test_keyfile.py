@@ -259,3 +259,16 @@ def test_read_refuses_a_symlink_hidden_by_dot_dot(
     with pytest.raises(PermissionError):
         keyfile.read(tmp_path / "alias" / ".." / "laptop.ssckey")
     assert keyfile.read(Path("other") / "child" / ".." / "laptop.ssckey") == GOOD
+
+
+def test_read_through_a_search_only_parent(tmp_path: Path) -> None:
+    if sys.platform == "win32" or os.geteuid() == 0:
+        pytest.skip("POSIX permissions, as a user they apply to")
+    parent = tmp_path / "locked"
+    parent.mkdir()
+    keyfile.write(parent / "laptop.ssckey", GOOD)
+    parent.chmod(0o300)  # search and write, but no listing
+    try:
+        assert keyfile.read(parent / "laptop.ssckey") == GOOD
+    finally:
+        parent.chmod(0o700)

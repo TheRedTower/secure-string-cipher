@@ -142,6 +142,10 @@ _NOFOLLOW: int = getattr(os, "O_NOFOLLOW", 0)
 _DIRECTORY: int = getattr(os, "O_DIRECTORY", 0)
 _NONBLOCK: int = getattr(os, "O_NONBLOCK", 0)
 _BINARY: int = getattr(os, "O_BINARY", 0)
+# Directories are opened search-only where possible (O_PATH on Linux,
+# O_SEARCH on macOS), so a parent with execute but not read permission
+# still works, as it does for an ordinary open.
+_SEARCH: int = getattr(os, "O_PATH", 0) or getattr(os, "O_SEARCH", 0) or os.O_RDONLY
 
 
 def _refuse_symlink(path: Path) -> PermissionError:
@@ -171,10 +175,10 @@ def _open_no_symlinks(path: Path) -> int:
     if os.open in os.supports_dir_fd and _NOFOLLOW and _DIRECTORY:
         # Walk one component at a time from the root, so no component can
         # be swapped for a link between the check and the open.
-        fd = os.open(path.anchor, os.O_RDONLY | _DIRECTORY)
+        fd = os.open(path.anchor, _SEARCH | _DIRECTORY)
         try:
             for part in path.parts[1:-1]:
-                following = _open_at(part, os.O_RDONLY | _DIRECTORY, fd, path)
+                following = _open_at(part, _SEARCH | _DIRECTORY, fd, path)
                 os.close(fd)
                 fd = following
             return _open_at(path.name, os.O_RDONLY | _NONBLOCK, fd, path)
