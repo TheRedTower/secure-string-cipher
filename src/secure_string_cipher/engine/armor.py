@@ -46,8 +46,9 @@ def encode(data: bytes) -> bytes:
     return b"\n".join([BEGIN, *lines, END]) + b"\n"
 
 
-def decode(text: bytes) -> bytes:
-    """Decode an armoured file strictly, returning the binary SSC file."""
+def split_lines(text: bytes) -> list[bytes]:
+    """Split text framed as in FORMAT.md section 8: LF or uniform CRLF line
+    endings, and at most one after the last line. Key files share this."""
     if b"\r\n" in text:
         if b"\n" in text.replace(b"\r\n", b""):
             raise FormatError(Reason.ARMOR_LINE_ENDINGS, "Mixed line endings.")
@@ -56,7 +57,12 @@ def decode(text: bytes) -> bytes:
         raise FormatError(Reason.ARMOR_LINE_ENDINGS, "Stray carriage return.")
     if text.endswith(b"\n"):
         text = text[:-1]
-    lines = text.split(b"\n")
+    return text.split(b"\n")
+
+
+def decode(text: bytes) -> bytes:
+    """Decode an armoured file strictly, returning the binary SSC file."""
+    lines = split_lines(text)
     if (
         len(lines) < 3
         or lines[0] != BEGIN
