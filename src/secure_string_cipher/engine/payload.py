@@ -68,6 +68,16 @@ def read_exactly(source: Readable, size: int) -> bytes:
     return b"".join(parts)
 
 
+def write_all(sink: Writable, data: bytes) -> None:
+    """Write all of `data`, since a raw stream may accept only part of it."""
+    view = memoryview(data)
+    while view:
+        written = sink.write(bytes(view))
+        if not written:
+            raise OSError("The output stream accepted no bytes.")
+        view = view[written:]
+
+
 def encrypt(key: bytes, source: Readable, sink: Writable) -> int:
     """Encrypt everything in `source` to `sink`. Returns the plaintext size.
 
@@ -84,7 +94,7 @@ def encrypt(key: bytes, source: Readable, sink: Writable) -> int:
         final = not following
         if index >= MAX_CHUNKS:
             raise ValueError("The payload is too large: at most 2^32 chunks.")
-        sink.write(aead.encrypt(_nonce(index, final), current, None))
+        write_all(sink, aead.encrypt(_nonce(index, final), current, None))
         total += len(current)
         if final:
             return total
@@ -124,7 +134,7 @@ def decrypt(key: bytes, source: Readable, sink: Writable) -> int:
                 Reason.CHUNK_AUTH,
                 "This SSC file is damaged, truncated or has been changed.",
             ) from None
-        sink.write(plaintext)
+        write_all(sink, plaintext)
         total += len(plaintext)
         if final:
             return total

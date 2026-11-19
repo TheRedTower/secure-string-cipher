@@ -38,6 +38,37 @@ class Trickle:
         return self._data.read(min(size, 1000))
 
 
+class ShortWriter:
+    """A sink that accepts at most 3 bytes per write, like a raw stream."""
+
+    def __init__(self) -> None:
+        self.data = bytearray()
+
+    def write(self, data: bytes, /) -> int:
+        self.data += data[:3]
+        return min(len(data), 3)
+
+
+class StuckWriter:
+    def write(self, data: bytes, /) -> int:
+        return 0
+
+
+def test_short_writes_are_completed() -> None:
+    key = bytes(32)
+    plain = bytes(range(256)) * 300
+    sealed = ShortWriter()
+    assert payload.encrypt(key, io.BytesIO(plain), sealed) == len(plain)
+    out = ShortWriter()
+    assert payload.decrypt(key, io.BytesIO(bytes(sealed.data)), out) == len(plain)
+    assert bytes(out.data) == plain
+
+
+def test_a_sink_that_accepts_nothing_raises() -> None:
+    with pytest.raises(OSError):
+        payload.encrypt(bytes(32), io.BytesIO(b"x"), StuckWriter())
+
+
 @pytest.mark.parametrize("size", SIZES)
 def test_round_trip(size: int) -> None:
     data = bytes(i % 256 for i in range(size))
