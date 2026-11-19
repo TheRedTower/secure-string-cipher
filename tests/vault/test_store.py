@@ -339,34 +339,66 @@ _BROAD_SIDS = {
 }
 
 
-def _acl_sids(path: Path) -> set[str]:
-    """The SIDs in a path's ACL, by number so the check does not depend on
-    the language Windows is set to."""
-    import subprocess
+if sys.platform == "win32":
+    import ctypes
+    from ctypes import wintypes
 
-    script = (
-        "(Get-Acl -LiteralPath $env:SSC_ACL_PATH).Access | ForEach-Object "
-        "{ $_.IdentityReference.Translate("
-        "[System.Security.Principal.SecurityIdentifier]).Value }"
-    )
-    result = subprocess.run(
-        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-        capture_output=True,
-        text=True,
-        check=True,
-        env={**os.environ, "SSC_ACL_PATH": str(path)},
-    )
-    return set(result.stdout.split())
+    _advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    _kernel = ctypes.WinDLL("kernel32", use_last_error=True)
 
+    class _ACL(ctypes.Structure):
+        _fields_ = [
+            ("AclRevision", ctypes.c_ubyte),
+            ("Sbz1", ctypes.c_ubyte),
+            ("AclSize", wintypes.WORD),
+            ("AceCount", wintypes.WORD),
+            ("Sbz2", wintypes.WORD),
+        ]
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows ACLs")
-def test_the_vault_is_owner_only_on_windows(tmp_path: Path) -> None:
-    """SSC sets no ACLs itself: the vault inherits its folder's, and the
-    folder it lives in by default is under the user's own profile."""
-    path = tmp_path / "ssc" / "vault.ssc"
-    store.create("pw", path)
-    for target in (path, store.lock_path(path), store.default_path().parent.parent):
-        sids = _acl_sids(target)
-        assert sids, target
-        broad = sorted(_BROAD_SIDS[s] for s in sids & _BROAD_SIDS.keys())
-        assert broad == [], f"{target} is readable by {broad}"
+    def _acl_sids(path: Path) -> set[str]:
+        """The SIDs that an allow entry in a path's ACL names, read with the
+        Win32 API, as strings so the check does not depend on the language
+        Windows is set to."""
+        dacl, descriptor = ctypes.c_void_p(), ctypes.c_void_p()
+        status = _advapi.GetNamedSecurityInfoW(
+            ctypes.c_wchar_p(str(path)),
+            1,  # SE_FILE_OBJECT
+            4,  # DACL_SECURITY_INFORMATION
+            None,
+            None,
+            ctypes.byref(dacl),
+            None,
+            ctypes.byref(descriptor),
+        )
+        assert status == 0, f"GetNamedSecurityInfoW failed with {status}"
+        try:
+            assert dacl.value, f"{path} has no ACL, so everyone has access"
+            sids = set()
+            for index in range(_ACL.from_address(dacl.value).AceCount):
+                ace = ctypes.c_void_p()
+                assert _advapi.GetAce(dacl, index, ctypes.byref(ace))
+                assert ace.value is not None
+                if ctypes.c_ubyte.from_address(ace.value).value != 0:
+                    continue  # only ACCESS_ALLOWED_ACE_TYPE grants access
+                # The SID follows the 4-byte header and the 4-byte mask.
+                text = ctypes.c_wchar_p()
+                assert _advapi.ConvertSidToStringSidW(
+                    ctypes.c_void_p(ace.value + 8), ctypes.byref(text)
+                )
+                assert text.value is not None
+                sids.add(text.value)
+                _kernel.LocalFree(text)
+            return sids
+        finally:
+            _kernel.LocalFree(descriptor)
+
+    def test_the_vault_is_owner_only_on_windows(tmp_path: Path) -> None:
+        """SSC sets no ACLs itself: the vault inherits its folder's, and the
+        folder it lives in by default is under the user's own profile."""
+        path = tmp_path / "ssc" / "vault.ssc"
+        store.create("pw", path)
+        for target in (path, store.lock_path(path), store.default_path().parent.parent):
+            sids = _acl_sids(target)
+            assert sids, target
+            broad = sorted(_BROAD_SIDS[s] for s in sids & _BROAD_SIDS.keys())
+            assert broad == [], f"{target} is readable by {broad}"
