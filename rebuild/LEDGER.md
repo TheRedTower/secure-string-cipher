@@ -124,3 +124,4 @@ entry says which one.
 | #182 | Gate | `ec859b2` test: check the vault is owner-only on Windows by its ACL | `tests/vault/test_store.py`: no Everyone, Authenticated Users, Users or Guests entry on the vault, its lock file or the default data folder |
 | #182 | Gate | `a7fe356` docs(spec): record how SSC keeps files owner-only on Windows | `docs/spec/VAULT.md` section 1, which left this to Phase 3 |
 | #182 | Housekeeping | docs: record the Phase 3 gate in the ledger | This ledger |
+| #182 | Gate, CI fix | `a348917` test: read Windows ACLs through the Win32 API, not PowerShell | `tests/vault/test_store.py`: Windows PowerShell on the runners could not load `Get-Acl` |
