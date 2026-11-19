@@ -126,7 +126,9 @@ def add(ctx: Context, path: Path, spec: str) -> None:
                     )
                 container.rewrite_access(opened, [*grants, new], out)
 
-        fs.write_atomic(path, write, replace=True)
+        late = files.durably(lambda: fs.write_atomic(path, write, replace=True))
+    if late is not None:
+        raise late
 
 
 def remove(ctx: Context, path: Path, grant: str) -> None:
@@ -145,12 +147,14 @@ def remove(ctx: Context, path: Path, grant: str) -> None:
                 del grants[index]
                 container.rewrite_access(opened, grants, out)
 
-        fs.write_atomic(path, write, replace=True)
+        late = files.durably(lambda: fs.write_atomic(path, write, replace=True))
     ctx.prompter.notice(
         f"Removed {grant}. Anyone who already opened this file, or has an old "
         "copy, can still open that copy. To lock them out of this file's future "
         "contents, use ssc access rotate."
     )
+    if late is not None:
+        raise late
 
 
 def apply(ctx: Context, path: Path, profile: str) -> None:
@@ -166,7 +170,9 @@ def apply(ctx: Context, path: Path, profile: str) -> None:
                 grants = [access.new_grant(opened.file_key, f) for f in policy]
                 container.rewrite_access(opened, grants, out)
 
-        fs.write_atomic(path, write, replace=True)
+        late = files.durably(lambda: fs.write_atomic(path, write, replace=True))
+    if late is not None:
+        raise late
 
 
 # --- rotate ------------------------------------------------------------------------
@@ -214,32 +220,25 @@ def _candidates(
     return out
 
 
-def _merge(parts: Sequence[access.Credentials]) -> access.Credentials:
-    return access.Credentials(
-        passwords=[p for c in parts for p in c.passwords],
-        entry_passwords={k: v for c in parts for k, v in c.entry_passwords.items()},
-        keys=[k for c in parts for k in c.keys],
-        recovery_codes=[r for c in parts for r in c.recovery_codes],
-    )
-
-
 def _rebuild(
     opened: container.Opened, grant: access.Grant, creds: access.Credentials
 ) -> list[access.NewFactor] | None:
     """The factors that rebuild `grant`, found by testing each assignment of
-    what was supplied against the grant itself (ACCESS.md section 5)."""
+    what was supplied, factor by factor, against the grant itself (ACCESS.md
+    section 5). Testing the exact assignment matters: two password factors
+    must each be rebuilt with the password that filled that factor."""
     if grant.factors is None:
         return None
     header = opened.header
     options = [_candidates(f, creds) for f in grant.factors]
     for choice in itertools.product(*options):
         try:
-            access.open_grant(
-                [grant],
+            access.open_assigned(
+                grant,
+                [c[0] for c in choice],
                 header.fixed.to_bytes(),
                 header.access_body,
                 header.access_mac,
-                _merge([c[0] for c in choice]),
             )
         except CannotOpen:
             continue
@@ -281,5 +280,7 @@ def rotate(ctx: Context, path: Path, *, force: bool = False) -> None:
                 plaintext = payload.ChunkReader(payload.chunks(old, opened.payload))
                 container.encrypt(plaintext, out, policy, armored=opened.armored)
 
-        fs.write_atomic(path, write, replace=True)
+        late = files.durably(lambda: fs.write_atomic(path, write, replace=True))
     ctx.prompter.notice("Rotated. Old copies of this file still open as they did.")
+    if late is not None:
+        raise late

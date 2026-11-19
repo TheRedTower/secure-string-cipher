@@ -38,12 +38,28 @@ def _refuse_existing(output: Output, force: bool) -> None:
         raise FileExistsError(f"{output} already exists. Use --force to replace it.")
 
 
-def _write(output: Output, force: bool, write: Callable[[BinaryIO], object]) -> None:
+def _write(
+    output: Output, force: bool, write: Callable[[BinaryIO], object]
+) -> fs.NotDurable | None:
+    """Write the output. A folder sync that failed after the rename is
+    returned, not raised: the file is in place, so the vault session around
+    the write must still commit, and the caller raises it afterwards."""
     if isinstance(output, Path):
         _refuse_existing(output, force)
-        fs.write_atomic(output, write, replace=force)
-    else:
-        write(output)
+        return durably(lambda: fs.write_atomic(output, write, replace=force))
+    write(output)
+    return None
+
+
+def durably(commit: Callable[[], object]) -> fs.NotDurable | None:
+    """Run a write whose rename is its commit point, returning the
+    `NotDurable` it raised, if any, for the caller to raise once the vault
+    has been saved too."""
+    try:
+        commit()
+    except fs.NotDurable as late:
+        return late
+    return None
 
 
 def _release(held: tempfile.SpooledTemporaryFile[bytes], sink: BinaryIO) -> None:
@@ -184,7 +200,9 @@ def encrypt(
             nonlocal size
             size = container.encrypt(source, out, chosen, armored=armored)
 
-        _write(output, force, write)
+        late = _write(output, force, write)
+    if late is not None:
+        raise late
     return size
 
 
@@ -230,8 +248,10 @@ class Opener:
                 self.session = self.stack.enter_context(
                     vaults.edit(self.ctx, ask=False)
                 )
-            except VaultError:
-                self.session = None  # locked: the master password is an option
+            except (VaultError, CannotOpen):
+                # Locked, or a supplied master password is wrong: the file
+                # may open another way, and asking stays an option.
+                self.session = None
 
     def credentials(self) -> access.Credentials:
         vault = (
@@ -275,7 +295,10 @@ class Opener:
 
     def unlock_vault(self) -> None:
         self.asked_master = True
-        self.session = self.stack.enter_context(vaults.edit(self.ctx))
+        try:
+            self.session = self.stack.enter_context(vaults.edit(self.ctx))
+        except CannotOpen:
+            self.ctx.prompter.notice("That master password did not open the vault.")
 
     def ask_password(self) -> None:
         self.asked_passwords += 1
@@ -304,9 +327,44 @@ class Opener:
         """Record `decrypt` with the vault entry the opening grant used."""
         if self.session is None:
             return
-        entry = _entry_in(self.session.document, self.header.grants[index])
+        grant = self.header.grants[index]
+        entry = _entry_in(self.session.document, grant) or self._recovery_in(grant)
         if entry is not None:
             self.session.record("decrypt", entry.id)
+
+    def _recovery_in(self, grant: access.Grant) -> doc.Entry | None:
+        """The vault recovery entry that filled `grant`'s recovery factor,
+        found by opening the grant again with only that entry's code."""
+        assert self.session is not None
+        if not any(f.kind == access.RECOVERY for f in grant.factors or ()):
+            return None
+        creds = self.credentials()
+        header = self.header
+        for entry in self.session.document.entries:
+            if (
+                entry.kind != "recovery"
+                or entry.status == "revoked"
+                or not isinstance(entry.secret, bytes)
+            ):
+                continue
+            only = access.Credentials(
+                passwords=creds.passwords,
+                entry_passwords=creds.entry_passwords,
+                keys=creds.keys,
+                recovery_codes=[entry.secret],
+            )
+            try:
+                access.open_grant(
+                    [grant],
+                    header.fixed.to_bytes(),
+                    header.access_body,
+                    header.access_mac,
+                    only,
+                )
+            except CannotOpen:
+                continue
+            return entry
+        return None
 
 
 def _entry_in(document: doc.Document, grant: access.Grant) -> doc.Entry | None:
@@ -340,13 +398,14 @@ def decrypt(
         file_key, index = opener.open()
         key = payload.payload_key(file_key, header.fixed)
         size = 0
+        late = None
         if isinstance(output, Path):
 
             def write(out: BinaryIO) -> None:
                 nonlocal size
                 size = payload.decrypt(key, stream, out)
 
-            _write(output, force, write)
+            late = _write(output, force, write)
         else:
             # Held back until authenticated: in memory up to 64 MiB, then in
             # an owner-only temporary file the OS deletes when it is closed.
@@ -354,4 +413,6 @@ def decrypt(
                 size = payload.decrypt(key, stream, held)
                 _release(held, output)
         opener.record(index)
+    if late is not None:
+        raise late
     return size

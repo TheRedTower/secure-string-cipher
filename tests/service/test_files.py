@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from secure_string_cipher import fs
 from secure_string_cipher.engine import armor, recovery
 from secure_string_cipher.errors import CannotOpen, FormatError, InputError
 from secure_string_cipher.service import files, keys, profile_ops, vaults
@@ -254,3 +255,53 @@ def test_large_output_is_spooled_until_authenticated(
     out = io.BytesIO()
     files.decrypt(ctx, io.BytesIO(sealed.getvalue()), out)
     assert out.getvalue() == PLAIN
+
+
+def test_a_late_sync_failure_keeps_the_new_recovery_entry(
+    ctx: Context, prompter: Prompter, report: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The output is in place when its folder fails to sync, so the vault
+    entry made for it is saved and its code shown before the error."""
+    with_vault(ctx, prompter)
+    real = fs.write_atomic
+
+    def not_durable(path: Path, *args: object, **kwargs: object) -> None:
+        real(path, *args, **kwargs)  # type: ignore[arg-type]
+        if path.name == "report.txt.ssc":
+            raise fs.NotDurable("folder not synced")
+
+    monkeypatch.setattr(fs, "write_atomic", not_durable)
+    prompter.new_passwords.append(PASSWORD)
+    with pytest.raises(fs.NotDurable):
+        encrypt(ctx, report, Choice(grant_specs=["password"], recovery_code=True))
+    monkeypatch.setattr(fs, "write_atomic", real)
+    assert [title for title, _ in prompter.shown] == ['Recovery code "recovery"']
+    assert [e.kind for e in vaults.list_entries(ctx)] == ["recovery"]
+    assert decrypt(ctx, report.with_name("report.txt.ssc")) == PLAIN
+
+
+def test_a_wrong_master_password_does_not_stop_a_key_file(
+    ctx: Context, prompter: Prompter, report: Path, tmp_path: Path
+) -> None:
+    with_vault(ctx, prompter)
+    key = tmp_path / "usb.ssckey"
+    keys.new(key)
+    out = encrypt(ctx, report, Choice(grant_specs=[f"keyfile:{key}"]))
+    ctx.use_keychain = False
+    ctx.master_password = "not the master password"
+    ctx.key_files = [key]
+    assert decrypt(ctx, out) == PLAIN
+
+
+def test_history_records_a_recovery_entry_used_to_decrypt(
+    ctx: Context, prompter: Prompter, report: Path
+) -> None:
+    with_vault(ctx, prompter)
+    vaults.history_on(ctx)
+    prompter.new_passwords.append(PASSWORD)
+    out = encrypt(ctx, report, Choice(grant_specs=["password"], recovery_code=True))
+    (entry,) = vaults.list_entries(ctx)
+    assert decrypt(ctx, out) == PLAIN  # by the vault's recovery code
+    shown = vaults.history_show(ctx)
+    assert shown is not None
+    assert ("decrypt", entry.id) in [(e.action, e.entry) for e in shown.events]

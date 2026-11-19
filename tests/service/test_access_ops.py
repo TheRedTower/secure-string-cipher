@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from secure_string_cipher import fs
 from secure_string_cipher.engine import keyfile
 from secure_string_cipher.errors import CannotOpen, InputError
 from secure_string_cipher.service import access_ops, files, keys, profile_ops, vaults
@@ -146,4 +147,38 @@ def test_apply_replaces_the_grants(
     access_ops.apply(ctx, keyed, "work-only")
     assert access_ops.show(ctx, keyed) == ['g1: vault entry "work"']
     ctx.key_files, ctx.passwords = [], []
+    assert opens(ctx, keyed)
+
+
+def test_rotate_keeps_each_password_with_its_own_factor(
+    ctx: Context, prompter: Prompter, tmp_path: Path
+) -> None:
+    """Passwords supplied in the other order must not be swapped between a
+    grant's two factors when it is rebuilt."""
+    prompter.new_masters.append(MASTER)
+    vaults.init(ctx)
+    vaults.add_password(ctx, "a", PASSWORD)
+    vaults.add_password(ctx, "b", OTHER)
+    out = sealed(ctx, tmp_path, Choice(grant_specs=["vault:a+vault:b"]))
+    ctx.use_keychain = False
+    ctx.passwords = [OTHER, PASSWORD]  # typed, vault locked, reversed
+    access_ops.rotate(ctx, out)
+    ctx.use_keychain = True
+    ctx.passwords = []
+    assert opens(ctx, out)  # through the vault entries alone
+
+
+def test_a_late_sync_failure_still_reports_after_writing(
+    ctx: Context, keyed: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = fs.write_atomic
+
+    def not_durable(path: Path, *args: object, **kwargs: object) -> None:
+        real(path, *args, **kwargs)  # type: ignore[arg-type]
+        raise fs.NotDurable("folder not synced")
+
+    monkeypatch.setattr(fs, "write_atomic", not_durable)
+    with pytest.raises(fs.NotDurable):
+        access_ops.rotate(ctx, keyed)
+    monkeypatch.setattr(fs, "write_atomic", real)
     assert opens(ctx, keyed)
