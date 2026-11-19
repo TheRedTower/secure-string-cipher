@@ -103,6 +103,7 @@ def add(ctx: Context, path: Path, spec: str) -> None:
     """`ssc access add <file> --grant <spec>`. Only someone who can open the
     file can add a way in."""
     tokens = specs.parse_grant(spec)
+    saved: fs.NotDurable | None = None
     with ExitStack() as stack:
 
         def write(out: BinaryIO) -> None:
@@ -114,6 +115,8 @@ def add(ctx: Context, path: Path, spec: str) -> None:
                 build = files.Builder(ctx, stack, opener.session)
                 factors = build.policy([tokens])[0]
                 files.check_policy([factors])
+                nonlocal saved
+                saved = build.save_new_entries()  # before the file is published
                 new = access.new_grant(opened.file_key, factors)
                 assert new.factors is not None
                 if _only_passwords(new.factors) and any(
@@ -126,8 +129,9 @@ def add(ctx: Context, path: Path, spec: str) -> None:
                 container.rewrite_access(opened, [*grants, new], out)
 
         late = files.durably(lambda: fs.write_atomic(path, write, replace=True))
-    if late is not None:
-        raise late
+    failure = late or saved
+    if failure is not None:
+        raise failure
 
 
 def remove(ctx: Context, path: Path, grant: str) -> None:

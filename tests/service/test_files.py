@@ -305,3 +305,45 @@ def test_history_records_a_recovery_entry_used_to_decrypt(
     shown = vaults.history_show(ctx)
     assert shown is not None
     assert ("decrypt", entry.id) in [(e.action, e.entry) for e in shown.events]
+
+
+def test_no_output_if_the_new_recovery_entry_is_not_saved(
+    ctx: Context, prompter: Prompter, report: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The vault is saved before the output is published, so a file that
+    only a new recovery code opens never outlives that code."""
+    with_vault(ctx, prompter)
+    real = fs.write_atomic
+
+    def vault_full(path: Path, *args: object, **kwargs: object) -> None:
+        if path == ctx.vault_path:
+            raise OSError(28, "No space left on device")
+        real(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(fs, "write_atomic", vault_full)
+    with pytest.raises(OSError):
+        encrypt(ctx, report, Choice(grant_specs=["recovery"]))
+    monkeypatch.setattr(fs, "write_atomic", real)
+    assert not report.with_name("report.txt.ssc").exists()
+    assert prompter.shown == []
+    assert vaults.list_entries(ctx) == ()
+
+
+def test_an_unused_recovery_entry_is_kept_if_the_output_fails(
+    ctx: Context, prompter: Prompter, report: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with_vault(ctx, prompter)
+    real = fs.write_atomic
+
+    def output_fails(path: Path, *args: object, **kwargs: object) -> None:
+        if path.name == "report.txt.ssc":
+            raise OSError(28, "No space left on device")
+        real(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(fs, "write_atomic", output_fails)
+    with pytest.raises(OSError):
+        encrypt(ctx, report, Choice(grant_specs=["recovery"]))
+    monkeypatch.setattr(fs, "write_atomic", real)
+    assert not report.with_name("report.txt.ssc").exists()
+    assert [e.kind for e in vaults.list_entries(ctx)] == ["recovery"]
+    assert len(prompter.shown) == 1

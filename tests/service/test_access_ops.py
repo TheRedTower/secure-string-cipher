@@ -182,3 +182,27 @@ def test_a_late_sync_failure_still_reports_after_writing(
         access_ops.rotate(ctx, keyed)
     monkeypatch.setattr(fs, "write_atomic", real)
     assert opens(ctx, keyed)
+
+
+def test_adding_a_recovery_grant_saves_the_vault_first(
+    ctx: Context, prompter: Prompter, keyed: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prompter.new_masters.append(MASTER)
+    vaults.init(ctx)
+    before = keyed.read_bytes()
+    real = fs.write_atomic
+
+    def vault_full(path: Path, *args: object, **kwargs: object) -> None:
+        if path == ctx.vault_path:
+            raise OSError(28, "No space left on device")
+        real(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(fs, "write_atomic", vault_full)
+    with pytest.raises(OSError):
+        access_ops.add(ctx, keyed, "recovery")
+    monkeypatch.setattr(fs, "write_atomic", real)
+    assert keyed.read_bytes() == before
+    assert prompter.shown == []
+    access_ops.add(ctx, keyed, "recovery")
+    assert len(access_ops.show(ctx, keyed)) == 2
+    assert len(prompter.shown) == 1

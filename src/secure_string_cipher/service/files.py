@@ -81,6 +81,7 @@ class Builder:
     ctx: Context
     stack: ExitStack
     session: store.Session | None = None
+    created: bool = False  # a new vault entry the output will depend on
 
     def vault(self) -> store.Session:
         if self.session is None:
@@ -98,11 +99,20 @@ class Builder:
         if token.kind == "recovery":
             session.document, entry, created = entries.choose_recovery(session.document)
             if created:
+                self.created = True
                 vaults.show_recovery_after_write(self.ctx, session, entry)
         else:
             entry = entries.find(session.document, token.value)
         session.record("encrypt", entry.id)
         return entries.factor(session.document, entry.label)
+
+    def save_new_entries(self) -> fs.NotDurable | None:
+        """Write the vault now if it holds a new entry the output depends
+        on, so no output is published that only a lost entry could open.
+        This ends the vault session; nothing more is recorded in it."""
+        if not self.created:
+            return None
+        return durably(self.stack.close)
 
     def policy(
         self, grants: Sequence[Sequence[specs.Token]]
@@ -140,8 +150,10 @@ def policy(
     ctx: Context, choice: Choice, settings_path: Path | None = None
 ) -> Iterator[list[list[access.NewFactor]]]:
     """The grants a new file gets. The vault, if used, stays open and locked
-    until the block ends, so a new recovery entry or history event is saved
-    only if the block succeeds."""
+    until the block ends, so a history event is saved only if the block
+    succeeds. A new recovery entry is the exception: the vault is saved, and
+    its code shown, before the block runs, since an output that only a lost
+    entry could open is worse than an unused entry."""
     picked = [x for x in (choice.grant_specs, choice.vault_label, choice.profile) if x]
     if len(picked) > 1:
         raise InputError("Use only one of --profile, --vault and --grant.")
@@ -165,7 +177,10 @@ def policy(
             raise InputError(f"A file has at most {access.MAX_GRANTS} grants.")
         result += build.policy(tokens)
         check_policy(result)
+        late = build.save_new_entries()
         yield result
+        if late is not None:
+            raise late
 
 
 def check_policy(policy: Sequence[Sequence[access.NewFactor]]) -> None:
