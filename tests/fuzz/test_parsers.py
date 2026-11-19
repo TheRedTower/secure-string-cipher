@@ -1,5 +1,5 @@
-"""Fuzzing of the header, access-block, armour and key-file parsers
-(Phase 2, step 5).
+"""Fuzzing of the header, access-block, armour, key-file and vault-document
+parsers (Phase 2, step 5; the vault document from Phase 3, step 1).
 
 Each parser must, for any input, either accept it or raise FormatError,
 never anything else. What a parser accepts must also be canonical: encoding
@@ -14,6 +14,7 @@ CI runs a fixed, derandomised set of examples. For a deeper random run:
 from __future__ import annotations
 
 import io
+import json
 import os
 import struct
 
@@ -23,6 +24,7 @@ from hypothesis import strategies as st
 from secure_string_cipher.engine import access, armor, container, keyfile, payload
 from secure_string_cipher.engine.header import MAGIC, VERSION, FixedHeader
 from secure_string_cipher.errors import FormatError, SSCError
+from secure_string_cipher.vault import document
 from tests import vectorkit
 
 _DEEP = int(os.environ.get("SSC_FUZZ_EXAMPLES", "0"))
@@ -218,3 +220,21 @@ def test_keyfile(text: bytes) -> None:
     if not canonical.endswith(b"\n"):
         canonical += b"\n"
     assert parsed.to_bytes() == canonical
+
+
+_VAULT_DOCUMENT = json.dumps(
+    vectorkit.manifest()["vault"]["document"],
+    sort_keys=True,
+    separators=(",", ":"),
+    ensure_ascii=False,
+).encode()
+
+
+@fuzz
+@given(st.one_of(mutated(_VAULT_DOCUMENT), st.binary(max_size=300)))
+def test_vault_document(data: bytes) -> None:
+    try:
+        parsed = document.parse(data)
+    except FormatError:
+        return
+    assert document.encode(parsed) == data

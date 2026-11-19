@@ -10,12 +10,12 @@ import binascii
 import errno
 import os
 import re
-import secrets
 import stat
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from secure_string_cipher import fs
 from secure_string_cipher.engine import access, armor
 from secure_string_cipher.errors import FormatError, Reason
 
@@ -46,7 +46,7 @@ class KeyFile:
     def __post_init__(self) -> None:
         if not LABEL.fullmatch(self.label):
             raise ValueError(f"Not a valid label: {self.label!r}")
-        if not _valid_created(self.created):
+        if not valid_timestamp(self.created):
             raise ValueError(f"Not a valid timestamp: {self.created!r}")
         if len(self.key) != access.KEY_SIZE:
             raise ValueError(f"A key must be {access.KEY_SIZE} bytes.")
@@ -72,7 +72,8 @@ class KeyFile:
         )
 
 
-def _valid_created(text: str) -> bool:
+def valid_timestamp(text: str) -> bool:
+    """Whether `text` is a real time in the entry timestamp form."""
     if not CREATED.fullmatch(text):
         return False
     try:
@@ -126,7 +127,7 @@ def parse(data: bytes) -> KeyFile:
     key = _key(lines[4])
     if not LABEL.fullmatch(label):
         raise _bad("The label is not valid.")
-    if not _valid_created(created):
+    if not valid_timestamp(created):
         raise _bad("The Created timestamp is not valid.")
     if not re.fullmatch(r"[0-9a-f]{32}", key_id_text):
         raise _bad("The Key-ID is not 32 lowercase hex characters.")
@@ -214,30 +215,11 @@ def read(path: str | os.PathLike[str]) -> KeyFile:
     return parse(data)
 
 
-def _publish(temp: Path, path: Path) -> None:
-    """Move `temp` to `path` atomically, never replacing an existing file."""
-    if os.name == "nt":
-        os.rename(temp, path)  # Windows rename never replaces a file
-        return
-    os.link(temp, path)  # fails with FileExistsError if `path` exists
-    os.unlink(temp)
-
-
 def write(path: str | os.PathLike[str], keyfile: KeyFile) -> None:
     """Write a new key file, owner-only. It never replaces an existing file,
-    and a failed write leaves nothing at `path` (FORMAT.md section 7.5)."""
+    and a failed write leaves nothing at `path` (FORMAT.md section 7.5),
+    except fs.NotDurable, which means the file was written."""
     path = Path(path)
     if os.path.lexists(path):
         raise FileExistsError(errno.EEXIST, "A file is already there", str(path))
-    temp = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | _BINARY
-    fd = os.open(temp, flags, 0o600)
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(keyfile.to_bytes())
-            handle.flush()
-            os.fsync(handle.fileno())
-        _publish(temp, path)
-    except BaseException:
-        temp.unlink(missing_ok=True)
-        raise
+    fs.write_atomic(path, lambda out: out.write(keyfile.to_bytes()), replace=False)
