@@ -32,6 +32,9 @@ classifiers = [
     "Typing :: Typed",
 ]
 
+[project.scripts]
+ssc = "secure_string_cipher.cli:main"
+
 [project.urls]
 Repository = "https://github.com/TheRedTower/secure-string-cipher"
 
