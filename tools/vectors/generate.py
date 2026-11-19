@@ -491,6 +491,7 @@ def main() -> None:
                 "sha256": hashlib.sha256(data).hexdigest(),
                 "reason": reason,
                 "open_with": creds_json(creds),
+                "random": hexd(file_key=fk, payload_nonce=nonce),
                 "note": note,
             }
         )

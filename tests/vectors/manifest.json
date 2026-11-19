@@ -292,6 +292,10 @@
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
       },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
+      },
       "note": "Magic changed."
     },
     {
@@ -303,6 +307,10 @@
         "keys": [
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
       },
       "note": "Version 2."
     },
@@ -316,6 +324,10 @@
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
       },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
+      },
       "note": ""
     },
     {
@@ -327,6 +339,10 @@
         "keys": [
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
       },
       "note": "65,537 bytes."
     },
@@ -340,6 +356,10 @@
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
       },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
+      },
       "note": "First bit of access_mac flipped."
     },
     {
@@ -351,6 +371,10 @@
         "keys": [
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
       },
       "note": "First bit of payload_nonce flipped; the MAC covers the fixed header."
     },
@@ -364,6 +388,10 @@
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
       },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
+      },
       "note": "Final chunk removed."
     },
     {
@@ -375,6 +403,10 @@
         "keys": [
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
       },
       "note": "One byte appended."
     },
@@ -388,6 +420,10 @@
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
       },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
+      },
       "note": "65,536 bytes written as a full chunk plus an empty final chunk."
     },
     {
@@ -400,6 +436,10 @@
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
       },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
+      },
       "note": ""
     },
     {
@@ -411,6 +451,10 @@
         "keys": [
           "d4ba4f8a39eb21678ce4c75ecd8ca999371d4ae52ed22319328d0e53b941022b"
         ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
       },
       "note": ""
     },
@@ -427,6 +471,10 @@
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
       },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
+      },
       "note": "Key factor before password factor."
     },
     {
@@ -438,6 +486,10 @@
         "keys": [
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
       },
       "note": ""
     },
@@ -451,6 +503,10 @@
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
       },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
+      },
       "note": ""
     },
     {
@@ -462,6 +518,10 @@
         "passwords": [
           "correct horse battery staple"
         ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
       },
       "note": "m_kib = 32768."
     },
@@ -475,6 +535,10 @@
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
       },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
+      },
       "note": ""
     },
     {
@@ -486,6 +550,10 @@
         "keys": [
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
       },
       "note": ""
     },
@@ -499,6 +567,10 @@
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
       },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
+      },
       "note": "grant_length one too big, padded so the body length still fits."
     },
     {
@@ -510,6 +582,10 @@
         "keys": [
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
       },
       "note": "One extra byte after the last grant."
     },
@@ -523,6 +599,10 @@
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
       },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
+      },
       "note": ""
     },
     {
@@ -534,6 +614,10 @@
         "keys": [
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
       },
       "note": ""
     },
@@ -547,6 +631,10 @@
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
       },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
+      },
       "note": ""
     },
     {
@@ -558,6 +646,10 @@
         "keys": [
           "f8524c1e4c4d893f2adb3f4ddbdb56fdef240b55cbdd62319691d484a78aaacc"
         ]
+      },
+      "random": {
+        "file_key": "4ca7e44c2c1f7a141f13ecac4371d5e865cf04d4e9ef971668b0bde20edb97ad",
+        "payload_nonce": "7af6eb2e43a86adc75b6868dc279286b"
       },
       "note": "The lowest unused bit of the last Base64 character set."
     }
