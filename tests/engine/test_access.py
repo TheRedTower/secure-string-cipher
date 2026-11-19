@@ -137,6 +137,40 @@ def test_two_factor_grant_needs_both(
         open_with([grant], passwords=["hunter2"])
 
 
+def test_find_assignment_holds_each_secret_to_its_factor(
+    pw: access.NewFactor, pw2: access.NewFactor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    grant = access.new_grant(FILE_KEY, [pw, pw2])
+    body, mac = body_and_mac(grant)
+    (parsed,) = access.parse_access_body(body)
+    assert parsed.factors is not None
+    first = [f.encoding for f in parsed.factors].index(pw.factor.encoding)
+    typed = ["second", "nope", "hunter2"]
+    each = [access.Credentials(passwords=[p]) for p in typed]
+    real = access.password_secret
+    runs: list[tuple[str, bytes]] = []
+
+    def counted(password: str, salt: bytes) -> bytes:
+        runs.append((password, salt))
+        return real(password, salt)
+
+    monkeypatch.setattr(access, "password_secret", counted)
+    picked = access.find_assignment(parsed, [each, each], HEADER, body, mac)
+    assert typed[picked[first]] == "hunter2"
+    assert typed[picked[1 - first]] == "second"
+    assert len(runs) == len(set(runs))  # each password and salt pair once
+    with pytest.raises(CannotOpen):  # the right secrets, but swapped
+        access.find_assignment(
+            parsed,
+            [[each[2 if first else 0]], [each[0 if first else 2]]],
+            HEADER,
+            body,
+            mac,
+        )
+    with pytest.raises(CannotOpen):  # one list per factor, or nothing
+        access.find_assignment(parsed, [each], HEADER, body, mac)
+
+
 def test_mistyped_then_correct_password(pw: access.NewFactor) -> None:
     grant = access.new_grant(FILE_KEY, [pw])
     assert open_with([grant], passwords=["hunter3", "hunter2"]) == FILE_KEY

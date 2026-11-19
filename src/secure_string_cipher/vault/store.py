@@ -63,7 +63,9 @@ def _require(path: Path) -> None:
 
 
 @contextmanager
-def _locked(path: Path) -> Iterator[None]:
+def locked(path: Path) -> Iterator[None]:
+    """Hold the vault's lock, or fail with a VaultError if another ssc
+    process holds it past the timeout."""
     try:
         with fs.locked(lock_path(path), timeout=LOCK_TIMEOUT):
             yield
@@ -112,7 +114,7 @@ def create(
     file_key = secrets.token_bytes(payload.FILE_KEY_SIZE)
     grants = [_master_grant(file_key, master_password)]
     fs.private_dir(path.parent)
-    with _locked(path):
+    with locked(path):
         if os.path.lexists(path):
             raise VaultError(f"There is already a vault at {path}.")
         fs.write_atomic(
@@ -284,7 +286,7 @@ def load(credentials: access.Credentials, path: Path | None = None) -> doc.Docum
     """Open the vault and return its document."""
     path = default_path() if path is None else path
     _require(path)
-    with _locked(path):
+    with locked(path):
         return _read(path, credentials).document
 
 
@@ -296,7 +298,7 @@ def edit(
     ends without an error, and left untouched if it raises."""
     path = default_path() if path is None else path
     _require(path)
-    with _locked(path):
+    with locked(path):
         session = _read(path, credentials)
         try:
             yield session

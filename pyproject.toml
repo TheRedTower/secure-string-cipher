@@ -16,6 +16,7 @@ dependencies = [
     "cryptography==50.0.2",
     "keyring==25.7.0",
     "platformdirs==4.14.5",
+    "zxcvbn==4.5.0",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -75,3 +76,8 @@ testpaths = ["tests"]
 addopts = ["-ra", "--strict-markers", "--strict-config"]
 xfail_strict = true
 filterwarnings = ["error"]
+
+[[tool.mypy.overrides]]
+# zxcvbn ships no type information.
+module = ["zxcvbn"]
+ignore_missing_imports = true

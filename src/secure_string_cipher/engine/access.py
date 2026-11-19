@@ -357,17 +357,19 @@ def _combinations(
         yield [derive() for derive in choice]
 
 
-def open_file_key(
+def open_grant(
     grants: Sequence[Grant],
     fixed_header: bytes,
     access_body: bytes,
     mac: bytes,
     credentials: Credentials,
-) -> bytes:
+) -> tuple[bytes, int]:
     """Recover the file key from the first grant that the credentials open
-    and that the access MAC confirms (ACCESS.md section 4)."""
+    and that the access MAC confirms (ACCESS.md section 4), and that grant's
+    index. The index is for the caller's own bookkeeping, such as history;
+    a failure still says nothing about which grant or factor was wrong."""
     cache = _SecretCache()
-    for grant in grants:
+    for index, grant in enumerate(grants):
         if grant.factors is None:
             continue
         for factor_secrets in _combinations(grant.factors, credentials, cache):
@@ -378,5 +380,51 @@ def open_file_key(
                 continue
             expected = access_mac(candidate, fixed_header, access_body)
             if hmac.compare_digest(expected, mac):
-                return candidate
+                return candidate, index
     raise CannotOpen()
+
+
+def find_assignment(
+    grant: Grant,
+    candidates: Sequence[Sequence[Credentials]],
+    fixed_header: bytes,
+    access_body: bytes,
+    mac: bytes,
+) -> tuple[int, ...]:
+    """Which of `candidates[i]` fills factor `i` of `grant`: the index of
+    each, for the first assignment that opens the grant and passes the
+    access MAC.
+
+    Unlike `open_grant`, which tries every supplied password against every
+    password factor, this proves which secret fills which factor, so a
+    caller can rebuild the grant faithfully (rotation). One cache serves
+    the whole search, so each password and salt pair costs one Argon2id
+    run however many assignments are tried.
+    """
+    if grant.factors is None or len(candidates) != len(grant.factors):
+        raise CannotOpen()
+    cache = _SecretCache()
+    options = [
+        [(j, derive) for j, c in enumerate(cs) for derive in _options(f, c, cache)]
+        for f, cs in zip(grant.factors, candidates, strict=True)
+    ]
+    for choice in itertools.product(*options):
+        kek = _kek([derive() for _, derive in choice], grant.salt, grant.descriptor)
+        try:
+            candidate = AESGCM(kek).decrypt(_ZERO_NONCE, grant.wrapped_key, None)
+        except InvalidTag:
+            continue
+        if hmac.compare_digest(access_mac(candidate, fixed_header, access_body), mac):
+            return tuple(j for j, _ in choice)
+    raise CannotOpen()
+
+
+def open_file_key(
+    grants: Sequence[Grant],
+    fixed_header: bytes,
+    access_body: bytes,
+    mac: bytes,
+    credentials: Credentials,
+) -> bytes:
+    """`open_grant`, for callers that need only the file key."""
+    return open_grant(grants, fixed_header, access_body, mac, credentials)[0]
