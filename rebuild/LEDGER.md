@@ -148,3 +148,9 @@ entry says which one.
 | #184 | Step 2 | `5dea3d4` test(cli): every command end to end, in-process | `tests/cli/`, with a scripted terminal and an in-memory keychain |
 | #184 | Housekeeping | docs: record Phase 4, step 2 in the ledger | This ledger |
 | #184 | Review fix | `2fb1d78` fix(cli): rotating after a revoke drops every grant the entry is in | `service/access_ops.py` (`rotate(without=)`) and `vaults.grant_uses`, for Codex's finding that a supplied copy of a revoked key survived the offered rotation |
+| #185 | Step 3 | `5b1484e` build: add questionary 2.1.1 for the interactive mode | `pyproject.toml` and `uv.lock`: `questionary==2.1.1`, with `prompt-toolkit==3.0.53` and `wcwidth==0.9.4` as constraints |
+| #185 | Step 3 | `c33d9c5` feat(service): what the interactive mode needs from the service layer | `service/files.py` (`open_file`, `write_plaintext`, `Opening`), `passwords.py` (`is_weak`, `WEAK`), `vaults.py` (`peek`, moved from `access_ops`, and `this_device`) |
+| #185 | Step 3 | `19ea6d0` feat(interactive): the guided flow, as CLI.md section 4 says | `interactive/` (`ui` with the `Ui` protocol and `QuestionaryUi`, `prompter`, `flow`) and `cli/main.py`, which opens the flow for `ssc` with no arguments in a terminal |
+| #185 | Step 3 | `bcac053` test(interactive): every screen end to end, and questionary's Ui | `tests/interactive/`: every screen with a scripted Ui, and `QuestionaryUi` through a prompt_toolkit pipe |
+| #185 | Step 3 | `8306ae2` docs(spec): confirm questionary for the interactive mode | `docs/spec/CLI.md` section 4: questionary confirmed |
+| #185 | Housekeeping | docs: record Phase 4, step 3 in the ledger | This ledger |
