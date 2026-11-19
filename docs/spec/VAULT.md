@@ -22,8 +22,10 @@ inside its payload (section 3).
 | Settings | The OS's standard config folder, from `platformdirs.user_config_dir("ssc")`. No secrets |
 
 Everything SSC writes is owner-only: mode `0600` for files and `0700` for
-folders on Linux and macOS. The Windows equivalent is decided and tested in
-Phase 3. Every write goes to a temporary file in the same folder that is
+folders on Linux and macOS. On Windows, SSC sets no ACLs of its own: what it
+writes inherits the ACL of its folder, and the vault's default folder is
+under the user's own profile, which grants access only to that user, SYSTEM
+and Administrators. A test checks this on Windows (decided in Phase 3). Every write goes to a temporary file in the same folder that is
 renamed into place (FORMAT.md section 7.5). Writers hold a lock file
 (`vault.ssc.lock`) for the whole read, modify and write, so that two `ssc`
 processes cannot lose each other's changes.
