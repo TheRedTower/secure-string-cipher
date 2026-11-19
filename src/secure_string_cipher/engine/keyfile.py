@@ -10,6 +10,7 @@ import binascii
 import errno
 import os
 import re
+import secrets
 import stat
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -213,9 +214,30 @@ def read(path: str | os.PathLike[str]) -> KeyFile:
     return parse(data)
 
 
+def _publish(temp: Path, path: Path) -> None:
+    """Move `temp` to `path` atomically, never replacing an existing file."""
+    if os.name == "nt":
+        os.rename(temp, path)  # Windows rename never replaces a file
+        return
+    os.link(temp, path)  # fails with FileExistsError if `path` exists
+    os.unlink(temp)
+
+
 def write(path: str | os.PathLike[str], keyfile: KeyFile) -> None:
-    """Write a new key file, owner-only. It never replaces an existing file."""
+    """Write a new key file, owner-only. It never replaces an existing file,
+    and a failed write leaves nothing at `path` (FORMAT.md section 7.5)."""
+    path = Path(path)
+    if os.path.lexists(path):
+        raise FileExistsError(errno.EEXIST, "A file is already there", str(path))
+    temp = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | _BINARY
-    fd = os.open(Path(path), flags, 0o600)
-    with os.fdopen(fd, "wb") as handle:
-        handle.write(keyfile.to_bytes())
+    fd = os.open(temp, flags, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(keyfile.to_bytes())
+            handle.flush()
+            os.fsync(handle.fileno())
+        _publish(temp, path)
+    except BaseException:
+        temp.unlink(missing_ok=True)
+        raise
