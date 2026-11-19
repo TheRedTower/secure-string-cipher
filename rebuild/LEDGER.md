@@ -91,3 +91,13 @@ entry says which one.
 | #176 | Gate | `58299e6` test: unit tests for the recovery code factor | `tests/engine/test_access.py` |
 | #176 | Housekeeping | docs: record the Phase 2 gate in the ledger | This ledger |
 
+
+### Phase 3: the vault
+
+| PR | Brief step | Commit | What it added or changed |
+| --- | --- | --- | --- |
+| #177 | Step 1 | `1597cf5` refactor: share safe owner-only writes and add a writer lock | `src/secure_string_cipher/fs.py`: the temporary-file-then-rename write from `engine/keyfile.py`, now with a replacing mode and a folder sync, plus `locked()` (`flock` on POSIX, `msvcrt.locking` on Windows). Key files use it unchanged in behaviour. Windows ACLs: SSC sets none and relies on what the per-user data folder grants; this is the Phase 3 decision VAULT.md section 1 asks for, to be confirmed at the gate |
+| #177 | Step 1 | `bb56259` feat(engine): replace a payload under the same file key | `engine/container.py`: `replace_payload` (FORMAT.md section 7.4, always a fresh payload nonce), and `rewrite_access` made public for the vault |
+| #177 | Step 1 | `f94a935` build: add platformdirs 4.14.5 for the vault location | `pyproject.toml` and `uv.lock`. 4.14.6 and 4.14.7 were under two weeks old |
+| #177 | Step 1 | `fd2ee23` feat(vault): the vault object with its master-password grant | `vault/document.py` (the canonical JSON document of VAULT.md section 3, parsed strictly in full, with history's chain left to step 5), `vault/store.py` (`create`, `load`, `edit`, `change_master_password`, the lock and the 16 MiB limit), new `vault-document` and `vault` reasons and `VaultError` in `errors.py`, `tests/vault/`, and a fuzz property for the document parser |
+| #177 | Housekeeping | docs: record Phase 3, step 1 in the ledger | This ledger |
