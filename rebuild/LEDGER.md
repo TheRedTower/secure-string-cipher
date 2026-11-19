@@ -101,3 +101,6 @@ entry says which one.
 | #177 | Step 1 | `f94a935` build: add platformdirs 4.14.5 for the vault location | `pyproject.toml` and `uv.lock`. 4.14.6 and 4.14.7 were under two weeks old |
 | #177 | Step 1 | `fd2ee23` feat(vault): the vault object with its master-password grant | `vault/document.py` (the canonical JSON document of VAULT.md section 3, parsed strictly in full, with history's chain left to step 5), `vault/store.py` (`create`, `load`, `edit`, `change_master_password`, the lock and the 16 MiB limit), new `vault-document` and `vault` reasons and `VaultError` in `errors.py`, `tests/vault/`, and a fuzz property for the document parser |
 | #177 | Housekeeping | docs: record Phase 3, step 1 in the ledger | This ledger |
+| #177 | Step 1, Codex fix | `86917a4` fix: treat the rename as the commit point of a safe write | `fs.py`: a failed folder sync after the rename raises `fs.NotDurable` instead of looking like an aborted write, and a folder that cannot be synced is skipped. `tests/test_fs.py` |
+| #177 | Step 1, Codex fix | `c592b0b` fix(vault): bound the vault file before reading it | `vault/store.py`: `max_file_size()`, the largest armoured CRLF file a 16 MiB document can make |
+| #177 | Step 1, Codex fix | `22777f1` fix(vault): report an over-long JSON integer as a FormatError | `vault/document.py` |
