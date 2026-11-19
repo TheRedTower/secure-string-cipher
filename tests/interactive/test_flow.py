@@ -359,3 +359,42 @@ def test_resetting_with_the_recovery_code_updates_the_held_password(
     assert ctx.master_password == new
     vaults.add_password(ctx, "after", PASSWORD)  # opens with what it holds
     assert [e.label for e in vaults.list_entries(ctx)] == ["after"]
+
+
+def test_every_key_file_an_all_of_grant_needs_is_asked_for(
+    ctx: Context, ui: ScriptedUi, report: Path, tmp_path: Path
+) -> None:
+    """Codex on #185: two key files in one grant are both asked for."""
+    from secure_string_cipher.service import keys
+
+    keys.new(tmp_path / "usb.ssckey")
+    keys.new(tmp_path / "card.ssckey")
+    with report.open("rb") as handle:
+        files.encrypt(
+            ctx,
+            handle,
+            tmp_path / "both.ssc",
+            files.Choice(grant_specs=["keyfile:usb.ssckey+keyfile:card.ssckey"]),
+        )
+    run(ctx, ui, "Decrypt", "both.ssc", "usb.ssckey", "card.ssckey", True)
+    assert ui.asked.count("Which key file?") == 2
+    assert (tmp_path / "both").read_bytes() == PLAIN
+
+
+def test_a_wrong_key_file_uses_up_a_try(
+    ctx: Context, ui: ScriptedUi, report: Path, tmp_path: Path
+) -> None:
+    from secure_string_cipher.service import keys
+
+    keys.new(tmp_path / "usb.ssckey")
+    keys.new(tmp_path / "other.ssckey")
+    with report.open("rb") as handle:
+        files.encrypt(
+            ctx,
+            handle,
+            tmp_path / "f.ssc",
+            files.Choice(grant_specs=["keyfile:usb.ssckey"]),
+        )
+    run(ctx, ui, "Decrypt", "f.ssc", "other.ssckey")
+    assert ui.asked.count("Which key file?") == 1
+    assert any(s.startswith("✗ ") for s in ui.said)

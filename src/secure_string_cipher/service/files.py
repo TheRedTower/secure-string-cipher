@@ -324,22 +324,28 @@ class Opener:
             found.append(("your password", self.ask_password))
         if access.RECOVERY in kinds and not self.asked_recovery:
             found.append(("a recovery code", self.ask_recovery))
-        if self.ctx.ask_key_file is not None and self.asked_keys < len(
-            self.missing_keys()
+        named = self.named_keys()
+        # Asked at most once per key the file names, a fixed bound, and only
+        # while one is still missing: an all-of grant may need several.
+        if (
+            self.ctx.ask_key_file is not None
+            and self.asked_keys < len(named)
+            and named - self.keys_held()
         ):
             found.append(("a key file", self.ask_key))
         return found
 
-    def missing_keys(self) -> set[bytes]:
-        """The key_ids the file names that nothing supplied has."""
-        have = {access.key_id(k) for k in self.credentials().keys}
-        named = {
+    def named_keys(self) -> set[bytes]:
+        """The key_ids of the file's key factors."""
+        return {
             f.body
             for g in self.header.grants
             for f in g.factors or ()
             if f.kind == access.KEY
         }
-        return named - have
+
+    def keys_held(self) -> set[bytes]:
+        return {access.key_id(k) for k in self.credentials().keys}
 
     def ask_key(self) -> None:
         assert self.ctx.ask_key_file is not None
