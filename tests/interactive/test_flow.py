@@ -249,3 +249,41 @@ def test_ssc_with_no_arguments_runs_the_flow(ui: ScriptedUi) -> None:
     ui.answers.append("Quit")
     assert main([], ui=ui) == 0
     assert ui.said == ["SSC  ·  no vault yet"]
+
+
+def test_a_locked_vault_can_be_unlocked_for_its_profiles(
+    ctx: Context, ui: ScriptedUi, report: Path
+) -> None:
+    """Codex on #185: with no keychain, the profiles are one unlock away."""
+    with_vault(ctx, ui)
+    vaults.add_password(ctx, "work", PASSWORD)
+    profile_ops.create(ctx, "daily", ["vault:work"])
+    ctx.use_keychain = False
+    run(
+        ctx, ui,
+        "Encrypt", "report.txt", "Unlock the vault", "wrong password",
+        "Unlock the vault", MASTER, "daily", True,
+    )  # fmt: skip
+    assert "✗ That master password did not open the vault." in ui.said
+    assert 'Encrypt report.txt to report.txt.ssc, unlocked by profile "daily". Go?' in (
+        ui.asked
+    )
+
+
+def test_an_archived_entry_can_still_be_revoked(ctx: Context, ui: ScriptedUi) -> None:
+    """Codex on #185: archived entries still open files, so revoking them
+    must stay possible."""
+    with_vault(ctx, ui)
+    vaults.add_password(ctx, "work", PASSWORD)
+    vaults.archive(ctx, "work")
+    run(
+        ctx,
+        ui,
+        "Vault",
+        "Archive or revoke",
+        '"work"  (password, archived)',
+        "Revoke",
+        "",
+        "Back",
+    )
+    assert [e.status for e in vaults.list_entries(ctx)] == ["revoked"]

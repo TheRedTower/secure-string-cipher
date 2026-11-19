@@ -5,6 +5,7 @@ works. It says "unlock with", never "grant" or "factor"."""
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 from pathlib import Path
 
@@ -42,17 +43,46 @@ def _plural(n: int, word: str, words: str | None = None) -> str:
     return f"{n} {word}" if n == 1 else f"{n} {words or word + 's'}"
 
 
-def _entries(ctx: Context, *kinds: str) -> list[doc.Entry]:
+ACTIVE = ("active",)
+NOT_REVOKED = ("active", "archived")
+
+
+def _entries(
+    ctx: Context, *kinds: str, statuses: tuple[str, ...] = ACTIVE
+) -> list[doc.Entry]:
+    """Active entries by default, the ones new files can use; managing
+    entries also needs the archived ones, which still open files."""
     document = vaults.peek(ctx)  # None if locked here: then ask
     found = vaults.list_entries(ctx) if document is None else document.entries
-    return [e for e in found if e.status == "active" and (not kinds or e.kind in kinds)]
+    return [e for e in found if e.status in statuses and (not kinds or e.kind in kinds)]
 
 
-def _pick_entry(ctx: Context, ui: Ui, question: str, *kinds: str) -> doc.Entry:
-    found = _entries(ctx, *kinds)
+def _pick_entry(
+    ctx: Context,
+    ui: Ui,
+    question: str,
+    *kinds: str,
+    statuses: tuple[str, ...] = ACTIVE,
+) -> doc.Entry:
+    found = _entries(ctx, *kinds, statuses=statuses)
     if not found:
         raise InputError("The vault has no entry of that kind yet.")
-    return found[ui.select(question, [f'"{e.label}"  ({e.kind})' for e in found])]
+    options = [
+        f'"{e.label}"  ({e.kind}{", archived" if e.status == "archived" else ""})'
+        for e in found
+    ]
+    return found[ui.select(question, options)]
+
+
+def _unlock(ctx: Context, ui: Ui) -> None:
+    """Ask for the master password once, and keep it for this session, so
+    every screen can use the vault without asking again."""
+    typed = ui.password("Vault master password")
+    if vaults.peek(dataclasses.replace(ctx, master_password=typed)) is None:
+        ui.say("✗ That master password did not open the vault.")
+        return
+    ctx.master_password = typed
+    ui.say("✓ Unlocked the vault for this session")
 
 
 # --- encrypt (4.2) -------------------------------------------------------------------
@@ -110,15 +140,25 @@ def _ways(ctx: Context, ui: Ui) -> tuple[list[str], str]:
 
 
 def _how(ctx: Context, ui: Ui) -> tuple[files.Choice, str]:
-    saved = _profiles(ctx)
-    options = [f"{name}  ({words})" for name, words in saved]
-    options += [
-        "A password I'll type",
-        "A saved vault entry…",
-        "A key file…",
-        "Something else…",
-    ]
-    pick = ui.select("How should it unlock?", options)
+    while True:
+        saved = _profiles(ctx)
+        locked = vaults.exists(ctx) and vaults.peek(ctx) is None
+        options = [f"{name}  ({words})" for name, words in saved]
+        if locked:  # its profiles are not shown until it is unlocked
+            options.append("Unlock the vault to use a saved profile…")
+        options += [
+            "A password I'll type",
+            "A saved vault entry…",
+            "A key file…",
+            "Something else…",
+        ]
+        pick = ui.select("How should it unlock?", options)
+        if locked and pick == len(saved):
+            _unlock(ctx, ui)
+            continue
+        if locked and pick > len(saved):
+            pick -= 1
+        break
     if pick < len(saved):
         name = saved[pick][0]
         return files.Choice(profile=name), f'profile "{name}"'
@@ -202,21 +242,17 @@ def _init(ctx: Context, ui: Ui) -> bool:
 
 
 def _archive_or_revoke(ctx: Context, ui: Ui) -> None:
-    entry = _pick_entry(ctx, ui, "Which entry?")
-    what = ui.select(
-        f'Archive or revoke "{entry.label}"?',
-        [
-            "Archive it: keep it for opening, stop offering it",
-            "Revoke it: refuse it from now on",
-            "Back",
-        ],
-        default=2,
-    )
-    if what == 0:
+    entry = _pick_entry(ctx, ui, "Which entry?", statuses=NOT_REVOKED)
+    options = ["Revoke it: refuse it from now on", "Back"]
+    if entry.status == "active":  # an archived one can still be revoked
+        options.insert(0, "Archive it: keep it for opening, stop offering it")
+    question = f'What should happen to "{entry.label}"?'
+    what = options[ui.select(question, options, default=len(options) - 1)]
+    if what.startswith("Archive"):
         vaults.archive(ctx, entry.label)
         ui.say(f'✓ Archived "{entry.label}"')
         return
-    if what != 1:
+    if what == "Back":
         return
     answer = ui.path("Folder to search for files it opens (Enter to skip)").strip()
     folder = _path(answer) if answer else None
