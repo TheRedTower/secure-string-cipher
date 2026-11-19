@@ -24,7 +24,8 @@ entry says which one.
 | Gate | Status |
 | --- | --- |
 | Phase 0: CI green on all three platforms for the empty package | Met on 2026-11-18 (#159) |
-| Phase 1: review comments answered and vectors frozen | Vectors frozen (#166). Community review (Discussion #168) is still open. On 2026-11-19 the owner chose to start Phase 2 without waiting for it, and to answer those comments afterwards. Any spec change they cause is made through a PR that regenerates the vectors |
+| Phase 1: review comments answered and vectors frozen | Vectors frozen (#166). Community review (Discussion #168) is still open. On 2026-11-19 the owner chose to start Phase 2 without waiting for it, and to answer those comments afterwards. Any spec change they cause is made through a PR that regenerates the vectors, restoring the generator from history (`git show becaf73~1:tools/vectors/generate.py`) |
+| Phase 2: every vector passes and fuzzing is clean | Met with #176. Every valid vector opens and is reproduced byte for byte, every rejection vector fails for its named reason, the vault vector opens, and `test_vector_coverage.py` allows no exceptions. The fuzz suite is clean in CI and in a 140,000-example local run. The throwaway generator is deleted |
 
 ## Steps
 
@@ -85,4 +86,8 @@ entry says which one.
 | #175 | Step 5 | `70decd4` build: add hypothesis 6.170.14 for fuzzing | `pyproject.toml` and `uv.lock` (dev group). 6.170.15 was under two weeks old |
 | #175 | Step 5 | `7f93828` test: fuzz the header, access-block, armour and key-file parsers | `tests/fuzz/test_parsers.py`: 400 derandomised examples per property in CI. `SSC_FUZZ_EXAMPLES` runs a deeper random pass, and 20,000 per property ran clean |
 | #175 | Housekeeping | docs: record Phase 2, step 5 in the ledger | This ledger |
+| #176 | Gate | `da9fbe6` feat(engine): the recovery code factor, so every vector passes | `engine/access.py` (`new_recovery`, `recovery_secret`, `Credentials.recovery_codes`) and the remaining vector tests. The printed form stays with Phase 3, step 4 |
+| #176 | Gate | `becaf73` chore: delete the throwaway vector generator at the Phase 2 gate | Deletes `tools/vectors/generate.py`; the spec notes on the vectors say so |
+| #176 | Gate | `58299e6` test: unit tests for the recovery code factor | `tests/engine/test_access.py` |
+| #176 | Housekeeping | docs: record the Phase 2 gate in the ledger | This ledger |
 
