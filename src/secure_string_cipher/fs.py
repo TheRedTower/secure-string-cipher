@@ -35,13 +35,35 @@ def private_dir(path: Path) -> None:
             missing.mkdir(mode=DIR_MODE)
 
 
+class NotDurable(OSError):
+    """The file was written and moved into place, but the folder could not
+    be synced, so the move might not survive a crash. The write itself is
+    complete: callers MUST NOT treat this as a write that did not happen."""
+
+
+# Errors meaning a folder cannot be synced at all here, rather than that a
+# sync failed: some filesystems refuse fsync on a folder.
+_SYNC_UNSUPPORTED = {errno.EINVAL, errno.EBADF, getattr(errno, "ENOTSUP", -1)}
+
+
 def _sync_dir(directory: Path) -> None:
-    """Make a rename in `directory` durable. Windows has no equivalent."""
+    """Make a rename in `directory` durable. Windows has no equivalent, and a
+    folder SSC may write to but not read (mode 0300) cannot be opened to
+    sync, so both are skipped."""
     if os.name != "posix":
         return
-    fd = os.open(directory, os.O_RDONLY | _DIRECTORY)
+    try:
+        fd = os.open(directory, os.O_RDONLY | _DIRECTORY)
+    except PermissionError:
+        return
     try:
         os.fsync(fd)
+    except OSError as error:
+        if error.errno in _SYNC_UNSUPPORTED:
+            return
+        raise NotDurable(
+            error.errno, f"Written, but the folder could not be synced: {error}"
+        ) from error
     finally:
         os.close(fd)
 
@@ -59,11 +81,14 @@ def write_atomic(
     path: Path, write: Callable[[BinaryIO], object], *, replace: bool
 ) -> None:
     """Write `path` through a temporary file in the same folder, owner-only,
-    synced before it is moved into place. A failure leaves `path` as it was
-    and no temporary file behind.
+    synced before it is moved into place. A failure before the move leaves
+    `path` as it was and no temporary file behind.
 
     With `replace`, an existing file is replaced; without it, the write fails
     with FileExistsError if anything appears at `path`, even in a race.
+
+    The move is the commit point. Only NotDurable can be raised after it,
+    and then the new file is in place.
     """
     temp = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | _BINARY
@@ -77,10 +102,10 @@ def write_atomic(
             os.replace(temp, path)
         else:
             _publish_new(temp, path)
-        _sync_dir(path.parent)
     except BaseException:
         temp.unlink(missing_ok=True)
         raise
+    _sync_dir(path.parent)
 
 
 # --- locking -----------------------------------------------------------------

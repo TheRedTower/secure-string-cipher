@@ -217,7 +217,8 @@ def read(path: str | os.PathLike[str]) -> KeyFile:
 
 def write(path: str | os.PathLike[str], keyfile: KeyFile) -> None:
     """Write a new key file, owner-only. It never replaces an existing file,
-    and a failed write leaves nothing at `path` (FORMAT.md section 7.5)."""
+    and a failed write leaves nothing at `path` (FORMAT.md section 7.5),
+    except fs.NotDurable, which means the file was written."""
     path = Path(path)
     if os.path.lexists(path):
         raise FileExistsError(errno.EEXIST, "A file is already there", str(path))
