@@ -116,3 +116,4 @@ entry says which one.
 | #180 | Step 4 | `2159d55` feat(vault): recovery entries, and a recovery code for the vault itself | `vault/entries.py`: `add_recovery`, and `choose_recovery` for the `recovery` token (CLI.md section 2). `vault/store.py`: `Session.add_recovery_grant`, and `reset_master_password`, which needs the vault's own recovery code |
 | #180 | Step 4 | `9727abc` feat(vault): profiles | `vault/profiles.py`: create, replace, delete and apply. A profile must name active entries; one naming an archived, revoked or missing entry is refused until edited. `tests/vault/test_recovery_and_profiles.py` |
 | #180 | Housekeeping | docs: record Phase 3, step 4 in the ledger | This ledger |
+| #180 | Step 4, Codex fix | `5e2b80e` fix(vault): refuse a profile grant that repeats a factor on the wire | `vault/profiles.py`: two recovery entries, or two key entries holding the same key, in one grant would encode the same factor, which `new_grant` refuses |
