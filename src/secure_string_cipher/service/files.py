@@ -344,15 +344,29 @@ class Opener:
             options = self.options()
             if not options:
                 raise CannotOpen()
-            pick = (
-                0
-                if len(options) == 1
-                else self.ctx.prompter.choose(
-                    "How do you want to open it?", [o[0] for o in options]
+            try:
+                pick = (
+                    0
+                    if len(options) == 1
+                    else self.ctx.prompter.choose(
+                        "How do you want to open it?", [o[0] for o in options]
+                    )
                 )
-            )
-            options[pick][1]()
+                options[pick][1]()
+            except InputError:
+                # Nothing more can be asked. If the caller supplied
+                # credentials, they were wrong (exit 2); if not, the error
+                # says what to supply (exit 1). CLI.md section 1.
+                if self.supplied():
+                    raise CannotOpen() from None
+                raise
         return opened
+
+    def supplied(self) -> bool:
+        ctx = self.ctx
+        return bool(
+            ctx.passwords or ctx.recovery_codes or ctx.key_files or ctx.master_password
+        )
 
     def builder(self, stack: ExitStack) -> Builder:
         """A Builder that unlocks the vault the way this opener did."""

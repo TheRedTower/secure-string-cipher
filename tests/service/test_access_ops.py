@@ -206,3 +206,38 @@ def test_adding_a_recovery_grant_saves_the_vault_first(
     access_ops.add(ctx, keyed, "recovery")
     assert len(access_ops.show(ctx, keyed)) == 2
     assert len(prompter.shown) == 1
+
+
+def test_rotating_without_a_revoked_entry_drops_its_grants(
+    ctx: Context, prompter: Prompter, tmp_path: Path
+) -> None:
+    """A key file holding the revoked key opens the old file, but every
+    grant using that key is dropped, so it opens none of the new one."""
+    prompter.new_masters.append(MASTER)
+    vaults.init(ctx)
+    prompter.confirms += [False, False]
+    vaults.add_key(ctx, "laptop")
+    vaults.add_key(ctx, "usb")
+    out = sealed(ctx, tmp_path, Choice(grant_specs=["vault:laptop", "vault:usb"]))
+    only = tmp_path / "only.ssc"
+    files.encrypt(ctx, io.BytesIO(b"x"), only, Choice(vault_label="laptop"))
+    copy = tmp_path / "laptop.ssckey"
+    keys.export(ctx, "laptop", copy)
+    vaults.revoke(ctx, "laptop")
+    ctx.key_files = [copy]
+    access_ops.rotate(ctx, out, without="laptop")
+    assert 'which used "laptop"' in prompter.notices[-2]
+    assert access_ops.show(ctx, out) == ['g1: key "usb"']
+    ctx.use_keychain = False
+    with pytest.raises(CannotOpen):
+        opens_or_raise(ctx, out)
+    before = only.read_bytes()
+    ctx.use_keychain = True
+    with pytest.raises(InputError, match="leave none"):
+        access_ops.rotate(ctx, only, without="laptop")
+    assert only.read_bytes() == before
+
+
+def opens_or_raise(ctx: Context, path: Path) -> None:
+    with path.open("rb") as handle:
+        files.decrypt(ctx, handle, io.BytesIO())
