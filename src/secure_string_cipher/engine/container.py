@@ -98,7 +98,7 @@ class _Prefixed:
         return self._rest.read(size)
 
 
-def _binary(source: Readable) -> tuple[Readable, bool]:
+def binary_stream(source: Readable) -> tuple[Readable, bool]:
     """Detect the armoured form by its first bytes (FORMAT.md section 8).
     Returns the binary stream and whether the input was armoured.
 
@@ -125,7 +125,7 @@ class Opened:
 def unlock(source: Readable, credentials: access.Credentials) -> Opened:
     """FORMAT.md section 7.2, steps 1 to 4: parse everything before the
     payload, then recover and confirm the file key."""
-    stream, armored = _binary(source)
+    stream, armored = binary_stream(source)
     header = read_header(stream)
     file_key = access.open_file_key(
         header.grants,
