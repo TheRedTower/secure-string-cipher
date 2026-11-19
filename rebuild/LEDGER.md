@@ -74,4 +74,6 @@ entry says which one.
 | #172 | Step 2 | `6ec5108` feat(engine): the access layer, armour and container | `engine/access.py` (password and vault password factors, grants, the access-body parser, the access MAC, opening), `engine/armor.py`, `engine/container.py`, new reasons and `CannotOpen` in `errors.py`, and tests including `tests/engine/test_vector_coverage.py`. Adds `argon2-cffi==25.1.0`, with `argon2-cffi-bindings` held at 26.1.0. Vectors needing the key or recovery factor are listed as pending |
 | #172 | Step 2, carried fix | `f65b1e1` fix(engine): finish short writes in the container and armour | `engine/container.py` and `engine/armor.py` |
 | #172 | Housekeeping | docs: record Phase 2, step 2 in the ledger | This ledger, and the #170 row now names its commit |
+| #173 | Step 3 | `4c8c44b` feat(engine): the managed-key factor and .ssckey files | The key factor in `engine/access.py` (`key_id`, `new_key`, keys in `Credentials`, matched by ID), `engine/keyfile.py` (VAULT.md section 6), `armor.split_lines` shared with key files, and new reasons `keyfile` and `keyfile-key-id`. Every vector passes except the three that need a recovery code |
+| #173 | Housekeeping | docs: record Phase 2, step 3 in the ledger | This ledger |
 
