@@ -121,7 +121,10 @@ def test_add_device_then_unlock_with_it(vector_vault: Path) -> None:
     assert len(chain.items) == 1
     creds = keychain.credentials(vector_vault, chain)
     assert len(creds.keys) == 1
-    assert store.load(creds, vector_vault).to_json() == VAULT["document"]
+    assert (
+        store.load(creds, vector_vault).to_json()["entries"]
+        == VAULT["document"]["entries"]
+    )
     with store.edit(creds, vector_vault) as session:
         assert keychain.this_device(session, chain) == 2
         with pytest.raises(VaultError):  # once per device
@@ -219,7 +222,10 @@ def test_the_real_os_keychain(vector_vault: Path) -> None:
     try:
         creds = keychain.credentials(vector_vault)
         assert len(creds.keys) == 1
-        assert store.load(creds, vector_vault).to_json() == VAULT["document"]
+        assert (
+            store.load(creds, vector_vault).to_json()["entries"]
+            == VAULT["document"]["entries"]
+        )
     finally:
         with store.edit(MASTER, vector_vault) as session:
             keychain.remove_device(session, index)

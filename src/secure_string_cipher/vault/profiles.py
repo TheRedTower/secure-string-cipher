@@ -12,7 +12,7 @@ from collections.abc import Callable, Sequence
 
 from secure_string_cipher.engine import access
 from secure_string_cipher.errors import VaultError
-from secure_string_cipher.vault import entries
+from secure_string_cipher.vault import entries, history
 from secure_string_cipher.vault.document import Document, Entry, Profile, Ref
 
 
@@ -70,9 +70,8 @@ def create(
     if any(p.name == name for p in document.profiles):
         raise VaultError(f'There is already a profile "{name}".')
     _check_entries(document, profile)
-    return dataclasses.replace(
-        document, profiles=(*document.profiles, profile)
-    ), profile
+    document = dataclasses.replace(document, profiles=(*document.profiles, profile))
+    return history.record(document, "profile-change"), profile
 
 
 def replace(
@@ -83,14 +82,16 @@ def replace(
     profile = Profile(name, tuple(tuple(g) for g in grants))
     _check_entries(document, profile)
     profiles = tuple(profile if p is old else p for p in document.profiles)
-    return dataclasses.replace(document, profiles=profiles), profile
+    document = dataclasses.replace(document, profiles=profiles)
+    return history.record(document, "profile-change"), profile
 
 
 def delete(document: Document, name: str) -> Document:
     old = find(document, name)
-    return dataclasses.replace(
+    document = dataclasses.replace(
         document, profiles=tuple(p for p in document.profiles if p is not old)
     )
+    return history.record(document, "profile-change")
 
 
 def apply(

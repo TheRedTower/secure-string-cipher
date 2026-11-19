@@ -9,6 +9,7 @@ reports any broken rule as a FormatError.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import re
 import unicodedata
@@ -150,13 +151,20 @@ class Event:
         _check_size(self.prev, HASH_SIZE, "An event's prev")
 
 
+GENESIS = hashlib.sha256(b"ssc3/history-genesis").digest()
+
+
+def event_hash(event: Event) -> bytes:
+    """SHA-256 of the event's canonical JSON: the next event's `prev`."""
+    return hashlib.sha256(canonical(event_json(event))).digest()
+
+
 @dataclass(frozen=True)
 class History:
-    """The opt-in history. Its chain is checked by the history step
-    (Phase 3, step 5); here only its shape is."""
+    """The opt-in history and its hash chain (VAULT.md section 5)."""
 
-    anchor: bytes
-    events: tuple[Event, ...]
+    anchor: bytes = GENESIS
+    events: tuple[Event, ...] = ()
     trimmed: int = 0
 
     def __post_init__(self) -> None:
@@ -165,6 +173,22 @@ class History:
             raise ValueError(f"History keeps at most {MAX_EVENTS} events.")
         if self.trimmed < 0:
             raise ValueError("The trimmed count cannot be negative.")
+        if not self.events:
+            # Nothing kept means nothing was trimmed: history was just
+            # turned on, so the anchor is still the genesis hash.
+            if self.trimmed or self.anchor != GENESIS:
+                raise ValueError("An empty history must be freshly turned on.")
+            return
+        expected = self.anchor
+        for event in self.events:
+            if event.prev != expected:
+                raise ValueError("The history chain is broken.")
+            expected = event_hash(event)
+
+    @property
+    def head(self) -> bytes:
+        """The `prev` the next event must have."""
+        return event_hash(self.events[-1]) if self.events else self.anchor
 
 
 @dataclass(frozen=True)

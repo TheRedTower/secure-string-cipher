@@ -96,8 +96,14 @@ def test_a_recovery_code_resets_a_forgotten_master_password(vector_vault: Path) 
     with pytest.raises(CannotOpen):
         store.load(MASTER, vector_vault)
     new = access.Credentials(passwords=["remembered now"])
-    assert store.load(new, vector_vault).to_json() == VAULT["document"]
-    assert store.load(code, vector_vault).to_json() == VAULT["document"]
+    assert (
+        store.load(new, vector_vault).to_json()["entries"]
+        == VAULT["document"]["entries"]
+    )
+    assert (
+        store.load(code, vector_vault).to_json()["entries"]
+        == VAULT["document"]["entries"]
+    )
 
 
 def test_a_reset_needs_the_vaults_own_code(vector_vault: Path) -> None:

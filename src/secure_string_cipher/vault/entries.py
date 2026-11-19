@@ -14,6 +14,7 @@ from datetime import datetime
 
 from secure_string_cipher.engine import access, keyfile, recovery
 from secure_string_cipher.errors import VaultError
+from secure_string_cipher.vault import history
 from secure_string_cipher.vault.document import Document, Entry
 
 
@@ -41,7 +42,8 @@ def _new_id(document: Document) -> bytes:
 def _add(document: Document, entry: Entry) -> Document:
     if any(e.label == entry.label for e in document.entries):
         raise VaultError(f'There is already a vault entry "{entry.label}".')
-    return dataclasses.replace(document, entries=(*document.entries, entry))
+    document = dataclasses.replace(document, entries=(*document.entries, entry))
+    return history.record(document, "entry-create", entry.id)
 
 
 def add_password(
@@ -167,7 +169,8 @@ def archive(document: Document, label: str) -> Document:
     entry = find(document, label)
     if entry.status != "active":
         raise VaultError(f'The vault entry "{label}" is already {entry.status}.')
-    return _set_status(document, label, "archived")
+    document = _set_status(document, label, "archived")
+    return history.record(document, "entry-archive", entry.id)
 
 
 def revoke(document: Document, label: str) -> Document:
@@ -177,7 +180,8 @@ def revoke(document: Document, label: str) -> Document:
     entry = find(document, label)
     if entry.status == "revoked":
         raise VaultError(f'The vault entry "{label}" is already revoked.')
-    return _set_status(document, label, "revoked")
+    document = _set_status(document, label, "revoked")
+    return history.record(document, "entry-revoke", entry.id)
 
 
 def _refuse_revoked(entry: Entry) -> None:
