@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 
-from secure_string_cipher.engine.payload import Writable
+from secure_string_cipher.engine.payload import Writable, write_all
 from secure_string_cipher.errors import FormatError, Reason
 
 BEGIN = b"-----BEGIN SSC MESSAGE-----"
@@ -20,22 +20,22 @@ class ArmorWriter:
     def __init__(self, sink: Writable) -> None:
         self._sink = sink
         self._pending = b""
-        self._sink.write(BEGIN + b"\n")
+        write_all(self._sink, BEGIN + b"\n")
 
     def write(self, data: bytes, /) -> int:
         self._pending += data
         whole = len(self._pending) // _LINE_BYTES * _LINE_BYTES
         for i in range(0, whole, _LINE_BYTES):
             line = self._pending[i : i + _LINE_BYTES]
-            self._sink.write(base64.b64encode(line) + b"\n")
+            write_all(self._sink, base64.b64encode(line) + b"\n")
         self._pending = self._pending[whole:]
         return len(data)
 
     def close(self) -> None:
         if self._pending:
-            self._sink.write(base64.b64encode(self._pending) + b"\n")
+            write_all(self._sink, base64.b64encode(self._pending) + b"\n")
             self._pending = b""
-        self._sink.write(END + b"\n")
+        write_all(self._sink, END + b"\n")
 
 
 def encode(data: bytes) -> bytes:

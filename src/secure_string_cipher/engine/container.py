@@ -11,7 +11,12 @@ from dataclasses import dataclass
 from secure_string_cipher.engine import access, armor, payload
 from secure_string_cipher.engine.header import SIZE as FIXED_HEADER_SIZE
 from secure_string_cipher.engine.header import FixedHeader
-from secure_string_cipher.engine.payload import Readable, Writable, read_exactly
+from secure_string_cipher.engine.payload import (
+    Readable,
+    Writable,
+    read_exactly,
+    write_all,
+)
 from secure_string_cipher.errors import FormatError, Reason
 
 MAC_SIZE = 32
@@ -55,8 +60,8 @@ def seal(
     entry point; this exists so tests can reproduce vectors byte for byte."""
     body = access.encode_access_body(grants)
     header = fixed.to_bytes()
-    sink.write(header + struct.pack(">I", len(body)) + body)
-    sink.write(access.access_mac(file_key, header, body))
+    mac = access.access_mac(file_key, header, body)
+    write_all(sink, header + struct.pack(">I", len(body)) + body + mac)
     return payload.encrypt(payload.payload_key(file_key, fixed), source, sink)
 
 

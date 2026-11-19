@@ -253,3 +253,22 @@ def test_container_tampered_header_cannot_open(pw: access.NewFactor) -> None:
             io.BytesIO(),
             access.Credentials(passwords=["hunter2"]),
         )
+
+
+class ShortWriter:
+    def __init__(self) -> None:
+        self.data = bytearray()
+
+    def write(self, data: bytes, /) -> int:
+        self.data += data[:5]
+        return min(len(data), 5)
+
+
+@pytest.mark.parametrize("armored", [False, True])
+def test_container_completes_short_writes(pw: access.NewFactor, armored: bool) -> None:
+    sealed = ShortWriter()
+    container.encrypt(io.BytesIO(b"short"), sealed, [[pw]], armored=armored)
+    out = io.BytesIO()
+    creds = access.Credentials(passwords=["hunter2"])
+    container.decrypt(io.BytesIO(bytes(sealed.data)), out, creds)
+    assert out.getvalue() == b"short"
