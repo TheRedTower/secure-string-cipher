@@ -63,11 +63,15 @@ entry says which one.
 | #167 | Steps 1 to 4, decisions | `d4d6697` docs(spec): record the owner's decisions on every open question | Each spec's "Open questions" section becomes "Decisions". The owner accepted all twelve proposals on 2026-11-18 |
 | Discussion #168 | Step 6 | (not a commit) | The access spec was posted for community review, and Discussions were turned on for the repository. Forum posts are left to the owner |
 | #169 | Step 6 | `3827694` docs: record Phase 1, step 6 and the gate status in the ledger | This ledger |
-| This PR | Housekeeping | docs: rebuild the ledger from git history | This ledger, now listing every commit grouped by PR |
+| #170 | Housekeeping | `b1da387` docs: rebuild the ledger from git history | This ledger, now listing every commit grouped by PR |
 
 ### Phase 2: the engine
 
 | PR | Brief step | Commit | What it added or changed |
 | --- | --- | --- | --- |
 | #171 | Step 1 | `5635852` feat(engine): the payload layer, passing its vectors | `src/secure_string_cipher/errors.py`, `engine/header.py` (the fixed header), `engine/payload.py` (64 KiB AES-256-GCM chunks with counter-and-flag nonces), `tests/vectorkit.py`, `tests/engine/`, and the `cryptography==50.0.2` dependency. The manifest now records `file_key` and `payload_nonce` for the rejection vectors too, with every vector file unchanged |
+| #171 | Step 1, Codex fix | `d7ccc73` fix(engine): finish short writes to the sink | `engine/payload.py` gains `write_all`, and `read_exactly` is made public for the container |
+| #172 | Step 2 | `6ec5108` feat(engine): the access layer, armour and container | `engine/access.py` (password and vault password factors, grants, the access-body parser, the access MAC, opening), `engine/armor.py`, `engine/container.py`, new reasons and `CannotOpen` in `errors.py`, and tests including `tests/engine/test_vector_coverage.py`. Adds `argon2-cffi==25.1.0`, with `argon2-cffi-bindings` held at 26.1.0. Vectors needing the key or recovery factor are listed as pending |
+| #172 | Step 2, carried fix | `f65b1e1` fix(engine): finish short writes in the container and armour | `engine/container.py` and `engine/armor.py` |
+| #172 | Housekeeping | docs: record Phase 2, step 2 in the ledger | This ledger, and the #170 row now names its commit |
 
