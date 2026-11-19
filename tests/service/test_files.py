@@ -427,3 +427,31 @@ def test_an_unreadable_vault_does_not_block_another_way_in(
     assert decrypt(ctx, out) == PLAIN
     assert "(Permission denied)" in prompter.notices[-1]
     assert access_ops.show(ctx, out)[0].startswith("g1: key ")
+
+
+def test_a_failed_vault_unlock_write_leaves_no_snapshot(
+    ctx: Context,
+    prompter: Prompter,
+    report: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With history on, reading the vault writes a `vault-unlock` event. If
+    that write fails, the vault counts as unavailable, so the file's own
+    credentials still open it and nothing is recorded later."""
+    with_vault(ctx, prompter)
+    vaults.history_on(ctx)
+    key = tmp_path / "usb.ssckey"
+    keys.new(key)
+    out = encrypt(ctx, report, Choice(grant_specs=[f"keyfile:{key}"]))
+    real = fs.write_atomic
+
+    def vault_full(path: Path, *args: object, **kwargs: object) -> None:
+        if path == ctx.vault_path:
+            raise OSError(28, "No space left on device")
+        real(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(fs, "write_atomic", vault_full)
+    ctx.key_files = [key]
+    assert decrypt(ctx, out) == PLAIN
+    assert "(No space left on device)" in prompter.notices[-1]

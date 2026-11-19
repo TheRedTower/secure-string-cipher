@@ -266,7 +266,7 @@ class Opener:
         go on: the file may open another way."""
         try:
             with vaults.edit(ctx, ask=False) as session:
-                self.document = session.document
+                document = session.document
         except vaults.Locked:
             return  # the master password stays an option
         except CannotOpen:
@@ -281,7 +281,9 @@ class Opener:
                 f"The vault could not be read ({reason}). Trying without it."
             )
             return
-        self.vault_ctx = ctx
+        # Kept only once the session has closed cleanly, its own history
+        # write included, so a failed read leaves no half-opened vault.
+        self.document, self.vault_ctx = document, ctx
 
     def credentials(self) -> access.Credentials:
         vault = (
