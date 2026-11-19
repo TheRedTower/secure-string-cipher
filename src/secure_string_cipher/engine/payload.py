@@ -51,7 +51,7 @@ def _nonce(index: int, final: bool) -> bytes:
     return index.to_bytes(11, "big") + (b"\x01" if final else b"\x00")
 
 
-def _read_exactly(source: Readable, size: int) -> bytes:
+def read_exactly(source: Readable, size: int) -> bytes:
     """Read `size` bytes, or fewer only at the end of the stream.
 
     A pipe or socket may return short reads, so a short read alone does not
@@ -75,11 +75,11 @@ def encrypt(key: bytes, source: Readable, sink: Writable) -> int:
     which a fresh payload nonce guarantees (FORMAT.md section 4.3).
     """
     aead = AESGCM(key)
-    current = _read_exactly(source, CHUNK_SIZE)
+    current = read_exactly(source, CHUNK_SIZE)
     index, total = 0, 0
     while True:
         following = (
-            _read_exactly(source, CHUNK_SIZE) if len(current) == CHUNK_SIZE else b""
+            read_exactly(source, CHUNK_SIZE) if len(current) == CHUNK_SIZE else b""
         )
         final = not following
         if index >= MAX_CHUNKS:
@@ -100,11 +100,11 @@ def decrypt(key: bytes, source: Readable, sink: Writable) -> int:
     if this raises (FORMAT.md section 7.2).
     """
     aead = AESGCM(key)
-    current = _read_exactly(source, SEALED_CHUNK_SIZE)
+    current = read_exactly(source, SEALED_CHUNK_SIZE)
     index, total = 0, 0
     while True:
         following = (
-            _read_exactly(source, SEALED_CHUNK_SIZE)
+            read_exactly(source, SEALED_CHUNK_SIZE)
             if len(current) == SEALED_CHUNK_SIZE
             else b""
         )
