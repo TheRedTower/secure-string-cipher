@@ -125,3 +125,13 @@ entry says which one.
 | #182 | Gate | `a7fe356` docs(spec): record how SSC keeps files owner-only on Windows | `docs/spec/VAULT.md` section 1, which left this to Phase 3 |
 | #182 | Housekeeping | docs: record the Phase 3 gate in the ledger | This ledger |
 | #182 | Gate, CI fix | `a348917` test: read Windows ACLs through the Win32 API, not PowerShell | `tests/vault/test_store.py`: Windows PowerShell on the runners could not load `Get-Acl` |
+
+### Phase 4: CLI and interactive mode
+
+| PR | Brief step | Commit | What it added or changed |
+| --- | --- | --- | --- |
+| #183 | Step 1 | `9cc87d1` build: add zxcvbn 4.5.0 and the EFF large wordlist | `pyproject.toml`, `uv.lock` and `service/eff_large_wordlist.txt` (the EFF's list, CC BY 3.0 US, for `ssc generate`). zxcvbn is pure Python with no dependencies, which CLI.md decision 2 asks for. The pre-3.0 generator in `legacy/` used the EFF short list; 3.0 uses the large one, as CLI.md says |
+| #183 | Step 1 | `be941a6` feat(engine): report which grant opened a file | `engine/access.py`: `open_grant`, so history can name the vault entry a decryption used |
+| #183 | Step 1 | `762a942` feat(service): the service layer shared by the CLI and interactive mode | `service/`: `context` (the `Prompter` that the CLI and interactive mode each implement), `grants` (grant specs), `files` (encrypt and decrypt, asking only for what is missing, holding stream output until authenticated), `access_ops`, `vaults`, `keys`, `profile_ops`, `settings` (the default profile), `passwords` (length and zxcvbn checks, passphrases) and `shred`. `InputError` in `errors.py` |
+| #183 | Step 1 | `b787c9f` test: the service layer, end to end | `tests/service/`, with a scripted prompter that fails on any unexpected question |
+| #183 | Housekeeping | docs: record Phase 4, step 1 in the ledger | This ledger |
