@@ -137,3 +137,4 @@ entry says which one.
 | #183 | Housekeeping | docs: record Phase 4, step 1 in the ledger | This ledger |
 | #183 | Review fix | `ccd8add` fix(engine): open a grant with one exact assignment of secrets to factors | `engine/access.py`: `open_assigned`, for Codex's finding that rotation could swap two password factors |
 | #183 | Review fix | `7ac676b` fix(service): Codex findings on the service layer | `service/files.py` and `access_ops.py`: exact assignments in rotate, a late `NotDurable` raised only after the vault commits, a wrong master password no longer blocks other ways in, and `decrypt` history for recovery entries |
+| #183 | Review fix | `e0aa117` fix(engine): search rotation assignments with one Argon2id cache | `engine/access.py`: `find_assignment` replaces `open_assigned`, for Codex's finding that each assignment re-ran Argon2id |
