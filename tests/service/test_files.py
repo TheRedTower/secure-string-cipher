@@ -457,6 +457,21 @@ def test_a_failed_vault_unlock_write_leaves_no_snapshot(
     assert "(No space left on device)" in prompter.notices[-1]
 
 
+def test_wrong_supplied_credentials_cannot_open_rather_than_ask(
+    ctx: Context, prompter: Prompter, report: Path, settings_path: Path
+) -> None:
+    """Where nothing more can be asked, a supplied password that is wrong is
+    CannotOpen (exit 2); with nothing supplied, the error says what to
+    supply (exit 1). CLI.md section 1."""
+    prompter.new_passwords.append(PASSWORD)
+    out = encrypt(ctx, report, settings_path=settings_path)
+    with pytest.raises(InputError):
+        decrypt(ctx, out)
+    ctx.passwords = ["not the password"]
+    with pytest.raises(CannotOpen):
+        decrypt(ctx, out)
+
+
 def test_history_records_every_entry_an_all_of_grant_used(
     ctx: Context, prompter: Prompter, report: Path
 ) -> None:
