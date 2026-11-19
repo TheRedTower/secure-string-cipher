@@ -272,3 +272,28 @@ def test_container_completes_short_writes(pw: access.NewFactor, armored: bool) -
     creds = access.Credentials(passwords=["hunter2"])
     container.decrypt(io.BytesIO(bytes(sealed.data)), out, creds)
     assert out.getvalue() == b"short"
+
+
+# --- the recovery code factor ----------------------------------------------------
+
+
+def test_recovery_code_must_be_18_bytes() -> None:
+    with pytest.raises(ValueError):
+        access.new_recovery(bytes(16))
+
+
+def test_each_recovery_code_is_tried() -> None:
+    r = secrets.token_bytes(18)
+    grant = access.new_grant(FILE_KEY, [access.new_recovery(r)])
+    others = [secrets.token_bytes(18) for _ in range(3)]
+    assert open_with([grant], recovery_codes=[*others, r]) == FILE_KEY
+    with pytest.raises(CannotOpen):
+        open_with([grant], recovery_codes=others)
+
+
+def test_recovery_grants_look_alike_and_either_opens() -> None:
+    r1, r2 = secrets.token_bytes(18), secrets.token_bytes(18)
+    g1 = access.new_grant(FILE_KEY, [access.new_recovery(r1)])
+    g2 = access.new_grant(FILE_KEY, [access.new_recovery(r2)])
+    assert g1.factors == g2.factors
+    assert open_with([g1, g2], recovery_codes=[r2]) == FILE_KEY
