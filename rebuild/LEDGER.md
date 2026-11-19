@@ -155,3 +155,4 @@ entry says which one.
 | #185 | Step 3 | `8306ae2` docs(spec): confirm questionary for the interactive mode | `docs/spec/CLI.md` section 4: questionary confirmed |
 | #185 | Housekeeping | docs: record Phase 4, step 3 in the ledger | This ledger |
 | #185 | Review fix | `c4a62c3` fix(interactive): unlock for saved profiles; revoke archived entries | `interactive/flow.py`, for Codex's two findings: profiles hidden behind a locked vault, and archived entries missing from the revoke picker |
+| #185 | Review fix | `dfa4704` fix(interactive): ask for a key file a file needs when decrypting | `service/context.py` (`ask_key_file`), `service/files.py` (`Opener.missing_keys`, `ask_key`) and the guided flow, for Codex's finding that a standalone-key file could not be opened in the flow |
