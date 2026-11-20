@@ -1,10 +1,11 @@
 # SSC 3.0 CLI contract
 
-Status: **draft for review** (Phase 1, step 4). Phase 4 builds the CLI
-"exactly as the contract says", so anything not written here is not in 3.0.
+Status: **stable, SSC 3.0.** The CLI is built exactly as this contract
+says, so anything not written here is not in 3.0. A later change is a new
+3.x version.
 
-Both the command line and the interactive mode call the same service layer
-(Phase 4, step 1), so they always behave the same. This document uses the
+Both the command line and the interactive mode call the same service layer,
+so they always behave the same. This document uses the
 words of [ACCESS.md](ACCESS.md), such as grant and factor. The interactive
 mode never shows those words to the person; it says "unlock with".
 
@@ -86,7 +87,6 @@ These exist for scripts and Docker:
     `--grant keyfile:<path>`.
 - Without a TTY, a credential that is needed but not supplied is an exit 1
   error, never a hang. One that was supplied but is wrong is exit 2.
-  (Confirmed in Phase 4, step 2.)
 - **Opening with a password and setting one are separate roles**, so they
   have separate sources.
   - `access add --grant password` can open a file with password A
@@ -108,7 +108,7 @@ These exist for scripts and Docker:
     recovery code supplied (`--recovery-code-file` or `SSC_RECOVERY_CODE`)
     and no master password, `vault change-password` opens the vault with
     the code. This is how a forgotten master password is replaced
-    (VAULT.md section 2). (Confirmed in Phase 4, step 2.)
+    (VAULT.md section 2).
   - This is carried over from 2.x.
 
 ## 2. Grant specs
@@ -218,7 +218,7 @@ ssc vault history         (on | off | show)
   - With `--scan <folder>`, it then lists the SSC files under that folder
     that the entry opens, and offers to rotate them (section 6, decision 3).
     Rotating drops the grants that use the revoked entry.
-  - Without `--scan`, it only revokes. (Confirmed in Phase 4, step 2.)
+  - Without `--scan`, it only revokes.
 - **History `action` values** (VAULT.md section 5) are exactly:
   - `vault-unlock`
   - `vault-access-change`, covering a password change and adding or
@@ -277,9 +277,8 @@ it prints the help and exits 1.
 - **Terminals:** it works in any plain terminal, over SSH and inside Docker,
   with no mouse.
 - **Prompt library:** [`questionary`](https://pypi.org/project/questionary/),
-  as the brief suggests. It gives arrow-key selects and path completion,
-  and it is light to test on three platforms. Confirmed in Phase 4, step 3:
-  questionary 2.1.1, which is pure Python and needs only prompt_toolkit.
+  2.1.1. It gives arrow-key selects and path completion, is pure Python,
+  needs only prompt_toolkit, and is light to test on three platforms.
 
 ### 4.1 Start
 
@@ -375,12 +374,10 @@ This screen offers:
 
 ## 5. Decisions
 
-Settled with the owner on 2026-11-18. Outside reviewers may still challenge them in Phase 1, step 6.
+These were decided for 3.0.
 
-1. **Files are positional arguments only**, never `-f`. The brief's examples
-   used both forms.
-2. **Password strength is estimated with `zxcvbn`**, provided its Python
-   package is maintained and pure Python when Phase 4 starts. Otherwise
-   SSC uses the minimum length only.
+1. **Files are positional arguments only**, never `-f`.
+2. **Password strength is estimated with `zxcvbn`**, a pure-Python
+   package, on top of the minimum length.
 3. **`revoke` scans a folder the person names** to find the files a revoked
    entry opens. SSC keeps no index of files, since history has no paths.
