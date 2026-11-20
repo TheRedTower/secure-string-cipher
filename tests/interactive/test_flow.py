@@ -438,3 +438,37 @@ def test_something_else_needs_at_least_one_way_in(
 ) -> None:
     run(ctx, ui, "Encrypt", "report.txt", "Something else", [])
     assert "✗ Choose at least one way to unlock it." in ui.said
+
+
+def test_something_else_offers_an_unlock_for_vault_entries(
+    ctx: Context, ui: ScriptedUi, report: Path
+) -> None:
+    """Codex on #185: a locked vault does not block the other ways in."""
+    with_vault(ctx, ui)
+    vaults.add_password(ctx, "work", PASSWORD)
+    ctx.use_keychain = False
+    run(
+        ctx, ui,
+        "Encrypt", "report.txt", "Something else", False,  # no unlock
+        ["A password"], False, True, PASSWORD, PASSWORD,
+        "Encrypt", "report.txt", "Something else", True, MASTER,  # unlock
+        ['Vault entry "work"'], False, True, True,
+    )  # fmt: skip
+    assert sum(s.startswith("✓ Wrote") for s in ui.said) == 2
+    assert access_ops.show(ctx, report.with_name("report.txt.ssc")) == [
+        'g1: vault entry "work"'
+    ]
+
+
+def test_something_else_works_with_a_damaged_vault(
+    ctx: Context, ui: ScriptedUi, report: Path
+) -> None:
+    with_vault(ctx, ui)
+    ctx.vault_path.write_bytes(b"not a vault")
+    run(
+        ctx, ui,
+        "Encrypt", "report.txt", "Something else", True, MASTER,
+        ["A password"], False, True, PASSWORD, PASSWORD,
+    )  # fmt: skip
+    assert "✗ That master password did not open the vault." in ui.said
+    assert any(s.startswith("✓ Wrote") for s in ui.said)

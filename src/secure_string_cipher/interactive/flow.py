@@ -106,13 +106,30 @@ def _profiles(ctx: Context) -> list[tuple[str, str]]:
     return found
 
 
+def _usable_entries(ctx: Context, ui: Ui) -> list[doc.Entry]:
+    """The active entries, if the vault opens. A locked vault is offered an
+    unlock; one that still cannot be read leaves only the ways in that need
+    no vault."""
+    if not vaults.exists(ctx):
+        return []
+    document = vaults.peek(ctx)
+    if document is None and ui.confirm(
+        "Unlock the vault to use its entries too?", default=True
+    ):
+        _unlock(ctx, ui)
+        document = vaults.peek(ctx)
+    if document is None:
+        return []
+    return [e for e in document.entries if e.status in ACTIVE]
+
+
 def _ways(ctx: Context, ui: Ui) -> tuple[list[tuple[Token, ...]], str]:
     """ "Something else…": ways in built step by step, as grants, and how
     to say them."""
     options = ["A password I'll type"]
     tokens = [Token("password")]
     names = ["a password"]
-    for entry in _entries(ctx) if vaults.exists(ctx) else []:
+    for entry in _usable_entries(ctx, ui):
         options.append(f'Vault entry "{entry.label}"')
         tokens.append(Token("vault", entry.label))
         names.append(f'vault entry "{entry.label}"')
