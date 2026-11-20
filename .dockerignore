@@ -1,5 +1,5 @@
 # An allowlist: only what the image is built from enters the build context,
-# so legacy/, rebuild/, tests and untracked local files never do.
+# so rebuild/, tests and untracked local files never do.
 *
 !pyproject.toml
 !uv.lock
