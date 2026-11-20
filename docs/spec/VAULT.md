@@ -1,7 +1,8 @@
 # SSC 3.0 vault spec
 
-Status: **draft for review** (Phase 1, step 3). Nothing here is frozen until
-the Phase 1 gate.
+Status: **stable, SSC 3.0.** This spec describes 3.0 as built. A later
+change is a new 3.x version, and vaults written by earlier 3.x versions stay
+readable.
 
 The vault is a convenience. You name a secret once, then encrypt and decrypt
 with `--vault <entry>` instead of typing or remembering it. It holds only
@@ -25,7 +26,7 @@ Everything SSC writes is owner-only: mode `0600` for files and `0700` for
 folders on Linux and macOS. On Windows, SSC sets no ACLs of its own: what it
 writes inherits the ACL of its folder, and the vault's default folder is
 under the user's own profile, which grants access only to that user, SYSTEM
-and Administrators. A test checks this on Windows (decided in Phase 3). Every write goes to a temporary file in the same folder that is
+and Administrators. A test checks this on Windows. Every write goes to a temporary file in the same folder that is
 renamed into place (FORMAT.md section 7.5). Writers hold a lock file
 (`vault.ssc.lock`) for the whole read, modify and write, so that two `ssc`
 processes cannot lose each other's changes.
@@ -207,7 +208,7 @@ History is off by default. When it's on, `history` is an object:
 - **What is recorded:** only operations that use the vault. That means
   unlocking it, changing its grants, creating, archiving or revoking an
   entry, and encrypting or decrypting with an entry. The `action` values are
-  listed in the CLI contract (Phase 1, step 4). Decrypting a file with a
+  listed in the [CLI contract](CLI.md) section 3.3. Decrypting a file with a
   typed password and no vault records nothing.
 - **No file names or paths, ever,** and no secrets.
 - **The chain:**
@@ -266,7 +267,7 @@ adds a key file as a key entry. Both keep the same key, so the key's
 
 ## 7. Decisions
 
-Settled with the owner on 2026-11-18. Outside reviewers may still challenge them in Phase 1, step 6.
+These were decided for 3.0.
 
 1. **Recovery codes are stored in the vault**, so one printed code covers
    many files. A new code per file would be safer if the vault leaked, but
