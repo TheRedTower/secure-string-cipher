@@ -35,8 +35,10 @@ mode never shows those words to the person; it says "unlock with".
     - Beyond 64 MiB, it spools the plaintext to an owner-only temporary file
       in the OS temp folder. It deletes the file when done, whether or not
       decryption succeeded.
-    - The docs say that plaintext touches disk in that case. To avoid it,
-      decrypt to a file with `-o <out>` instead.
+    - The docs say that plaintext touches disk in that case. Decrypting to
+      a file with `-o <out>` keeps it out of the temp folder, but that file
+      is on disk too. Only memory-backed storage, such as a RAM disk or
+      `tmpfs`, keeps plaintext off the disk entirely.
 - **Secrets never reach output.** No secret is printed, logged or put in an
   error message. There are two exceptions, each shown once, on screen, at
   the person's request:

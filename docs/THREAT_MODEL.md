@@ -55,9 +55,10 @@ file.
   plaintext is in that folder until the rename.
 - **`decrypt -o -`:** nothing is written to stdout until the whole file has
   authenticated. Up to 64 MiB is held in memory. Beyond that, it spools to
-  an owner-only temporary file in the OS temp folder, deleted afterwards. To
-  keep plaintext off the disk entirely, decrypt to a file on storage you
-  trust.
+  an owner-only temporary file in the OS temp folder, deleted afterwards.
+  Decrypting to a file with `-o <out>` keeps it out of the temp folder, but
+  that file is on disk too. To keep plaintext off the disk entirely, write
+  it to memory-backed storage, such as a RAM disk or `tmpfs`.
 - **Key files (`.ssckey`):** plaintext bearer secrets. Anyone with the file
   has the key. SSC writes them owner-only and refuses symlinked ones.
 - **Credential files** (`--password-file` and the like): SSC refuses a

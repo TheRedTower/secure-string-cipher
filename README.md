@@ -59,7 +59,7 @@ ssc access show report.pdf.ssc         # g1: password + key "laptop"
   re-encrypts the file under a new key, so it protects the file's new
   contents.
 - **Text:** `ssc encrypt - -o - --armor` encrypts stdin to armoured text,
-  and `ssc decrypt -` detects armour by itself.
+  and `ssc decrypt - -o -` decrypts it back, detecting armour by itself.
 - **Other commands:** `ssc generate` prints a passphrase, `ssc key` manages
   standalone `.ssckey` files, and `ssc shred` overwrites a file before
   deleting it.
