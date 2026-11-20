@@ -15,6 +15,7 @@ import pytest
 
 from secure_string_cipher.engine import keyfile, recovery
 from secure_string_cipher.service import passwords
+from secure_string_cipher.service.context import Context
 from tests.cli.conftest import Run, Terminal, secret_file
 from tests.service.fakes import Keychain
 
@@ -457,3 +458,82 @@ def test_revoke_rotation_cuts_out_a_copy_of_the_revoked_key(
     assert 'which used "laptop"' in done.said
     terminal.tty = False
     assert ssc("access", "show", "docs.ssc").out == 'g1: key "usb"\n'
+
+
+# --- from a self-review of the CLI and the service layer ------------------------------
+
+
+def test_a_failed_rotation_does_not_stop_the_rest_and_is_an_error(
+    ssc: Run,
+    vault: None,
+    report: Path,
+    terminal: Terminal,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from secure_string_cipher.service import access_ops
+
+    assert ssc("vault", "add", "laptop", "--key").code == 0
+    assert ssc("vault", "add", "usb", "--key").code == 0
+    Path("docs").mkdir()
+    for name in ("a", "b"):
+        flags = ["--grant", "vault:laptop", "--grant", "vault:usb"]
+        assert ssc("encrypt", "report.txt", "-o", f"docs/{name}.ssc", *flags).code == 0
+    real = access_ops.rotate
+
+    def flaky(ctx: Context, path: Path, *, without: str | None = None) -> None:
+        if path.name == "a.ssc":
+            raise PermissionError(13, "Permission denied", str(path))
+        real(ctx, path, without=without)
+
+    monkeypatch.setattr(access_ops, "rotate", flaky)
+    terminal.tty = True
+    terminal.lines.append("y")
+    done = ssc("vault", "revoke", "laptop", "--scan", "docs")
+    assert done.code == 4
+    assert "a.ssc: Permission denied" in done.said
+    assert "1 of 2 files could not be rotated." in done.err
+    assert ssc("access", "show", "docs/b.ssc").out.split("\n")[0] == 'g1: key "usb"'
+
+
+def test_a_file_named_only_ssc_needs_an_output(ssc: Run, pw: Path) -> None:
+    Path(".ssc").write_bytes(b"x")
+    result = ssc("decrypt", ".ssc", "--password-file", str(pw))
+    assert result.code == 1
+    assert "-o" in result.err
+
+
+def test_input_that_ends_is_a_cancel_not_a_bug() -> None:
+    from secure_string_cipher.cli.main import exit_code, message
+    from secure_string_cipher.cli.prompter import StdTerminal
+
+    ended = StdTerminal(stdin=io.StringIO(""), stderr=io.StringIO())
+    with pytest.raises(EOFError):
+        ended.line("Type its last group to confirm: ")
+    assert exit_code(EOFError()) == 1
+    assert message(EOFError()).startswith("Cancelled")
+
+
+def test_a_history_write_that_fails_does_not_fail_a_decrypt(
+    ssc: Run, vault: None, report: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from secure_string_cipher.errors import VaultError
+    from secure_string_cipher.service import files, vaults
+
+    assert ssc("vault", "add", "laptop", "--key").code == 0
+    assert ssc("vault", "history", "on").code == 0
+    assert ssc("encrypt", "report.txt", "--vault", "laptop").code == 0
+    report.unlink()
+    original = files.Opener.record
+
+    def busy(self: files.Opener, index: int) -> None:
+        def refuse(*_: object, **__: object) -> None:
+            raise VaultError("The vault is in use by another ssc process.")
+
+        monkeypatch.setattr(vaults, "edit", refuse)
+        original(self, index)
+
+    monkeypatch.setattr(files.Opener, "record", busy)
+    done = ssc("decrypt", "report.txt.ssc")
+    assert done.code == 0
+    assert report.read_bytes() == PLAIN
+    assert "history could not record it" in done.said

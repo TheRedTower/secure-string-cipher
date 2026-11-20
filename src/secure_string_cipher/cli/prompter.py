@@ -50,7 +50,10 @@ class StdTerminal:
     def line(self, prompt: str) -> str:
         self.stderr.write(prompt)
         self.stderr.flush()
-        return self.stdin.readline().rstrip("\r\n")
+        line = self.stdin.readline()
+        if not line:  # the input ended: never loop on it
+            raise EOFError()
+        return line.rstrip("\r\n")
 
     def say(self, text: str) -> None:
         print(text, file=self.stderr, flush=True)

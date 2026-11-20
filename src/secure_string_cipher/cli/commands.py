@@ -72,9 +72,11 @@ def encrypt(args: argparse.Namespace, ctx: Context) -> None:
 
 def decrypt(args: argparse.Namespace, ctx: Context) -> None:
     if args.output is None:
-        if args.file == STDIO or not args.file.endswith(".ssc"):
+        name = Path(args.file).name
+        # A name that is only ".ssc" would leave nothing to write to.
+        if args.file == STDIO or not name.endswith(".ssc") or name == ".ssc":
             raise InputError(
-                "The input name does not end in .ssc, so give the output with -o."
+                "Give the output with -o: no name can be made for it from the input."
             )
         args.output = args.file.removesuffix(".ssc")
     output = _target(args.output)
@@ -165,11 +167,16 @@ def _revoke(args: argparse.Namespace, ctx: Context) -> None:
         default=False,
     ):
         return
-    for path in found:
+    failed = 0
+    for path in found:  # one file failing does not stop the rest
         try:
             access_ops.rotate(ctx, path, without=args.label)
-        except SSCError as error:
-            ctx.prompter.notice(f"{path}: {error}")
+        except (SSCError, OSError) as error:
+            failed += 1
+            reason = error.strerror if isinstance(error, OSError) else None
+            ctx.prompter.notice(f"{path}: {reason or error}")
+    if failed:
+        raise OSError(f"{failed} of {len(found)} files could not be rotated.")
 
 
 def _history(args: argparse.Namespace, ctx: Context) -> None:
