@@ -166,3 +166,4 @@ entry says which one.
 | #186 | Step 4 | `695ac61` docs: how to run SSC in Docker | `README.md`: the Docker section |
 | #187 | Review | `90573c8` fix(interactive): fixes from a self-review of the guided flow | `interactive/flow.py` (`_profiles`, `_how`, `_ways`, `_unlock`, `_archive_or_revoke`, `_keychain`) and `service/profile_ops.py` (`describe`) |
 | #188 | Spec | `edd60d4` docs(spec): write the readings the owner confirmed into CLI.md | `docs/spec/CLI.md`: exit 2 versus exit 1, the recovery code in `vault change-password`, `vault revoke --scan`, and `+` in `keyfile:` paths. The owner confirmed them on 2026-11-20 |
+| #189 | Review | `0120897` fix(cli): fixes from a self-review of the CLI and the service layer | `cli/commands.py` (`_revoke`, `decrypt`), `cli/prompter.py` (`StdTerminal.line`), `cli/main.py` (`EOFError`) and `service/files.py` (`Opener.record`) |
