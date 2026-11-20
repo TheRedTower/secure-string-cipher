@@ -420,10 +420,19 @@ class Opener:
         used = _entries_in(self.document, grant)
         if (code := self._recovery_in(grant)) is not None:
             used.append(code)
-        if used:
+        if not used:
+            return
+        try:
             with vaults.edit(self.vault_ctx, ask=False) as session:
                 for entry in used:
                     session.record("decrypt", entry.id)
+        except (SSCError, OSError) as error:
+            # The file is already open, its output perhaps written: failing
+            # now would tell a script that a decrypt which worked did not.
+            reason = error.strerror if isinstance(error, OSError) else None
+            self.ctx.prompter.notice(
+                f"Opened, but the vault history could not record it: {reason or error}"
+            )
 
     def _recovery_in(self, grant: access.Grant) -> doc.Entry | None:
         """The vault recovery entry that filled `grant`'s recovery factor:

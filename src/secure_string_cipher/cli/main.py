@@ -32,7 +32,7 @@ INTERNAL = 70
 
 
 def exit_code(error: BaseException) -> int:
-    if isinstance(error, InputError | RecoveryCodeError | KeyboardInterrupt):
+    if isinstance(error, InputError | RecoveryCodeError | KeyboardInterrupt | EOFError):
         return INPUT
     if isinstance(error, CannotOpen):
         return CANNOT_OPEN
@@ -49,6 +49,8 @@ def message(error: BaseException) -> str:
     is a bug whose details appear only with --debug."""
     if isinstance(error, KeyboardInterrupt):
         return "Cancelled."
+    if isinstance(error, EOFError):
+        return "Cancelled: the input ended before an answer was given."
     if isinstance(error, OSError) and error.strerror and error.filename:
         return f"{error.filename}: {error.strerror}."
     if isinstance(error, SSCError | OSError):
