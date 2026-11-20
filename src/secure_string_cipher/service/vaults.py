@@ -334,6 +334,7 @@ def change_password(ctx: Context) -> None:
     with store.edit(access.Credentials(passwords=[current]), ctx.vault_path) as session:
         session.record("vault-unlock")
         session.change_master_password(current, new)
+    _remember(ctx, new)
 
 
 def reset_password(ctx: Context, code: str) -> None:
@@ -344,6 +345,15 @@ def reset_password(ctx: Context, code: str) -> None:
     with store.edit(access.Credentials(recovery_codes=[r]), ctx.vault_path) as session:
         session.record("vault-unlock")
         session.reset_master_password(r, new)
+    _remember(ctx, new)
+
+
+def _remember(ctx: Context, new: str) -> None:
+    """A session that holds the master password, such as the guided flow
+    after an unlock, holds the new one from now on, not the one that no
+    longer opens the vault."""
+    if ctx.master_password is not None:
+        ctx.master_password = new
 
 
 def add_device(ctx: Context) -> int:
@@ -352,6 +362,31 @@ def add_device(ctx: Context) -> int:
         raise VaultError("No OS keychain is available here.")
     with edit(ctx) as session:
         return keychain.add_device(session, chain)
+
+
+def peek(ctx: Context) -> doc.Document | None:
+    """The vault, if this device can read it without asking; None if there
+    is none, or it is locked, damaged, in use or unreadable."""
+    if not exists(ctx):
+        return None
+    try:
+        with edit(ctx, ask=False) as session:
+            return session.document
+    except (SSCError, OSError):
+        return None
+
+
+def this_device(ctx: Context) -> int | None:
+    """The index of this device's grant, without asking for anything: None
+    if the vault is locked here or there is no keychain."""
+    chain = ctx.chain()
+    if chain is None or not exists(ctx):
+        return None
+    try:
+        with edit(ctx, ask=False) as session:
+            return keychain.this_device(session, chain)
+    except (Locked, CannotOpen):
+        return None
 
 
 def remove_device(ctx: Context, grant: str) -> None:

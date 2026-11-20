@@ -16,7 +16,7 @@ from typing import BinaryIO
 
 from secure_string_cipher import fs
 from secure_string_cipher.engine import access, container, payload
-from secure_string_cipher.errors import CannotOpen, InputError, SSCError, VaultError
+from secure_string_cipher.errors import CannotOpen, InputError, VaultError
 from secure_string_cipher.service import files, vaults
 from secure_string_cipher.service import grants as specs
 from secure_string_cipher.service.context import Context
@@ -31,17 +31,6 @@ def _read_header(path: Path) -> container.Header:
 
 
 # --- show ------------------------------------------------------------------------
-
-
-def _vault_document(ctx: Context) -> doc.Document | None:
-    """The vault, if this device can open it without asking."""
-    if not vaults.exists(ctx):
-        return None
-    try:
-        with vaults.edit(ctx, ask=False) as session:
-            return session.document
-    except (SSCError, OSError):  # locked, damaged, in use or unreadable
-        return None
 
 
 def describe(factor: access.Factor, document: doc.Document | None) -> str:
@@ -70,7 +59,7 @@ def show(ctx: Context, path: Path) -> list[str]:
     needs no credentials; labels come from the vault if this device can
     open it."""
     header = _read_header(path)
-    document = _vault_document(ctx)
+    document = vaults.peek(ctx)
     lines = []
     for i, grant in enumerate(header.grants, 1):
         if grant.factors is None:

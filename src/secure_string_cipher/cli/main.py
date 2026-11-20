@@ -8,7 +8,7 @@ import traceback
 from collections.abc import Sequence
 
 from secure_string_cipher.cli import commands, parser, sources
-from secure_string_cipher.cli.prompter import CliPrompter, Terminal
+from secure_string_cipher.cli.prompter import CliPrompter, StdTerminal, Terminal
 from secure_string_cipher.errors import (
     CannotOpen,
     FormatError,
@@ -17,6 +17,9 @@ from secure_string_cipher.errors import (
     SSCError,
     VaultError,
 )
+from secure_string_cipher.interactive import flow
+from secure_string_cipher.interactive.prompter import UiPrompter
+from secure_string_cipher.interactive.ui import QuestionaryUi, Ui
 from secure_string_cipher.service.context import Context
 from secure_string_cipher.vault import store
 
@@ -53,14 +56,23 @@ def message(error: BaseException) -> str:
     return "SSC hit an internal error. Run the command again with --debug for details."
 
 
-def main(argv: Sequence[str] | None = None, terminal: Terminal | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    terminal: Terminal | None = None,
+    ui: Ui | None = None,
+) -> int:
+    """`ssc`. With no arguments in a terminal, the guided flow (CLI.md
+    section 4); without one, the help and exit 1. `terminal` and `ui` are
+    for tests."""
     args_list = list(sys.argv[1:] if argv is None else argv)
     debug = "--debug" in args_list
     try:
         args = parser.build().parse_args(args_list)
         if args.command is None:
-            parser.build().print_help(sys.stderr)
-            return INPUT
+            if ui is None and not (terminal or StdTerminal()).interactive():
+                parser.build().print_help(sys.stderr)
+                return INPUT
+            return _guided(ui or QuestionaryUi())
         given = sources.gather(
             password_files=args.password_file,
             new_password_file=args.new_password_file,
@@ -84,3 +96,19 @@ def main(argv: Sequence[str] | None = None, terminal: Terminal | None = None) ->
         print(f"ssc: {message(error)}", file=sys.stderr)
         return exit_code(error)
     return OK
+
+
+def _guided(ui: Ui) -> int:
+    """Credentials from the environment still count, so a script can set
+    SSC_MASTER_PASSWORD; everything else is asked."""
+    given = sources.gather()
+    ctx = Context(
+        UiPrompter(ui),
+        vault_path=store.default_path(),
+        ask_key_file=lambda: flow.ask_path(ui, "Which key file?"),
+        passwords=given.passwords,
+        recovery_codes=[given.recovery_code] if given.recovery_code else [],
+        key_files=given.key_files,
+        master_password=given.master_password,
+    )
+    return flow.run(ctx, ui)

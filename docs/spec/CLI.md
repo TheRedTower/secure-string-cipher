@@ -265,8 +265,8 @@ it prints the help and exits 1.
   with no mouse.
 - **Prompt library:** [`questionary`](https://pypi.org/project/questionary/),
   as the brief suggests. It gives arrow-key selects and path completion,
-  and it is light to test on three platforms. To be confirmed when Phase 4
-  starts.
+  and it is light to test on three platforms. Confirmed in Phase 4, step 3:
+  questionary 2.1.1, which is pure Python and needs only prompt_toolkit.
 
 ### 4.1 Start
 

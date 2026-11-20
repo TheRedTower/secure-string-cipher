@@ -16,6 +16,7 @@ dependencies = [
     "cryptography==50.0.2",
     "keyring==25.7.0",
     "platformdirs==4.14.5",
+    "questionary==2.1.1",
     "zxcvbn==4.5.0",
 ]
 classifiers = [
@@ -51,7 +52,12 @@ dev = [
 required-version = ">=0.9.17"
 # argon2-cffi-bindings 26.2.0 was days old when this was pinned; hold the
 # last release that had been out for weeks.
-constraint-dependencies = ["argon2-cffi-bindings==26.1.0"]
+# questionary's own dependencies, held to releases out for weeks as well.
+constraint-dependencies = [
+    "argon2-cffi-bindings==26.1.0",
+    "prompt-toolkit==3.0.53",
+    "wcwidth==0.9.4",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/secure_string_cipher"]

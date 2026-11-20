@@ -136,9 +136,13 @@ class Builder:
 class Choice:
     """How a new file unlocks (CLI.md section 3.1): one of a profile, a
     vault entry or grant specs, plus `--recovery-code`. With none of them,
-    the default profile, or else a typed password."""
+    the default profile, or else a typed password.
+
+    `grants` are grants already built as tokens, which the guided flow
+    uses, so a key file's path is never read as grant syntax."""
 
     grant_specs: Sequence[str] = ()
+    grants: Sequence[tuple[specs.Token, ...]] = ()
     vault_label: str | None = None
     profile: str | None = None
     recovery_code: bool = False
@@ -150,7 +154,11 @@ def policy(
 ) -> Iterator[list[list[access.NewFactor]]]:
     """The grants a new file gets. The vault, if used, is written, and a new
     recovery code shown, before the block runs (see `Builder.save`)."""
-    picked = [x for x in (choice.grant_specs, choice.vault_label, choice.profile) if x]
+    picked = [
+        x
+        for x in (choice.grant_specs, choice.grants, choice.vault_label, choice.profile)
+        if x
+    ]
     if len(picked) > 1:
         raise InputError("Use only one of --profile, --vault and --grant.")
     with ExitStack() as stack:
@@ -159,6 +167,8 @@ def policy(
         result: list[list[access.NewFactor]] = []
         if choice.grant_specs:
             tokens = specs.parse_grants(choice.grant_specs)
+        elif choice.grants:
+            tokens = specs.check_grants(choice.grants)
         elif choice.vault_label:
             tokens = [(specs.Token("vault", choice.vault_label),)]
         else:
@@ -249,6 +259,7 @@ class Opener:
     asked_master: bool = False
     asked_recovery: bool = False
     asked_passwords: int = 0
+    asked_keys: int = 0
 
     def __post_init__(self) -> None:
         self.passwords = list(self.ctx.passwords)
@@ -323,7 +334,33 @@ class Opener:
             found.append(("your password", self.ask_password))
         if access.RECOVERY in kinds and not self.asked_recovery:
             found.append(("a recovery code", self.ask_recovery))
+        named = self.named_keys()
+        # Asked at most once per key the file names, a fixed bound, and only
+        # while one is still missing: an all-of grant may need several.
+        if (
+            self.ctx.ask_key_file is not None
+            and self.asked_keys < len(named)
+            and named - self.keys_held()
+        ):
+            found.append(("a key file", self.ask_key))
         return found
+
+    def named_keys(self) -> set[bytes]:
+        """The key_ids of the file's key factors."""
+        return {
+            f.body
+            for g in self.header.grants
+            for f in g.factors or ()
+            if f.kind == access.KEY
+        }
+
+    def keys_held(self) -> set[bytes]:
+        return {access.key_id(k) for k in self.credentials().keys}
+
+    def ask_key(self) -> None:
+        assert self.ctx.ask_key_file is not None
+        self.asked_keys += 1
+        self.keys.append(keyfile.read(self.ctx.ask_key_file()).key)
 
     def unlock_vault(self) -> None:
         """Always asks: a supplied master password has already failed."""
@@ -443,18 +480,45 @@ def _entries_in(document: doc.Document, grant: access.Grant) -> list[doc.Entry]:
     return found
 
 
-def decrypt(
-    ctx: Context, source: Readable, output: Output, *, force: bool = False
-) -> int:
-    """`ssc decrypt`. Returns the plaintext size. To a path, the output
-    appears only once the file has fully authenticated; to a stream, nothing
-    is written until then."""
-    _refuse_existing(output, force)
+@dataclass
+class Opening:
+    """A file whose key has been found, before any plaintext is written:
+    the interactive mode says how it opened, then asks where to write."""
+
+    header: container.Header
+    stream: Readable
+    file_key: bytes
+    index: int
+    opener: Opener
+
+    @property
+    def grant(self) -> access.Grant:
+        return self.header.grants[self.index]
+
+    def asked(self) -> bool:
+        """Whether anything was typed to open it."""
+        o = self.opener
+        return bool(
+            o.asked_master or o.asked_recovery or o.asked_passwords or o.asked_keys
+        )
+
+
+def open_file(ctx: Context, source: Readable) -> Opening:
+    """Find the file key, asking only for what is missing."""
     stream, _ = container.binary_stream(source)
     header = container.read_header(stream)
     opener = Opener(ctx, header)
     file_key, index = opener.open()
-    key = payload.payload_key(file_key, header.fixed)
+    return Opening(header, stream, file_key, index, opener)
+
+
+def write_plaintext(opening: Opening, output: Output, *, force: bool = False) -> int:
+    """Decrypt an opened file. Returns the plaintext size. To a path, the
+    output appears only once the file has fully authenticated; to a stream,
+    nothing is written until then."""
+    _refuse_existing(output, force)
+    key = payload.payload_key(opening.file_key, opening.header.fixed)
+    stream = opening.stream
     size = 0
     late = None
     if isinstance(output, Path):
@@ -470,7 +534,16 @@ def decrypt(
         with tempfile.SpooledTemporaryFile(max_size=HOLD_IN_MEMORY) as held:
             size = payload.decrypt(key, stream, held)
             _release(held, output)
-    opener.record(index)
+    opening.opener.record(opening.index)
     if late is not None:
         raise late
     return size
+
+
+def decrypt(
+    ctx: Context, source: Readable, output: Output, *, force: bool = False
+) -> int:
+    """`ssc decrypt`: `open_file`, then `write_plaintext`. An existing output
+    is refused before anything is asked."""
+    _refuse_existing(output, force)
+    return write_plaintext(open_file(ctx, source), output, force=force)

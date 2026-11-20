@@ -55,8 +55,15 @@ def parse_grant(spec: str) -> tuple[Token, ...]:
                 f'"{part}" is not a factor. Use password, vault:<label>, '
                 "keyfile:<path> or recovery."
             )
+    return check_grant(tokens)
+
+
+def check_grant(tokens: Sequence[Token]) -> tuple[Token, ...]:
+    """A grant names a factor only once, and has at most 5 factors."""
     if len(set(tokens)) != len(tokens):
-        raise InputError(f'The grant "{spec}" names a factor twice.')
+        raise InputError(
+            f'The grant "{"+".join(map(str, tokens))}" names a factor twice.'
+        )
     if len(tokens) > access.MAX_FACTORS:
         raise InputError(f"A grant has at most {access.MAX_FACTORS} factors.")
     return tuple(tokens)
@@ -69,3 +76,10 @@ def parse_grants(specs: Sequence[str]) -> list[tuple[Token, ...]]:
     if len(specs) > access.MAX_GRANTS:
         raise InputError(f"A file has at most {access.MAX_GRANTS} grants.")
     return [parse_grant(spec) for spec in specs]
+
+
+def check_grants(grants: Sequence[Sequence[Token]]) -> list[tuple[Token, ...]]:
+    """Grants built as tokens, not parsed from specs, checked the same way."""
+    if len(grants) > access.MAX_GRANTS:
+        raise InputError(f"A file has at most {access.MAX_GRANTS} grants.")
+    return [check_grant(g) for g in grants]

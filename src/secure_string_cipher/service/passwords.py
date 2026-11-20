@@ -22,16 +22,23 @@ DEFAULT_WORDS = 6
 MIN_WORDS = 4
 
 
+WEAK = (
+    "That password is weak: it could be guessed. A generated passphrase "
+    "(ssc generate) is stronger."
+)
+
+
+def is_weak(password: str) -> bool:
+    # zxcvbn's cost grows with length; its first 100 characters are plenty.
+    return bool(zxcvbn.zxcvbn(password[:100])["score"] <= WEAK_SCORE)
+
+
 def check(ctx: Context, password: str) -> str:
     """Refuse a password under 8 characters, and warn about a weak one."""
     if len(password) < MIN_LENGTH:
         raise InputError(f"A password must be at least {MIN_LENGTH} characters.")
-    # zxcvbn's cost grows with length; its first 100 characters are plenty.
-    if zxcvbn.zxcvbn(password[:100])["score"] <= WEAK_SCORE:
-        ctx.prompter.notice(
-            "That password is weak: it could be guessed. A generated "
-            "passphrase (ssc generate) is stronger."
-        )
+    if is_weak(password):
+        ctx.prompter.notice(WEAK)
     return password
 
 
