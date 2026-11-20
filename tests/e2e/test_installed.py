@@ -54,7 +54,9 @@ class Result:
 
     @property
     def text(self) -> str:
-        return self.out.decode()
+        """stdout as text. Text output ends lines with CRLF on Windows, as
+        `print` does there; `out` stays as written, for binary output."""
+        return self.out.decode().replace("\r\n", "\n")
 
 
 @dataclass
