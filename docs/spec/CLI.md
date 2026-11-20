@@ -51,7 +51,7 @@ mode never shows those words to the person; it says "unlock with".
 | --- | --- |
 | 0 | Success |
 | 1 | Input error: bad arguments, missing options, invalid grant spec |
-| 2 | Cannot open: wrong or missing credentials. Always the same message, whichever factor was wrong |
+| 2 | Cannot open: the credentials supplied or typed do not open it. Always the same message, whichever factor was wrong. A credential that is needed but cannot be asked for, with no TTY, is exit 1 instead |
 | 3 | Vault error: no vault, entry or profile not found, vault locked, keychain unavailable when it was explicitly asked for |
 | 4 | File error: not found, permission denied, not an SSC file, corrupt or truncated |
 | 70 | Internal error: a bug in SSC |
@@ -85,7 +85,8 @@ These exist for scripts and Docker:
     Docker container decrypts a file that was encrypted with
     `--grant keyfile:<path>`.
 - Without a TTY, a credential that is needed but not supplied is an exit 1
-  error, never a hang.
+  error, never a hang. One that was supplied but is wrong is exit 2.
+  (Confirmed in Phase 4, step 2.)
 - **Opening with a password and setting one are separate roles**, so they
   have separate sources.
   - `access add --grant password` can open a file with password A
@@ -103,6 +104,11 @@ These exist for scripts and Docker:
   - `vault change-password` needs both. It refuses to run when the new one
     is missing, rather than reusing the current one and reporting a
     rotation that did not happen.
+  - The vault's own recovery code can stand in for the current one: with a
+    recovery code supplied (`--recovery-code-file` or `SSC_RECOVERY_CODE`)
+    and no master password, `vault change-password` opens the vault with
+    the code. This is how a forgotten master password is replaced
+    (VAULT.md section 2). (Confirmed in Phase 4, step 2.)
   - This is carried over from 2.x.
 
 ## 2. Grant specs
@@ -121,6 +127,10 @@ Examples: `--grant password`, `--grant "password+vault:laptop"`,
 several of them mean "any of".
 
 - A grant spec may name a factor only once.
+- `+` always joins factors, so `keyfile:<path>` cannot name a path that
+  contains `+`. Rename the file, or run `ssc key import <path>` and use
+  `vault:<label>`. The interactive mode takes paths on their own, so it has
+  no such limit.
 - It may have at most 5 factors.
 - A file may have at most 16 grants.
 
@@ -190,7 +200,7 @@ ssc vault status
 ssc vault add <label>     (--password [--generate [--show]] | --key | --recovery-code)
 ssc vault list
 ssc vault archive <label>
-ssc vault revoke <label>
+ssc vault revoke <label>  [--scan <folder>]
 ssc vault change-password
 ssc vault add-device
 ssc vault remove-device   <gN>
@@ -203,9 +213,12 @@ ssc vault history         (on | off | show)
   `--no-device-key` is given.
 - **`add --key`** offers a recovery code in the same step, as VAULT.md
   section 3.1 requires.
-- **`revoke`** marks the entry revoked. It then lists the files SSC can find
-  that the entry opens, and offers to rotate them. It says plainly that a
-  copy of the secret still works for whoever has it.
+- **`revoke`** marks the entry revoked. It says plainly that a copy of the
+  secret still works for whoever has it.
+  - With `--scan <folder>`, it then lists the SSC files under that folder
+    that the entry opens, and offers to rotate them (section 6, decision 3).
+    Rotating drops the grants that use the revoked entry.
+  - Without `--scan`, it only revokes. (Confirmed in Phase 4, step 2.)
 - **History `action` values** (VAULT.md section 5) are exactly:
   - `vault-unlock`
   - `vault-access-change`, covering a password change and adding or
