@@ -167,3 +167,6 @@ entry says which one.
 | #187 | Review | `90573c8` fix(interactive): fixes from a self-review of the guided flow | `interactive/flow.py` (`_profiles`, `_how`, `_ways`, `_unlock`, `_archive_or_revoke`, `_keychain`) and `service/profile_ops.py` (`describe`) |
 | #188 | Spec | `edd60d4` docs(spec): write the readings the owner confirmed into CLI.md | `docs/spec/CLI.md`: exit 2 versus exit 1, the recovery code in `vault change-password`, `vault revoke --scan`, and `+` in `keyfile:` paths. The owner confirmed them on 2026-11-20 |
 | #189 | Review | `0120897` fix(cli): fixes from a self-review of the CLI and the service layer | `cli/commands.py` (`_revoke`, `decrypt`), `cli/prompter.py` (`StdTerminal.line`), `cli/main.py` (`EOFError`) and `service/files.py` (`Opener.record`) |
+| #190 | Gate | `9d7ae46` test(e2e): every contract flow through the installed ssc command | `tests/e2e/test_installed.py` |
+| #190 | Gate | `cbd381b` docs: the Phase 4 gate, contract section by section | `rebuild/PHASE4_GATE.md` |
+| #190 | Review fix | `4bbc18f` test(e2e): compare text output by line, as Windows ends lines with CRLF | `tests/e2e/test_installed.py` (`Result.text`), for Codex's finding and the three Windows jobs |
