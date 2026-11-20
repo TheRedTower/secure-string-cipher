@@ -180,3 +180,4 @@ entry says which one.
 | #191 | Step 1 | `6251575` docs: the security policy and contributing guide for 3.0 | `SECURITY.md` and `CONTRIBUTING.md`, new at the root. The reporting channels and the best-effort wording come from `legacy/.github/SECURITY.md` |
 | #191 | Step 1 | `b3079f3` docs: a fresh changelog that starts at 3.0.0 | `CHANGELOG.md`, new. The 2.x history is at the v2.0.0 tag |
 | #191 | Step 1 | `fafcade` docs(spec): mark the four specs stable for 3.0 | `docs/spec/*.md`: status lines, and the rebuild's process notes taken out. On 2026-11-20 the owner also confirmed the MIT licence, which is unchanged |
+| #191 | Review fix | `1063edc` docs: fix the stdin decrypt example, and say where plaintext really goes | `README.md`, `docs/THREAT_MODEL.md` and `docs/spec/CLI.md` section 1, for Codex's two findings |
