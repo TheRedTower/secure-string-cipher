@@ -136,9 +136,13 @@ class Builder:
 class Choice:
     """How a new file unlocks (CLI.md section 3.1): one of a profile, a
     vault entry or grant specs, plus `--recovery-code`. With none of them,
-    the default profile, or else a typed password."""
+    the default profile, or else a typed password.
+
+    `grants` are grants already built as tokens, which the guided flow
+    uses, so a key file's path is never read as grant syntax."""
 
     grant_specs: Sequence[str] = ()
+    grants: Sequence[tuple[specs.Token, ...]] = ()
     vault_label: str | None = None
     profile: str | None = None
     recovery_code: bool = False
@@ -150,7 +154,11 @@ def policy(
 ) -> Iterator[list[list[access.NewFactor]]]:
     """The grants a new file gets. The vault, if used, is written, and a new
     recovery code shown, before the block runs (see `Builder.save`)."""
-    picked = [x for x in (choice.grant_specs, choice.vault_label, choice.profile) if x]
+    picked = [
+        x
+        for x in (choice.grant_specs, choice.grants, choice.vault_label, choice.profile)
+        if x
+    ]
     if len(picked) > 1:
         raise InputError("Use only one of --profile, --vault and --grant.")
     with ExitStack() as stack:
@@ -159,6 +167,8 @@ def policy(
         result: list[list[access.NewFactor]] = []
         if choice.grant_specs:
             tokens = specs.parse_grants(choice.grant_specs)
+        elif choice.grants:
+            tokens = specs.check_grants(choice.grants)
         elif choice.vault_label:
             tokens = [(specs.Token("vault", choice.vault_label),)]
         else:

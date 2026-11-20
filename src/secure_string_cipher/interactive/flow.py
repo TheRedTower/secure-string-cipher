@@ -20,6 +20,7 @@ from secure_string_cipher.service import (
     vaults,
 )
 from secure_string_cipher.service.context import Context
+from secure_string_cipher.service.grants import Token
 from secure_string_cipher.service.vaults import State
 from secure_string_cipher.vault import document as doc
 
@@ -105,42 +106,42 @@ def _profiles(ctx: Context) -> list[tuple[str, str]]:
     return found
 
 
-def _ways(ctx: Context, ui: Ui) -> tuple[list[str], str]:
-    """ "Something else…": ways in built step by step, as grant specs, and
-    how to say them."""
+def _ways(ctx: Context, ui: Ui) -> tuple[list[tuple[Token, ...]], str]:
+    """ "Something else…": ways in built step by step, as grants, and how
+    to say them."""
     options = ["A password I'll type"]
-    tokens = ["password"]
+    tokens = [Token("password")]
     names = ["a password"]
     for entry in _entries(ctx) if vaults.exists(ctx) else []:
         options.append(f'Vault entry "{entry.label}"')
-        tokens.append(f"vault:{entry.label}")
+        tokens.append(Token("vault", entry.label))
         names.append(f'vault entry "{entry.label}"')
     options += ["A key file…", "A recovery code"]
-    tokens += ["keyfile:", "recovery"]
+    tokens += [Token("keyfile"), Token("recovery")]
     names += ["", "a recovery code"]
-    specs: list[str] = []
+    grants: list[tuple[Token, ...]] = []
     words: list[str] = []
     while True:
         picked = ui.checkbox("Unlock needs all of…", options)
         if not picked:
-            if specs:
+            if grants:
                 break
             raise InputError("Choose at least one way to unlock it.")
         parts, said = [], []
         for i in picked:
             token, name = tokens[i], names[i]
-            if token == "keyfile:":
+            if token.kind == "keyfile":
                 key = _path(ui.path("Which key file?"))
-                token, name = f"keyfile:{key}", f"key file {key.name}"
+                token, name = Token("keyfile", str(key)), f"key file {key.name}"
             parts.append(token)
             said.append(name)
-        specs.append("+".join(parts))
+        grants.append(tuple(parts))
         words.append(" + ".join(said))
         if not ui.confirm(
             "Add another way in? Any one of these opens it…", default=False
         ):
             break
-    return specs, " or ".join(words)
+    return grants, " or ".join(words)
 
 
 def _how(ctx: Context, ui: Ui) -> tuple[files.Choice, str]:
@@ -174,9 +175,10 @@ def _how(ctx: Context, ui: Ui) -> tuple[files.Choice, str]:
             return files.Choice(vault_label=entry.label), f'vault entry "{entry.label}"'
         case 2:
             key = _path(ui.path("Which key file?"))
-            return files.Choice(grant_specs=[f"keyfile:{key}"]), f"key file {key.name}"
-    specs, words = _ways(ctx, ui)
-    return files.Choice(grant_specs=specs), words
+            grant = (Token("keyfile", str(key)),)
+            return files.Choice(grants=[grant]), f"key file {key.name}"
+    grants, words = _ways(ctx, ui)
+    return files.Choice(grants=grants), words
 
 
 def _replace(ui: Ui, out: Path) -> bool | None:
@@ -472,7 +474,11 @@ def _message(error: BaseException) -> str:
 
 
 def _header(ctx: Context) -> str:
-    state = vaults.status(ctx).state
+    """A vault that cannot be read now still leaves the rest of SSC usable."""
+    try:
+        state = vaults.status(ctx).state
+    except (SSCError, OSError) as error:  # damaged, unreadable or in use
+        return f"SSC  ·  vault unavailable: {_message(error)}"
     if state is State.NONE:
         return "SSC  ·  no vault yet"
     return f"SSC  ·  vault {state.value}"

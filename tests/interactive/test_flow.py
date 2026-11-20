@@ -398,3 +398,43 @@ def test_a_wrong_key_file_uses_up_a_try(
     run(ctx, ui, "Decrypt", "f.ssc", "other.ssckey")
     assert ui.asked.count("Which key file?") == 1
     assert any(s.startswith("✗ ") for s in ui.said)
+
+
+def test_a_vault_that_cannot_be_read_leaves_the_rest_usable(
+    ctx: Context, ui: ScriptedUi, report: Path
+) -> None:
+    """Codex on #185: a damaged vault must not stop password-only work."""
+    with_vault(ctx, ui)
+    ctx.vault_path.write_bytes(b"not a vault")
+    run(
+        ctx, ui,
+        "Encrypt", "report.txt", "A password I'll type", True, PASSWORD, PASSWORD,
+    )  # fmt: skip
+    assert ui.said[0].startswith("SSC  ·  vault unavailable: ")
+    assert any(s.startswith("✓ Wrote") for s in ui.said)
+
+
+def test_a_key_file_path_with_a_plus_is_kept_whole(
+    ctx: Context, ui: ScriptedUi, report: Path, tmp_path: Path
+) -> None:
+    """Codex on #185: the flow never reads a path as grant syntax."""
+    from secure_string_cipher.service import keys
+
+    (tmp_path / "C++").mkdir()
+    keys.new(tmp_path / "C++" / "usb.ssckey")
+    run(
+        ctx, ui,
+        "Encrypt", "report.txt", "A key file", "C++/usb.ssckey", True,
+        "Encrypt", "report.txt", "Something else", ["A key file"],
+        "C++/usb.ssckey", False, True, True,
+    )  # fmt: skip
+    assert sum(s.startswith("✓ Wrote") for s in ui.said) == 2
+    ctx.key_files = [tmp_path / "C++" / "usb.ssckey"]
+    assert opens(ctx, report.with_name("report.txt.ssc")) == PLAIN
+
+
+def test_something_else_needs_at_least_one_way_in(
+    ctx: Context, ui: ScriptedUi, report: Path
+) -> None:
+    run(ctx, ui, "Encrypt", "report.txt", "Something else", [])
+    assert "✗ Choose at least one way to unlock it." in ui.said
