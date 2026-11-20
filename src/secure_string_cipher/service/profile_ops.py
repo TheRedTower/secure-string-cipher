@@ -51,19 +51,22 @@ def list_(ctx: Context) -> tuple[doc.Profile, ...]:
 def show(ctx: Context, name: str) -> list[str]:
     """Each grant in plain words, such as `g1: vault entry "laptop"`."""
     with vaults.edit(ctx) as session:
-        profile = profiles.find(session.document, name)
-        lines = []
-        for i, grant in enumerate(profile.grants, 1):
-            words = []
-            for ref in grant:
-                if ref.entry is None:
-                    words.append("a password typed at encrypt time")
-                    continue
-                entry = entries.by_id(session.document, ref.entry)
-                words.append(
-                    f'vault entry "{entry.label}"' if entry else "a missing entry"
-                )
-            lines.append(f"g{i}: " + " + ".join(words))
+        return describe(session.document, name)
+
+
+def describe(document: doc.Document, name: str) -> list[str]:
+    """`show`, from a vault already read: no unlock, no Argon2id run."""
+    profile = profiles.find(document, name)
+    lines = []
+    for i, grant in enumerate(profile.grants, 1):
+        words = []
+        for ref in grant:
+            if ref.entry is None:
+                words.append("a password typed at encrypt time")
+                continue
+            entry = entries.by_id(document, ref.entry)
+            words.append(f'vault entry "{entry.label}"' if entry else "a missing entry")
+        lines.append(f"g{i}: " + " + ".join(words))
     return lines
 
 

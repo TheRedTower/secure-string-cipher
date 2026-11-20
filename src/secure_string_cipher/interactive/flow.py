@@ -9,7 +9,7 @@ import dataclasses
 from collections.abc import Callable
 from pathlib import Path
 
-from secure_string_cipher.errors import InputError, SSCError
+from secure_string_cipher.errors import CannotOpen, InputError, SSCError
 from secure_string_cipher.interactive.ui import Back, Ui
 from secure_string_cipher.service import (
     access_ops,
@@ -83,8 +83,13 @@ def _unlock(ctx: Context, ui: Ui) -> None:
     """Ask for the master password once, and keep it for this session, so
     every screen can use the vault without asking again."""
     typed = ui.password("Vault master password")
-    if vaults.peek(dataclasses.replace(ctx, master_password=typed)) is None:
+    try:
+        vaults.list_entries(dataclasses.replace(ctx, master_password=typed))
+    except CannotOpen:
         ui.say("✗ That master password did not open the vault.")
+        return
+    except (SSCError, OSError) as error:  # damaged, unreadable or in use
+        ui.say(f"✗ {_message(error)}")
         return
     ctx.master_password = typed
     ui.say("✓ Unlocked the vault for this session")
@@ -93,14 +98,15 @@ def _unlock(ctx: Context, ui: Ui) -> None:
 # --- encrypt (4.2) -------------------------------------------------------------------
 
 
-def _profiles(ctx: Context) -> list[tuple[str, str]]:
-    """Each saved profile, with its ways in in plain words."""
-    document = vaults.peek(ctx)
+def _profiles(document: doc.Document | None) -> list[tuple[str, str]]:
+    """Each saved profile, with its ways in in plain words, from one read
+    of the vault: unlocking it once per profile would cost an Argon2id run
+    each when the master password opens it."""
     if document is None:
         return []
     found = []
     for profile in document.profiles:
-        lines = profile_ops.show(ctx, profile.name)
+        lines = profile_ops.describe(document, profile.name)
         words = " or ".join(line.split(": ", 1)[1] for line in lines)
         found.append((profile.name, words))
     return found
@@ -133,9 +139,13 @@ def _ways(ctx: Context, ui: Ui) -> tuple[list[tuple[Token, ...]], str]:
         options.append(f'Vault entry "{entry.label}"')
         tokens.append(Token("vault", entry.label))
         names.append(f'vault entry "{entry.label}"')
-    options += ["A key file…", "A recovery code"]
-    tokens += [Token("keyfile"), Token("recovery")]
-    names += ["", "a recovery code"]
+    options.append("A key file…")
+    tokens.append(Token("keyfile"))
+    names.append("")
+    if vaults.exists(ctx):  # a recovery code is a vault entry
+        options.append("A recovery code")
+        tokens.append(Token("recovery"))
+        names.append("a recovery code")
     grants: list[tuple[Token, ...]] = []
     words: list[str] = []
     while True:
@@ -163,37 +173,33 @@ def _ways(ctx: Context, ui: Ui) -> tuple[list[tuple[Token, ...]], str]:
 
 def _how(ctx: Context, ui: Ui) -> tuple[files.Choice, str]:
     while True:
-        saved = _profiles(ctx)
-        locked = vaults.exists(ctx) and vaults.peek(ctx) is None
+        has_vault = vaults.exists(ctx)
+        document = vaults.peek(ctx) if has_vault else None
+        saved = _profiles(document)
         options = [f"{name}  ({words})" for name, words in saved]
-        if locked:  # its profiles are not shown until it is unlocked
+        if has_vault and document is None:  # profiles show once it is unlocked
             options.append("Unlock the vault to use a saved profile…")
-        options += [
-            "A password I'll type",
-            "A saved vault entry…",
-            "A key file…",
-            "Something else…",
-        ]
-        pick = ui.select("How should it unlock?", options)
-        if locked and pick == len(saved):
-            _unlock(ctx, ui)
-            continue
-        if locked and pick > len(saved):
-            pick -= 1
-        break
+        options.append("A password I'll type")
+        if has_vault:  # with no vault there is no entry to pick
+            options.append("A saved vault entry…")
+        options += ["A key file…", "Something else…"]
+        what = options[ui.select("How should it unlock?", options)]
+        if not what.startswith("Unlock the vault"):
+            break
+        _unlock(ctx, ui)
+    pick = options.index(what)
     if pick < len(saved):
         name = saved[pick][0]
         return files.Choice(profile=name), f'profile "{name}"'
-    match pick - len(saved):
-        case 0:
-            return files.Choice(grant_specs=["password"]), "a password"
-        case 1:
-            entry = _pick_entry(ctx, ui, "Which vault entry?")
-            return files.Choice(vault_label=entry.label), f'vault entry "{entry.label}"'
-        case 2:
-            key = _path(ui.path("Which key file?"))
-            grant = (Token("keyfile", str(key)),)
-            return files.Choice(grants=[grant]), f"key file {key.name}"
+    if what == "A password I'll type":
+        return files.Choice(grant_specs=["password"]), "a password"
+    if what == "A saved vault entry…":
+        entry = _pick_entry(ctx, ui, "Which vault entry?")
+        return files.Choice(vault_label=entry.label), f'vault entry "{entry.label}"'
+    if what == "A key file…":
+        key = _path(ui.path("Which key file?"))
+        grant = (Token("keyfile", str(key)),)
+        return files.Choice(grants=[grant]), f"key file {key.name}"
     grants, words = _ways(ctx, ui)
     return files.Choice(grants=grants), words
 
@@ -296,8 +302,9 @@ def _archive_or_revoke(ctx: Context, ui: Ui) -> None:
         for path in found:
             try:
                 access_ops.rotate(ctx, path, without=entry.label)
-            except SSCError as error:
-                ui.say(f"✗ {path}: {error}")
+                ui.say(f"✓ Rotated {path}")
+            except (SSCError, OSError) as error:  # the rest still get rotated
+                ui.say(f"✗ {path}: {_message(error)}")
 
 
 def vault(ctx: Context, ui: Ui) -> None:
@@ -429,6 +436,7 @@ def _keychain(ctx: Context, ui: Ui) -> None:
         default=False,
     ):
         vaults.remove_device(ctx, f"g{index + 1}")
+        ui.say("✓ This device's keychain no longer unlocks the vault")
 
 
 def _history(ctx: Context, ui: Ui) -> None:

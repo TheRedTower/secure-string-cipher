@@ -164,3 +164,4 @@ entry says which one.
 | #186 | Step 4 | `93fd08b` test(docker): the image end to end | `tests/docker/test_image.py` |
 | #186 | Step 4 | `35d9b0a` ci: build the Docker image and run tests/docker against it | `.github/workflows/ci.yml`: the `docker` job |
 | #186 | Step 4 | `695ac61` docs: how to run SSC in Docker | `README.md`: the Docker section |
+| #187 | Review | `90573c8` fix(interactive): fixes from a self-review of the guided flow | `interactive/flow.py` (`_profiles`, `_how`, `_ways`, `_unlock`, `_archive_or_revoke`, `_keychain`) and `service/profile_ops.py` (`describe`) |

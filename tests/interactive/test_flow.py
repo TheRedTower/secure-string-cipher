@@ -470,5 +470,74 @@ def test_something_else_works_with_a_damaged_vault(
         "Encrypt", "report.txt", "Something else", True, MASTER,
         ["A password"], False, True, PASSWORD, PASSWORD,
     )  # fmt: skip
-    assert "✗ That master password did not open the vault." in ui.said
+    assert "✗ This is not an SSC file." in ui.said  # why, not "wrong password"
     assert any(s.startswith("✓ Wrote") for s in ui.said)
+
+
+def test_profiles_are_listed_from_one_read_of_the_vault(
+    ctx: Context, ui: ScriptedUi, report: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Self-review: not one unlock, and Argon2id run, per profile."""
+    with_vault(ctx, ui)
+    vaults.add_password(ctx, "work", PASSWORD)
+    profile_ops.create(ctx, "daily", ["vault:work"])
+    profile_ops.create(ctx, "spare", ["vault:work"])
+
+    def no_reopen(*_: object) -> None:
+        raise AssertionError("the vault was opened again for a profile")
+
+    monkeypatch.setattr(profile_ops, "show", no_reopen)
+    run(ctx, ui, "Encrypt", "report.txt", "spare", True)
+    assert 'Encrypt report.txt to report.txt.ssc, unlocked by profile "spare". Go?' in (
+        ui.asked
+    )
+
+
+def test_with_no_vault_only_the_ways_in_that_need_none_are_offered(
+    ctx: Context, ui: ScriptedUi, report: Path
+) -> None:
+    run(ctx, ui, "Encrypt", "report.txt", "Something else", ["A password"], BACK)
+    with pytest.raises(AssertionError, match="not one option"):
+        run(ctx, ui, "Encrypt", "report.txt", "A saved vault entry")
+    ui.answers.clear()
+    with pytest.raises(AssertionError, match="not one option"):
+        run(ctx, ui, "Encrypt", "report.txt", "Something else", ["A recovery code"])
+
+
+def test_one_file_failing_to_rotate_does_not_stop_the_rest(
+    ctx: Context, ui: ScriptedUi, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with_vault(ctx, ui)
+    ui.answers += [False, False]
+    vaults.add_key(ctx, "laptop")
+    vaults.add_key(ctx, "usb")
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    for name in ("a.ssc", "b.ssc"):
+        files.encrypt(
+            ctx,
+            io.BytesIO(b"x"),
+            docs / name,
+            files.Choice(grant_specs=["vault:laptop", "vault:usb"]),
+        )
+    real = access_ops.rotate
+
+    def flaky(ctx: Context, path: Path, *, without: str | None = None) -> None:
+        if path.name == "a.ssc":
+            raise PermissionError(13, "Permission denied", str(path))
+        real(ctx, path, without=without)
+
+    monkeypatch.setattr(access_ops, "rotate", flaky)
+    run(
+        ctx, ui,
+        "Vault", "Archive or revoke", '"laptop"', "Revoke", "docs", True,
+        "Back",
+    )  # fmt: skip
+    assert any(s.endswith("a.ssc: Permission denied.") for s in ui.said)
+    assert access_ops.show(ctx, docs / "b.ssc") == ['g1: key "usb"']
+
+
+def test_turning_the_keychain_off_says_so(ctx: Context, ui: ScriptedUi) -> None:
+    with_vault(ctx, ui)
+    run(ctx, ui, "Settings", "Use this device's keychain: on", True)
+    assert "✓ This device's keychain no longer unlocks the vault" in ui.said
