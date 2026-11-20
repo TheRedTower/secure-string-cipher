@@ -35,6 +35,30 @@ jobs:
       - run: uv run --locked ruff check
       - run: uv run --locked ruff format --check
 
+  docker:
+    # Builds the image and runs the guided flow and the scripted flows in
+    # it (tests/docker). Linux only: the image is a Linux image.
+    name: Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.9.17"
+
+      - run: docker build --pull -t ssc:ci .
+      - run: uv sync --locked
+      - run: uv run --locked pytest tests/docker
+        env:
+          SSC_DOCKER_IMAGE: ssc:ci
+
   test:
     # Type checks run per platform too, since mypy evaluates sys.platform
     # branches differently on each OS.

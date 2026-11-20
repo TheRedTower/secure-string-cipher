@@ -23,4 +23,32 @@ uv run mypy
 uv run pytest
 ```
 
+## Docker
+
+```sh
+docker build -t ssc .
+mkdir -m 700 -p ~/.ssc-docker
+docker run --rm -it --network=none --user "$(id -u):$(id -g)" \
+  -v "$PWD:/work" -v ~/.ssc-docker:/ssc ssc
+```
+
+- With no arguments in a terminal, that runs the guided flow. Give a
+  command after `ssc` to run it instead, such as `ssc encrypt report.pdf`.
+- `/work` is the folder files are read from and written to. `/ssc` holds the
+  vault and settings, so they outlive each container.
+- A container has no OS keychain, so SSC asks for the master password.
+  Scripts can pass credentials with `--env SSC_MASTER_PASSWORD` and the
+  other variables in [CLI.md](docs/spec/CLI.md) section 1.
+- `--user` makes the files it writes yours.
+- `docker run --rm -i` with no terminal works too: a credential that is
+  needed but not supplied is then an error, never a hang.
+
+The image installs exactly the hash-locked versions in `uv.lock`, from
+wheels only, and has no compiler. The Docker job in CI builds it and runs
+[`tests/docker`](tests/docker/test_image.py) against it:
+
+```sh
+SSC_DOCKER_IMAGE=ssc uv run pytest tests/docker
+```
+
 Licensed under the [MIT licence](LICENSE).

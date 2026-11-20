@@ -160,3 +160,7 @@ entry says which one.
 | #185 | Review fix | `0c30135` fix(service): ask for every key file an all-of grant needs | `service/files.py` (`Opener.named_keys`, `keys_held`), for Codex's finding that a grant needing two key files stopped after the first |
 | #185 | Review fix | `921f8e0` fix(interactive): survive an unreadable vault; keep key file paths whole | `interactive/flow.py` (`_header`, `_how`, `_ways`), `service/files.py` (`Choice.grants`) and `service/grants.py` (`check_grant`, `check_grants`), for Codex's findings that a damaged vault stopped the flow and a key file path with `+` was split |
 | #185 | Review fix | `d2f2275` fix(interactive): build ways in without the vault when it cannot open | `interactive/flow.py` (`_usable_entries`), for Codex's finding that a locked or damaged vault blocked "Something else" |
+| #186 | Step 4 | `f87f1cc` build(docker): a hash-locked image with no compiler toolchain | `Dockerfile` and `.dockerignore`, new. `legacy/Dockerfile` was the reference: it built on Alpine with gcc and Rust, and pinned versions without hashes. This one uses Debian slim, installs from `uv.lock` with hashes and wheels only, and drops the health check and compose file, since `docker run --rm` runs one command |
+| #186 | Step 4 | `93fd08b` test(docker): the image end to end | `tests/docker/test_image.py` |
+| #186 | Step 4 | `35d9b0a` ci: build the Docker image and run tests/docker against it | `.github/workflows/ci.yml`: the `docker` job |
+| #186 | Step 4 | `695ac61` docs: how to run SSC in Docker | `README.md`: the Docker section |
